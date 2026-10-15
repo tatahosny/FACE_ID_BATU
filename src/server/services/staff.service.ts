@@ -164,21 +164,21 @@ export class StaffService {
         notificationQueued = true;
 
         // Dispatch Telegram message immediately to student
-        const activationMsg = `🏛️ <b>جامعة برج العرب التكنولوجية (BATU)</b>
+        const activationMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
 قسم تكنولوجيا المعلومات — كلية تكنولوجيا الصناعة والطاقة
 
-🎉 <b>تم تفعيل بصمة الوجه بنجاح!</b>
+<b>تم تفعيل بصمة الوجه بنجاح!</b>
 
 عزيزي الطالب: <b>${student.fullName}</b>
-🆔 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
+<b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
 
 نحيطكم علماً بأنه قد تم تسجيل وتوثيق بصمة الوجه الخاصة بك رسمياً بنجاح تام، وتأكيد حضورك لدى شؤون الطلاب.
 
-👨‍💼 <b>المسؤول المعتمد:</b> ${staff.fullName}
-🕒 <b>توقيت الاعتماد:</b> ${formatCairoDateTime(activation.activatedAt)}
-📍 <b>المقر:</b> معمل الحاسب الآلي الرئيسي (شباك بصمة الوجه)
+<b>المسؤول المعتمد:</b> ${staff.fullName}
+<b>توقيت الاعتماد:</b> ${formatCairoDateTime(activation.activatedAt)}
+<b>المقر:</b> معمل الحاسب الآلي الرئيسي (شباك بصمة الوجه)
 
-✔️ نتمنى لك دوام التوفيق والنجاح!`;
+نتمنى لك دوام التوفيق والنجاح!`;
 
         try {
           await TelegramService.sendMessage(Number(student.telegramUserId), activationMsg);

@@ -10,7 +10,7 @@ import {
   fingerprintActivations,
   users,
 } from "@/db/schema";
-import { eq, and, sql, ne, desc, or, inArray } from "drizzle-orm";
+import { eq, and, sql, ne, desc, or, inArray, lt } from "drizzle-orm";
 import { BOOKING_STATUSES, BookingStatus, BOOKING_WINDOW_STATUSES } from "@/lib/constants/statuses";
 import { formatQueueNumber } from "@/lib/utils/datetime";
 import { TelegramService } from "./telegram.service";
@@ -208,34 +208,36 @@ export class BookingService {
           );
         const peopleAhead = Number(aheadResult?.count || 0);
         const isFirstTen = peopleAhead < 10;
+        const currentTurn = peopleAhead + 1;
         const formattedNum = formatQueueNumber(assignedQueueNumber);
+        const formattedTurn = formatQueueNumber(currentTurn);
 
         const telegramText = isFirstTen
-          ? `🏛️ <b>جامعة برج العرب التكنولوجية (BATU)</b>
+          ? `<b>جامعة برج العرب التكنولوجية (BATU)</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
-🎉 <b>تم تأكيد حجز دورك بنجاح!</b>
+<b>تم تأكيد حجز دورك بنجاح!</b>
 
-👤 <b>اسم الطالب:</b> ${student.fullName}
-🆔 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
-🔢 <b>رقم دورك في الطابور:</b> <code>#${formattedNum}</code>
-⏳ <b>حالة الطابور:</b> ${peopleAhead === 0 ? "أنت أول شخص في الطابور الآن!" : `باقي أمامك ${peopleAhead} أشخاص فقط في الانتظار`}
+<b>اسم الطالب:</b> ${student.fullName}
+<b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
+<b>رقم دورك الحالي في الطابور:</b> <code>#${formattedTurn}</code> (تذكرة حجز رقم: <code>#${formattedNum}</code>)
+<b>حالة الطابور:</b> ${peopleAhead === 0 ? "أنت أول شخص في الطابور الآن!" : `باقي أمامك ${peopleAhead} أشخاص فقط في الانتظار`}
 
-🚨 <b>تنبيه عاجل:</b>
+<b>تنبيه عاجل:</b>
 أنت من <b>أول 10 طلاب</b> في الطابور!
-🏃‍♂️ <b>يرجى التوجه فوراً الآن إلى شباك بصمة الوجه (معمل الحاسب الآلي — الطابق الأرضي).</b>`
-          : `🏛️ <b>جامعة برج العرب التكنولوجية (BATU)</b>
+<b>يرجى التوجه فوراً الآن إلى شباك بصمة الوجه (معمل الحاسب الآلي — الطابق الأرضي).</b>`
+          : `<b>جامعة برج العرب التكنولوجية (BATU)</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
-🎉 <b>تم تأكيد حجز دورك بنجاح!</b>
+<b>تم تأكيد حجز دورك بنجاح!</b>
 
-👤 <b>اسم الطالب:</b> ${student.fullName}
-🆔 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
-🔢 <b>رقم دورك في الطابور:</b> <code>#${formattedNum}</code>
-⏳ <b>فاضلك كام واحد:</b> باقي أمامك <b>${peopleAhead}</b> أشخاص في الانتظار.
+<b>اسم الطالب:</b> ${student.fullName}
+<b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
+<b>رقم دورك الحالي في الطابور:</b> <code>#${formattedTurn}</code> (تذكرة حجز رقم: <code>#${formattedNum}</code>)
+<b>فاضلك كام واحد:</b> باقي أمامك <b>${peopleAhead}</b> أشخاص في الانتظار.
 
-📍 <b>المقر:</b> مبنى كلية تكنولوجيا الصناعة والطاقة — معمل الحاسب الآلي
-📢 <b>ستصلك رسالة تنبيهية فور وصول المتبقي على دورك إلى 10 أشخاص للاستعداد والحضور.</b>`;
+<b>المقر:</b> مبنى كلية تكنولوجيا الصناعة والطاقة — معمل الحاسب الآلي
+<b>ستصلك رسالة تنبيهية فور وصول المتبقي على دورك إلى 10 أشخاص للاستعداد والحضور.</b>`;
 
         const outboxKey = `booking_confirm_${createdBooking.id}`;
         await tx.insert(notificationOutbox).values({
@@ -398,6 +400,19 @@ export class BookingService {
           .where(eq(students.id, booking.studentId));
 
         if (student?.telegramUserId) {
+          const [aheadCount] = await tx
+            .select({ count: sql<number>`count(*)` })
+            .from(bookings)
+            .where(
+              and(
+                eq(bookings.bookingWindowId, booking.bookingWindowId),
+                sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
+                lt(bookings.queueNumber, booking.queueNumber)
+              )
+            );
+          const currentTurn = Number(aheadCount?.count || 0) + 1;
+          const displayQueueNumber = `رقم #${formatQueueNumber(currentTurn)} (تذكرة حجز رقم ${formatQueueNumber(booking.queueNumber)})`;
+
           await tx
             .insert(notificationOutbox)
             .values({
@@ -406,7 +421,9 @@ export class BookingService {
               telegramChatId: student.telegramUserId,
               payload: {
                 studentName: student.fullName,
-                queueNumber: formatQueueNumber(booking.queueNumber),
+                queueNumber: displayQueueNumber,
+                currentTurn: formatQueueNumber(currentTurn),
+                ticketNumber: formatQueueNumber(booking.queueNumber),
               },
               idempotencyKey: `turn_called_${booking.id}`,
             })
@@ -450,6 +467,19 @@ export class BookingService {
 
     const { booking, student } = bookingData;
 
+    // Calculate dynamic moving turn position in queue
+    const [aheadCount] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(bookings)
+      .where(
+        and(
+          eq(bookings.bookingWindowId, booking.bookingWindowId),
+          sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
+          lt(bookings.queueNumber, booking.queueNumber)
+        )
+      );
+    const currentTurn = Number(aheadCount?.count || 0) + 1;
+
     // Update called status and timestamp
     await db
       .update(bookings)
@@ -462,7 +492,7 @@ export class BookingService {
 
     // Send Telegram alert
     if (student.telegramUserId) {
-      const alertMsg = `🏛️ <b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n📢 <b>نداء عاجل ومكرر!</b>\nعزيزي الطالب <b>${student.fullName}</b>،\nحان دورك الآن رسمياً برقم: <code>${formatQueueNumber(booking.queueNumber)}</code>\n\n🏃‍♂️ <b>يرجى التوجه فوراً لشباك التسجيل لعمل بصمة الوجه قبل فوات الدور!</b>`;
+      const alertMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>نداء عاجل ومكرر!</b>\nعزيزي الطالب <b>${student.fullName}</b>،\nحان دورك الآن رسمياً في الطابور برقم: <code>#${formatQueueNumber(currentTurn)}</code> (تذكرة حجز رقم: <code>${formatQueueNumber(booking.queueNumber)}</code>)\n\n<b>يرجى التوجه فوراً لشباك التسجيل لعمل بصمة الوجه قبل فوات الدور!</b>`;
 
       try {
         await TelegramService.sendMessage(Number(student.telegramUserId), alertMsg);
@@ -525,19 +555,19 @@ export class BookingService {
       // Send Telegram notification with exact requested alert phrasing
       let telegramSent = false;
       if (student.telegramUserId) {
-        const delayMsg = `🏛️ <b>جامعة برج العرب التكنولوجية (BATU)</b>
+        const delayMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
-⚠️ <b>تم تاجيل دورك 10 ادوار بسبب عدم وجودك</b>
+<b>تم تاجيل دورك 10 ادوار بسبب عدم وجودك</b>
 
 عزيزي الطالب: <b>${student.fullName}</b>
 نظراً لعدم حضورك عند المناداة على دورك أمام شباك التسجيل:
 
-🔢 <b>رقم دورك السابق:</b> <code>#${formatQueueNumber(booking.queueNumber)}</code>
-🎯 <b>رقم دورك الجديد هو:</b> <code>#${formatQueueNumber(newQueueNumber)}</code>
+<b>رقم دورك السابق:</b> <code>#${formatQueueNumber(booking.queueNumber)}</code>
+<b>رقم دورك الجديد هو:</b> <code>#${formatQueueNumber(newQueueNumber)}</code>
 
-📍 <b>المقر:</b> مبنى كلية تكنولوجيا الصناعة والطاقة — الطابق الأرضي — معمل الحاسب الآلي (شباك بصمة الوجه)
-⚠️ يرجى التواجد أمام الشباك والاستعداد فور وصول رقمك الجديد.`;
+<b>المقر:</b> مبنى كلية تكنولوجيا الصناعة والطاقة — الطابق الأرضي — معمل الحاسب الآلي (شباك بصمة الوجه)
+يرجى التواجد أمام الشباك والاستعداد فور وصول رقمك الجديد.`;
 
         try {
           await TelegramService.sendMessage(Number(student.telegramUserId), delayMsg);
