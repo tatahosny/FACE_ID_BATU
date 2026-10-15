@@ -22,9 +22,40 @@ export default function BookingPage() {
   const [academicNumberInput, setAcademicNumberInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
+  const [telegramResending, setTelegramResending] = useState(false);
+  const [telegramResentMsg, setTelegramResentMsg] = useState<string | null>(null);
   const [lookupResult, setLookupResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [bookingSuccess, setBookingSuccess] = useState<any>(null);
+
+  const handleResendTelegram = async () => {
+    if (!lookupResult?.student?.academicNumber) return;
+    try {
+      setTelegramResending(true);
+      setTelegramResentMsg(null);
+      setError(null);
+
+      const res = await fetch("/api/bookings/resend-telegram", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          academicNumber: lookupResult.student.academicNumber,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setError(json.error || "تعذر إرسال الإشعار إلى التيليجرام");
+        return;
+      }
+
+      setTelegramResentMsg("تم إرسال تفاصيل وموعد دورك إلى التيليجرام بنجاح!");
+    } catch (err: any) {
+      setError(err?.message || "حدث خطأ أثناء إرسال الرسالة");
+    } finally {
+      setTelegramResending(false);
+    }
+  };
 
   const handleLookup = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -321,6 +352,33 @@ export default function BookingPage() {
                   <div className="text-xs text-slate-400 flex items-center justify-center gap-2">
                     <MapPin className="w-4 h-4 text-blue-400" />
                     <span>مبنى كلية تكنولوجيا الصناعة والطاقة — معمل الحاسب الآلي (G)</span>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-800/80 flex flex-col items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleResendTelegram}
+                      disabled={telegramResending}
+                      className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white font-bold text-xs shadow-md shadow-sky-600/30 transition flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {telegramResending ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                          <span>جاري الإرسال إلى التيليجرام...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-4 h-4 text-white" />
+                          <span>إرسال تفاصيل الدور إلى التيليجرام الآن</span>
+                        </>
+                      )}
+                    </button>
+                    {telegramResentMsg && (
+                      <div className="text-xs text-emerald-400 font-bold flex items-center gap-1.5 animate-in fade-in">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <span>{telegramResentMsg}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : !lookupResult.isWindowOpen ? (

@@ -163,6 +163,43 @@ export class BookingService {
         );
 
       if (existingBooking) {
+        // Also deliver current queue status to student via Telegram
+        if (student.telegramUserId) {
+          const [aheadResult] = await tx
+            .select({ count: sql<number>`count(*)` })
+            .from(bookings)
+            .where(
+              and(
+                eq(bookings.bookingWindowId, window.id),
+                sql`${bookings.status} IN ('WAITING', 'CALLED')`,
+                lt(bookings.queueNumber, existingBooking.queueNumber)
+              )
+            );
+          const peopleAhead = Number(aheadResult?.count || 0);
+          const currentTurn = peopleAhead + 1;
+          const formattedNum = formatQueueNumber(existingBooking.queueNumber);
+          const formattedTurn = formatQueueNumber(currentTurn);
+
+          const reminderMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
+قسم تكنولوجيا المعلومات — نظام بصمة الوجه
+
+<b>تفاصيل حجز دورك الحالي:</b>
+
+<b>اسم الطالب:</b> ${student.fullName}
+<b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
+<b>رقم دورك الحالي في الطابور:</b> <code>#${formattedTurn}</code> (تذكرة حجز رقم: <code>#${formattedNum}</code>)
+<b>حالة الطابور:</b> ${peopleAhead === 0 ? "أنت أول شخص في الطابور الآن!" : `باقي أمامك ${peopleAhead} أشخاص فقط في الانتظار`}
+
+<b>المقر:</b> مبنى كلية تكنولوجيا الصناعة والطاقة — معمل الحاسب الآلي (شباك بصمة الوجه)
+ستصلك رسالة تنبيهية فور المناداة على دورك.`;
+
+          try {
+            await TelegramService.sendMessage(Number(student.telegramUserId), reminderMsg);
+          } catch (err: any) {
+            console.error("[BookingService] Failed to send existing booking reminder:", err.message);
+          }
+        }
+
         return {
           booking: existingBooking,
           formattedQueueNumber: formatQueueNumber(existingBooking.queueNumber),
@@ -257,10 +294,12 @@ export class BookingService {
           idempotencyKey: outboxKey,
         });
 
-        // Send instant message directly to student via Telegram API
-        TelegramService.sendMessage(Number(student.telegramUserId), telegramText).catch((err) => {
+        // Send instant message directly to student via Telegram API (awaited)
+        try {
+          await TelegramService.sendMessage(Number(student.telegramUserId), telegramText);
+        } catch (err: any) {
           console.error("[BookingService] Failed to send instant Telegram message:", err.message);
-        });
+        }
       }
 
       // 10. Audit log
@@ -796,5 +835,71 @@ export class BookingService {
       limit,
       totalPages: Math.ceil(count / limit),
     };
+  }
+
+  /**
+   * Resend booking status to student's linked Telegram
+   */
+  static async resendBookingTelegram(academicNumber: string) {
+    const [student] = await db
+      .select()
+      .from(students)
+      .where(eq(students.academicNumber, academicNumber.trim()));
+
+    if (!student) {
+      throw new Error("سجل الطالب غير موجود");
+    }
+
+    if (!student.telegramUserId) {
+      throw new Error("يرجى ربط حساب التيليجرام أولاً");
+    }
+
+    const [activeBooking] = await db
+      .select()
+      .from(bookings)
+      .where(
+        and(
+          eq(bookings.studentId, student.id),
+          sql`${bookings.status} IN ('WAITING', 'CALLED')`
+        )
+      )
+      .orderBy(desc(bookings.bookedAt))
+      .limit(1);
+
+    if (!activeBooking) {
+      throw new Error("لا يوجد حجز فعال حالياً لهذا الطالب");
+    }
+
+    const [aheadResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(bookings)
+      .where(
+        and(
+          eq(bookings.bookingWindowId, activeBooking.bookingWindowId),
+          sql`${bookings.status} IN ('WAITING', 'CALLED')`,
+          lt(bookings.queueNumber, activeBooking.queueNumber)
+        )
+      );
+
+    const peopleAhead = Number(aheadResult?.count || 0);
+    const currentTurn = peopleAhead + 1;
+    const formattedNum = formatQueueNumber(activeBooking.queueNumber);
+    const formattedTurn = formatQueueNumber(currentTurn);
+
+    const msg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
+قسم تكنولوجيا المعلومات — نظام بصمة الوجه
+
+<b>تفاصيل حجز دورك المؤكد:</b>
+
+<b>اسم الطالب:</b> ${student.fullName}
+<b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
+<b>رقم دورك الحالي في الطابور:</b> <code>#${formattedTurn}</code> (تذكرة حجز رقم: <code>#${formattedNum}</code>)
+<b>حالة الطابور:</b> ${peopleAhead === 0 ? "أنت أول شخص في الطابور الآن!" : `باقي أمامك ${peopleAhead} أشخاص فقط في الانتظار`}
+
+<b>المقر:</b> مبنى كلية تكنولوجيا الصناعة والطاقة — معمل الحاسب الآلي (شباك بصمة الوجه)
+ستصلك رسالة تنبيهية فور المناداة على دورك.`;
+
+    await TelegramService.sendMessage(Number(student.telegramUserId), msg);
+    return { success: true, message: "تم إرسال تفاصيل الدور إلى حسابك على التيليجرام بنجاح" };
   }
 }
