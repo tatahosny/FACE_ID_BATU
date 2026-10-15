@@ -22,6 +22,9 @@ import {
   RotateCcw,
   UserCheck,
   FileSpreadsheet,
+  Trash2,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 
 export default function AdminStudentsPage() {
@@ -35,6 +38,10 @@ export default function AdminStudentsPage() {
   const [authError, setAuthError] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  // Bulk Selection State
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
 
   // Filters
   const [selectedGroup, setSelectedGroup] = useState("");
@@ -212,6 +219,99 @@ export default function AdminStudentsPage() {
       setActionLoading(null);
     }
   };
+
+  const handleDeleteStudent = async (studentId: string, studentName: string) => {
+    if (
+      !confirm(
+        `تحذير: هل أنت متأكد من حذف الطالب "${studentName}" نهائياً من دليل الطلاب؟\nسيتم حذف جميع سجلاته وتفعيلاته وحجوزاته من النظام ولا يمكن التراجع عن هذه الخطوة.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setActionLoading(studentId);
+      setFeedback(null);
+
+      const res = await fetch(`/api/students/${studentId}`, {
+        method: "DELETE",
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setFeedback({ message: json.error || "فشل حذف الطالب", type: "error" });
+        return;
+      }
+
+      setFeedback({
+        message: `تم حذف الطالب "${studentName}" بنجاح وإلغاء تسجيله من دليل الطلاب.`,
+        type: "success",
+      });
+      setSelectedStudentIds((prev) => prev.filter((id) => id !== studentId));
+      await fetchStudents();
+    } catch (err: any) {
+      setFeedback({ message: err.message || "حدث خطأ غير متوقع أثناء الحذف", type: "error" });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedStudentIds.length === 0) return;
+
+    if (
+      !confirm(
+        `تحذير شديد الأهمية:\nهل أنت متأكد من حذف جميع الطلاب المحددين (${selectedStudentIds.length} طلاب) نهائياً من دليل الطلاب؟\nسيتم مسح جميع بياناتهم وحجوزاتهم وسجلات البصمة من قاعدة البيانات بالكامل.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setBulkDeleteLoading(true);
+      setFeedback(null);
+
+      const res = await fetch("/api/students/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentIds: selectedStudentIds }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setFeedback({ message: json.error || "فشل تنفيذ الحذف المجمّع", type: "error" });
+        return;
+      }
+
+      setFeedback({
+        message: json.message || `تم حذف (${selectedStudentIds.length}) طالب بنجاح.`,
+        type: "success",
+      });
+      setSelectedStudentIds([]);
+      await fetchStudents();
+    } catch (err: any) {
+      setFeedback({ message: err.message || "حدث خطأ أثناء الحذف المجمّع", type: "error" });
+    } finally {
+      setBulkDeleteLoading(false);
+    }
+  };
+
+  const handleToggleSelectStudent = (id: string) => {
+    setSelectedStudentIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAllStudents = () => {
+    if (selectedStudentIds.length === students.length) {
+      setSelectedStudentIds([]);
+    } else {
+      setSelectedStudentIds(students.map((s) => s.id));
+    }
+  };
+
+  const allSelected = students.length > 0 && selectedStudentIds.length === students.length;
+  const isIndeterminate = selectedStudentIds.length > 0 && selectedStudentIds.length < students.length;
 
   return (
     <div className="space-y-6">
@@ -431,6 +531,46 @@ export default function AdminStudentsPage() {
         )}
       </div>
 
+      {/* Bulk Action Toolbar for Students */}
+      {selectedStudentIds.length > 0 && (
+        <div className="bg-gradient-to-r from-red-950/80 via-slate-900/90 to-slate-950/90 border border-red-500/40 rounded-2xl p-4 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-4 backdrop-blur-xl animate-fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-red-600/30 border border-red-400/40 flex items-center justify-center text-red-300 font-bold text-sm font-mono">
+              {selectedStudentIds.length}
+            </div>
+            <div>
+              <div className="font-bold text-white text-sm">
+                تم تحديد ({selectedStudentIds.length}) من أصل ({students.length}) طالب في الصفحة الحالية
+              </div>
+              <div className="text-xs text-red-300">
+                يمكنك الآن حذف وإلغاء تسجيل الطلاب المحددين دفعة واحدة من المنظومة:
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <button
+              onClick={handleBulkDelete}
+              disabled={bulkDeleteLoading}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-red-600/30 disabled:opacity-50"
+              title="حذف جميع الطلاب المحددين نهائياً من قاعدة البيانات"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>{bulkDeleteLoading ? "جاري الحذف..." : `حذف الطلاب المحددين (${selectedStudentIds.length})`}</span>
+            </button>
+
+            <button
+              onClick={() => setSelectedStudentIds([])}
+              disabled={bulkDeleteLoading}
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition flex items-center gap-1"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>إلغاء التحديد</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Students Data Table */}
       <div className="bg-slate-900/90 rounded-2xl border border-slate-800 shadow-xl overflow-hidden backdrop-blur-xl">
         {loading ? (
@@ -451,6 +591,23 @@ export default function AdminStudentsPage() {
             <table className="w-full text-right border-collapse">
               <thead>
                 <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-400 text-xs font-bold">
+                  <th className="p-4 w-12 text-center">
+                    <button
+                      onClick={handleSelectAllStudents}
+                      className="p-1 rounded text-slate-400 hover:text-white transition"
+                      title={allSelected ? "إلغاء تحديد الكل" : "تحديد الكل"}
+                    >
+                      {allSelected ? (
+                        <CheckSquare className="w-4 h-4 text-red-400" />
+                      ) : isIndeterminate ? (
+                        <div className="w-4 h-4 rounded border-2 border-red-400 flex items-center justify-center bg-red-500/20">
+                          <div className="w-2 h-0.5 bg-red-400" />
+                        </div>
+                      ) : (
+                        <Square className="w-4 h-4" />
+                      )}
+                    </button>
+                  </th>
                   <th className="p-4">اسم الطالب</th>
                   <th className="p-4">الرقم القومي</th>
                   <th className="p-4">الرقم الأكاديمي</th>
@@ -459,16 +616,36 @@ export default function AdminStudentsPage() {
                   <th className="p-4">التيليجرام</th>
                   <th className="p-4">حالة البصمة</th>
                   <th className="p-4">بيانات التوثيق والاعتماد</th>
-                  <th className="p-4 text-center">التحكم المباشر بالبصمة</th>
+                  <th className="p-4 text-center">التحكم بالبصمة وإلغاء القيد</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80 text-sm">
                 {students.map((student) => {
                   const isDone = Boolean(student.isFingerprintActivated || student.isActivated);
                   const staffName = student.activatedByName || student.activatedByStaffName;
+                  const isSelected = selectedStudentIds.includes(student.id);
 
                   return (
-                    <tr key={student.id} className="hover:bg-slate-800/40 transition">
+                    <tr
+                      key={student.id}
+                      className={`transition ${
+                        isSelected ? "bg-red-950/20" : "hover:bg-slate-800/40"
+                      }`}
+                    >
+                      {/* Checkbox */}
+                      <td className="p-4 text-center">
+                        <button
+                          onClick={() => handleToggleSelectStudent(student.id)}
+                          className="p-1 rounded text-slate-400 hover:text-white transition"
+                        >
+                          {isSelected ? (
+                            <CheckSquare className="w-4 h-4 text-red-400" />
+                          ) : (
+                            <Square className="w-4 h-4" />
+                          )}
+                        </button>
+                      </td>
+
                       {/* Student Name */}
                       <td className="p-4 font-bold text-white">
                         {student.fullName}
@@ -551,29 +728,41 @@ export default function AdminStudentsPage() {
                         )}
                       </td>
 
-                      {/* Actions: Direct Activation / Revoke Activation */}
+                      {/* Actions: Direct Activation / Revoke Activation / Delete */}
                       <td className="p-4 text-center">
-                        {isDone ? (
+                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                          {isDone ? (
+                            <button
+                              onClick={() => handleRevokeActivation(student.id, student.fullName)}
+                              disabled={actionLoading === student.id}
+                              title="إلغاء اعتماد البصمة وإلغاء الدور ليتمكن الطالب من حجز دور جديد من البداية"
+                              className="px-2.5 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-xs font-bold transition flex items-center gap-1 disabled:opacity-50"
+                            >
+                              <RotateCcw className={`w-3.5 h-3.5 ${actionLoading === student.id ? "animate-spin" : ""}`} />
+                              <span>إلغاء البصمة</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleActivate(student.id, student.fullName)}
+                              disabled={actionLoading === student.id}
+                              title="تفعيل بصمة الوجه للطالب واعتمادها الآن وإرسال رسالة التهنئة على التيليجرام"
+                              className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-sm flex items-center gap-1 disabled:opacity-50"
+                            >
+                              <UserCheck className={`w-3.5 h-3.5 ${actionLoading === student.id ? "animate-spin" : ""}`} />
+                              <span>تفعيل البصمة</span>
+                            </button>
+                          )}
+
+                          {/* Delete Student Button */}
                           <button
-                            onClick={() => handleRevokeActivation(student.id, student.fullName)}
+                            onClick={() => handleDeleteStudent(student.id, student.fullName)}
                             disabled={actionLoading === student.id}
-                            title="إلغاء اعتماد البصمة وإلغاء الدور ليتمكن الطالب من حجز دور جديد من البداية"
-                            className="px-3 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-xs font-bold transition flex items-center gap-1.5 mx-auto disabled:opacity-50"
+                            title="حذف الطالب وإلغاء تسجيله نهائياً من دليل الطلاب"
+                            className="p-1.5 rounded-xl bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-800/40 transition hover:text-red-200 disabled:opacity-50"
                           >
-                            <RotateCcw className={`w-3.5 h-3.5 ${actionLoading === student.id ? "animate-spin" : ""}`} />
-                            <span>{actionLoading === student.id ? "جاري الإلغاء..." : "إلغاء البصمة وإعادة الحجز"}</span>
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
-                        ) : (
-                          <button
-                            onClick={() => handleActivate(student.id, student.fullName)}
-                            disabled={actionLoading === student.id}
-                            title="تفعيل بصمة الوجه للطالب واعتمادها الآن وإرسال رسالة التهنئة على التيليجرام"
-                            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-sm flex items-center gap-1.5 mx-auto disabled:opacity-50"
-                          >
-                            <UserCheck className={`w-3.5 h-3.5 ${actionLoading === student.id ? "animate-spin" : ""}`} />
-                            <span>{actionLoading === student.id ? "جاري التفعيل..." : "تفعيل البصمة الآن"}</span>
-                          </button>
-                        )}
+                        </div>
                       </td>
                     </tr>
                   );

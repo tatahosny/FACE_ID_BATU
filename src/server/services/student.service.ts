@@ -1,5 +1,16 @@
 import { db } from "@/db";
-import { students, sections, groups, telegramLinkTokens, auditLogs, fingerprintActivations, users } from "@/db/schema";
+import {
+  students,
+  sections,
+  groups,
+  telegramLinkTokens,
+  auditLogs,
+  fingerprintActivations,
+  users,
+  bookings,
+  telegramCampaignRecipients,
+  notificationOutbox,
+} from "@/db/schema";
 import { eq, or, and, sql, inArray } from "drizzle-orm";
 import {
   encryptNationalId,
@@ -163,6 +174,102 @@ export class StudentService {
       isActive: student.isActive,
       createdAt: student.createdAt,
     };
+  }
+
+  /**
+   * Delete student record and clean up associated bookings, tokens, campaign recipients, and activations.
+   */
+  static async deleteStudent(studentId: string, performedByUserId?: string) {
+    return await db.transaction(async (tx) => {
+      const [student] = await tx
+        .select({
+          id: students.id,
+          fullName: students.fullName,
+          academicNumber: students.academicNumber,
+        })
+        .from(students)
+        .where(eq(students.id, studentId));
+
+      if (!student) {
+        throw new Error("سجل الطالب غير موجود");
+      }
+
+      // Delete activations
+      await tx.delete(fingerprintActivations).where(eq(fingerprintActivations.studentId, studentId));
+      // Delete bookings
+      await tx.delete(bookings).where(eq(bookings.studentId, studentId));
+      // Delete telegram tokens
+      await tx.delete(telegramLinkTokens).where(eq(telegramLinkTokens.studentId, studentId));
+      // Delete campaign recipient records
+      await tx.delete(telegramCampaignRecipients).where(eq(telegramCampaignRecipients.studentId, studentId));
+      // Detach notifications
+      await tx.update(notificationOutbox).set({ recipientId: null }).where(eq(notificationOutbox.recipientId, studentId));
+      // Delete student record
+      await tx.delete(students).where(eq(students.id, studentId));
+
+      // Audit log
+      if (performedByUserId) {
+        await tx.insert(auditLogs).values({
+          actorId: performedByUserId,
+          action: "DELETE_STUDENT",
+          entityType: "student",
+          entityId: studentId,
+          safeMetadata: {
+            fullName: student.fullName,
+            academicNumber: student.academicNumber,
+            timestamp: new Date().toISOString(),
+          },
+        });
+      }
+
+      return student;
+    });
+  }
+
+  /**
+   * Bulk delete multiple students atomically
+   */
+  static async bulkDeleteStudents(studentIds: string[], performedByUserId?: string) {
+    if (!studentIds || studentIds.length === 0) return 0;
+
+    return await db.transaction(async (tx) => {
+      const existingStudents = await tx
+        .select({
+          id: students.id,
+          fullName: students.fullName,
+          academicNumber: students.academicNumber,
+        })
+        .from(students)
+        .where(inArray(students.id, studentIds));
+
+      if (existingStudents.length === 0) return 0;
+
+      const ids = existingStudents.map((s) => s.id);
+
+      // Clean up child tables
+      await tx.delete(fingerprintActivations).where(inArray(fingerprintActivations.studentId, ids));
+      await tx.delete(bookings).where(inArray(bookings.studentId, ids));
+      await tx.delete(telegramLinkTokens).where(inArray(telegramLinkTokens.studentId, ids));
+      await tx.delete(telegramCampaignRecipients).where(inArray(telegramCampaignRecipients.studentId, ids));
+      await tx.update(notificationOutbox).set({ recipientId: null }).where(inArray(notificationOutbox.recipientId, ids));
+      await tx.delete(students).where(inArray(students.id, ids));
+
+      if (performedByUserId) {
+        await tx.insert(auditLogs).values({
+          actorId: performedByUserId,
+          action: "BULK_DELETE_STUDENTS",
+          entityType: "student",
+          entityId: ids[0],
+          safeMetadata: {
+            deletedCount: ids.length,
+            studentNames: existingStudents.map((s) => `${s.fullName} (${s.academicNumber})`),
+            timestamp: new Date().toISOString(),
+          },
+        });
+      }
+
+      return ids.length;
+    });
   }
 
   /**
