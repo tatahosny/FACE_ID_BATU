@@ -14,6 +14,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const groupId = searchParams.get("groupId") || undefined;
     const sectionId = searchParams.get("sectionId") || undefined;
+    const subSection = searchParams.get("subSection") || undefined;
     const activationStatus = searchParams.get("activationStatus") || undefined;
     const search = searchParams.get("search") || undefined;
     const page = parseInt(searchParams.get("page") || "1", 10);
@@ -22,6 +23,7 @@ export async function GET(req: NextRequest) {
     const result = await StudentService.listStudents({
       groupId,
       sectionId,
+      subSection,
       activationStatus,
       search,
       page,

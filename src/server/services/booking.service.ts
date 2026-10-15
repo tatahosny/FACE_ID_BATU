@@ -28,6 +28,7 @@ export class BookingService {
         academicNumber: students.academicNumber,
         groupId: students.groupId,
         sectionId: students.sectionId,
+        subSection: students.subSection,
         telegramUserId: students.telegramUserId,
       })
       .from(students)
@@ -39,8 +40,8 @@ export class BookingService {
 
     const now = new Date();
 
-    // Query active booking window for the student's exact section
-    const [activeWindow] = await db
+    // Query active booking windows for the student's exact section
+    const candidateWindows = await db
       .select()
       .from(bookingWindows)
       .where(
@@ -52,12 +53,17 @@ export class BookingService {
         )
       );
 
+    // Match window targeted to ALL or to the student's exact subSection (A or B)
+    const activeWindow = candidateWindows.find(
+      (w) => w.subSection === "ALL" || w.subSection === (student.subSection || "A")
+    );
+
     if (!activeWindow) {
       return {
         eligible: false,
         student,
         reason:
-          "لم يتم تفعيل وقت البصمة للسكشن بتاعك. يرجى الانتظار، ستصلك رسالة تنبيهية على التيليجرام فور فتح الحجز لسكشنك.",
+          "لم يتم تفعيل وقت البصمة للسكشن أو القسم الفرعي بتاعك. يرجى الانتظار، ستصلك رسالة تنبيهية على التيليجرام فور فتح الحجز لسكشنك.",
         window: null,
       };
     }
@@ -135,6 +141,17 @@ export class BookingService {
       if (window.sectionId !== student.sectionId) {
         throw new Error(
           "لا يمكن الحجز الآن، لأن الحجز لم يتم فتحه للسكشن الخاص بك. يرجى متابعة الإعلانات الرسمية."
+        );
+      }
+
+      // Verify subSection match (A or B)
+      if (
+        window.subSection &&
+        window.subSection !== "ALL" &&
+        window.subSection !== (student.subSection || "A")
+      ) {
+        throw new Error(
+          `فترة الحجز الحالية مخصصة لطلاب (قسم ${window.subSection}) فقط، وأنت مسجل في (قسم ${student.subSection || "A"}). يرجى انتظار موعد فتح الحجز لقسمك.`
         );
       }
 

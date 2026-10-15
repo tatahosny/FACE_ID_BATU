@@ -45,6 +45,7 @@ export default function RegisterPage() {
     nationalId: "",
     groupId: "",
     sectionId: "",
+    subSection: "A",
   });
 
   const [submitting, setSubmitting] = useState(false);
@@ -259,10 +260,16 @@ export default function RegisterPage() {
                     {groups.find((g) => g.id === successResult.student.groupId)?.name || "محددة"}
                   </span>
                 </div>
-                <div className="flex justify-between items-center py-1">
+                <div className="flex justify-between items-center py-1 border-b border-slate-800">
                   <span className="text-slate-400">السكشن:</span>
                   <span className="font-semibold text-slate-200">
                     {sections.find((s) => s.id === successResult.student.sectionId)?.name || "محدد"}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center py-1">
+                  <span className="text-slate-400">القسم الفرعي:</span>
+                  <span className="font-bold text-amber-400 font-mono">
+                    قسم {successResult.student.subSection || formData.subSection}
                   </span>
                 </div>
               </div>
@@ -457,6 +464,40 @@ export default function RegisterPage() {
                   </option>
                 ))}
               </select>
+            </div>
+
+            {/* Sub-Section (Division A or B) */}
+            <div>
+              <label className="block text-sm font-bold text-slate-200 mb-2">
+                القسم الفرعي داخل السكشن <span className="text-red-400">*</span>
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setFormData((prev) => ({ ...prev, subSection: "A" }))}
+                  className={`py-3 px-4 rounded-xl border text-sm font-bold transition flex items-center justify-center gap-2 ${
+                    formData.subSection === "A"
+                      ? "bg-blue-600/30 border-blue-500 text-blue-300 ring-2 ring-blue-500/40"
+                      : "bg-slate-950 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600"
+                  }`}
+                >
+                  <span>قسم A</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData((prev) => ({ ...prev, subSection: "B" }))}
+                  className={`py-3 px-4 rounded-xl border text-sm font-bold transition flex items-center justify-center gap-2 ${
+                    formData.subSection === "B"
+                      ? "bg-blue-600/30 border-blue-500 text-blue-300 ring-2 ring-blue-500/40"
+                      : "bg-slate-950 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600"
+                  }`}
+                >
+                  <span>قسم B</span>
+                </button>
+              </div>
+              <p className="text-xs text-slate-400 mt-1.5">
+                اختر ما إذا كنت مسجلاً في قسم A أو قسم B داخل سكشنك لتحديد موعد فترتك بدقة.
+              </p>
             </div>
 
             {/* Submit Button */}

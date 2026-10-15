@@ -26,6 +26,7 @@ export const createBookingWindowSchema = z.object({
   startsAt: z.string().datetime("تاريخ وتوقيت البدء غير صالح"),
   endsAt: z.string().datetime("تاريخ وتوقيت الانتهاء غير صالح"),
   capacity: z.number().int().min(1, "السعة يجب أن تكون 1 على الأقل").max(500, "السعة القصوى 500"),
+  subSection: z.enum(["ALL", "A", "B"]).default("ALL"),
   status: z.enum([
     BOOKING_WINDOW_STATUSES.DRAFT,
     BOOKING_WINDOW_STATUSES.OPEN,
@@ -40,7 +41,8 @@ export const updateBookingWindowStatusSchema = z.object({
     BOOKING_WINDOW_STATUSES.OPEN,
     BOOKING_WINDOW_STATUSES.PAUSED,
     BOOKING_WINDOW_STATUSES.CLOSED,
-  ]),
+  ]).optional(),
+  action: z.enum(["UPDATE_STATUS", "RESET_TICKETS"]).default("UPDATE_STATUS"),
 });
 
 export const recordActivationSchema = z.object({

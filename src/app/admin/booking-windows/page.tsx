@@ -14,6 +14,10 @@ import {
   X,
   Calendar,
   Layers,
+  RotateCcw,
+  CheckSquare,
+  Square,
+  Sparkles,
 } from "lucide-react";
 
 export default function AdminBookingWindowsPage() {
@@ -24,9 +28,14 @@ export default function AdminBookingWindowsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
+  // Bulk Selection State
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
+
   // Form State
   const [formGroupId, setFormGroupId] = useState("");
   const [formSectionId, setFormSectionId] = useState("");
+  const [formSubSection, setFormSubSection] = useState<"ALL" | "A" | "B">("ALL");
   const [formStartsAt, setFormStartsAt] = useState("");
   const [formEndsAt, setFormEndsAt] = useState("");
   const [formCapacity, setFormCapacity] = useState(50);
@@ -76,6 +85,22 @@ export default function AdminBookingWindowsPage() {
       });
   }, [formGroupId]);
 
+  // Toggle selection
+  const handleToggleSelect = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAll = () => {
+    if (selectedIds.length === windows.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(windows.map((w) => w.id));
+    }
+  };
+
+  // Status change per single window
   const handleStatusChange = async (windowId: string, newStatus: string) => {
     try {
       const res = await fetch(`/api/booking-windows/${windowId}`, {
@@ -103,6 +128,84 @@ export default function AdminBookingWindowsPage() {
     }
   };
 
+  // Reset tickets counter back to 1 for a single window
+  const handleResetTickets = async (windowId: string, sectionTitle: string) => {
+    if (
+      !confirm(
+        `هل أنت متأكد من رغبتك في إعادة تعيين أرقام التذاكر لتبدأ من أول 1 لـ "${sectionTitle}"؟\nسيتم تصفير أرقام الطابور بالكامل لتبدأ التذاكر الجديدة من 001.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/booking-windows/${windowId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "RESET_TICKETS" }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setMessage({
+          text: `تمت إعادة تعيين أرقام التذاكر لـ "${sectionTitle}" بنجاح لتبدأ من 001!`,
+          type: "success",
+        });
+        fetchWindows();
+      } else {
+        setMessage({ text: json.error || "فشل إعادة تعيين التذاكر", type: "error" });
+      }
+    } catch (err: any) {
+      setMessage({ text: err.message || "حدث خطأ غير متوقع", type: "error" });
+    }
+  };
+
+  // Bulk Operations Handler
+  const handleBulkAction = async (action: "OPEN" | "PAUSED" | "CLOSED" | "RESET_TICKETS") => {
+    if (selectedIds.length === 0) return;
+
+    if (action === "RESET_TICKETS") {
+      if (
+        !confirm(
+          `تحذير: هل أنت متأكد من رغبتك في إعادة تعيين أرقام التذاكر لتبدأ من أول 1 لجميع الفترات المحددة (${selectedIds.length} فترات)؟\nسيتم تصفير أرقام الطوابير بالكامل لتبدأ الحجوزات الجديدة من 001.`
+        )
+      ) {
+        return;
+      }
+    } else {
+      const actionName = action === "OPEN" ? "فتح الحجز وإشعار الطلاب" : action === "PAUSED" ? "الإيقاف المؤقت" : "الإغلاق";
+      if (!confirm(`هل أنت متأكد من تنفيذ عملية (${actionName}) لـ ${selectedIds.length} فترة حجز محددة؟`)) {
+        return;
+      }
+    }
+
+    try {
+      setBulkActionLoading(true);
+      setMessage(null);
+
+      const res = await fetch("/api/booking-windows/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          windowIds: selectedIds,
+          action,
+        }),
+      });
+
+      const json = await res.json();
+      if (json.success) {
+        setMessage({ text: json.message || "تم تنفيذ العملية المجمعة بنجاح", type: "success" });
+        setSelectedIds([]);
+        fetchWindows();
+      } else {
+        setMessage({ text: json.error || "فشل تنفيذ العملية المجمعة", type: "error" });
+      }
+    } catch (err: any) {
+      setMessage({ text: err.message || "حدث خطأ غير متوقع", type: "error" });
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -120,6 +223,7 @@ export default function AdminBookingWindowsPage() {
         body: JSON.stringify({
           groupId: formGroupId,
           sectionId: formSectionId,
+          subSection: formSubSection,
           startsAt,
           endsAt,
           capacity: formCapacity,
@@ -142,6 +246,9 @@ export default function AdminBookingWindowsPage() {
     }
   };
 
+  const allSelected = windows.length > 0 && selectedIds.length === windows.length;
+  const isIndeterminate = selectedIds.length > 0 && selectedIds.length < windows.length;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -157,21 +264,22 @@ export default function AdminBookingWindowsPage() {
             إدارة فترات وضوابط الحجز لكل سكشن
           </h1>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            التحكم في مواعيد فتح وإيقاف الحجز لكل سكشن، وتفعيل البث التلقائي عبر تيليجرام عند الفتح أو الإيقاف
+            التحكم في مواعيد فتح وإيقاف الحجز لكل سكشن وقسم فرعي (A / B)، وإعادة تعيين التذاكر لتبدأ من 1، مع ميزة التحديد المجمع والبث التلقائي عبر التيليجرام.
           </p>
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
-          className="py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-blue-600/30 transition flex items-center gap-2"
+          className="py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-blue-600/30 transition flex items-center gap-2 self-start sm:self-auto"
         >
           <Plus className="w-4 h-4" />
           <span>إنشاء فترة حجز جديدة لسكشن</span>
         </button>
       </div>
 
+      {/* Feedback Message */}
       {message && (
         <div
-          className={`p-4 rounded-2xl border text-sm font-medium flex items-center justify-between ${
+          className={`p-4 rounded-2xl border text-sm font-medium flex items-center justify-between animate-fade-in ${
             message.type === "success"
               ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300"
               : "bg-red-950/40 border-red-500/40 text-red-300"
@@ -191,6 +299,81 @@ export default function AdminBookingWindowsPage() {
         </div>
       )}
 
+      {/* Bulk Action Toolbar */}
+      {selectedIds.length > 0 && (
+        <div className="bg-gradient-to-r from-blue-950/80 via-slate-900/90 to-indigo-950/80 border border-blue-500/40 rounded-2xl p-4 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-4 backdrop-blur-xl animate-fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-600/30 border border-blue-400/40 flex items-center justify-center text-blue-300 font-bold text-sm font-mono">
+              {selectedIds.length}
+            </div>
+            <div>
+              <div className="font-bold text-white text-sm">
+                تم تحديد ({selectedIds.length}) من أصل ({windows.length}) فترة حجز
+              </div>
+              <div className="text-xs text-blue-300">
+                اختر العملية المجمعة لتطبيقها على جميع السكاشن المحددة دفعة واحدة:
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {/* Bulk OPEN */}
+            <button
+              onClick={() => handleBulkAction("OPEN")}
+              disabled={bulkActionLoading}
+              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-emerald-600/30 disabled:opacity-50"
+              title="فتح الحجز وإرسال تنبيهات التيليجرام لجميع السكاشن المحددة"
+            >
+              <Volume2 className="w-3.5 h-3.5" />
+              <span>فتح مجمّع وبث</span>
+            </button>
+
+            {/* Bulk PAUSE */}
+            <button
+              onClick={() => handleBulkAction("PAUSED")}
+              disabled={bulkActionLoading}
+              className="px-3.5 py-2 rounded-xl bg-amber-600/30 hover:bg-amber-600/40 text-amber-300 border border-amber-500/40 text-xs font-bold transition flex items-center gap-1.5 disabled:opacity-50"
+              title="إيقاف الحجز مؤقتاً وبث تنبيه للطلاب"
+            >
+              <Pause className="w-3.5 h-3.5" />
+              <span>إيقاف مؤقت مجمّع</span>
+            </button>
+
+            {/* Bulk CLOSE */}
+            <button
+              onClick={() => handleBulkAction("CLOSED")}
+              disabled={bulkActionLoading}
+              className="px-3.5 py-2 rounded-xl bg-red-600/30 hover:bg-red-600/40 text-red-300 border border-red-500/40 text-xs font-bold transition flex items-center gap-1.5 disabled:opacity-50"
+              title="إغلاق الفترات المحددة نهائياً"
+            >
+              <XCircle className="w-3.5 h-3.5" />
+              <span>إغلاق مجمّع</span>
+            </button>
+
+            {/* Bulk RESET TICKETS back to 1 */}
+            <button
+              onClick={() => handleBulkAction("RESET_TICKETS")}
+              disabled={bulkActionLoading}
+              className="px-3.5 py-2 rounded-xl bg-purple-600/30 hover:bg-purple-600/40 text-purple-200 border border-purple-500/40 text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-purple-600/20 disabled:opacity-50"
+              title="تصفير أرقام التذاكر لتبدأ من 001 لجميع الفترات المحددة"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-purple-300" />
+              <span>إعادة التذاكر لـ 1 (مجمّع)</span>
+            </button>
+
+            {/* Clear Selection */}
+            <button
+              onClick={() => setSelectedIds([])}
+              disabled={bulkActionLoading}
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition flex items-center gap-1"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>إلغاء التحديد</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Windows Table */}
       <div className="bg-slate-900/90 rounded-2xl border border-slate-800 shadow-xl overflow-hidden backdrop-blur-xl">
         {loading ? (
@@ -207,104 +390,192 @@ export default function AdminBookingWindowsPage() {
             <table className="w-full text-right text-sm">
               <thead className="bg-[#0b101d] text-slate-400 text-xs font-bold border-b border-slate-800">
                 <tr>
+                  <th className="py-4 px-4 w-12 text-center">
+                    <button
+                      onClick={handleSelectAll}
+                      className="p-1 rounded text-slate-400 hover:text-white transition"
+                      title={allSelected ? "إلغاء تحديد الكل" : "تحديد الكل"}
+                    >
+                      {allSelected ? (
+                        <CheckSquare className="w-4 h-4 text-blue-400" />
+                      ) : isIndeterminate ? (
+                        <div className="w-4 h-4 rounded border-2 border-blue-400 flex items-center justify-center bg-blue-500/20">
+                          <div className="w-2 h-0.5 bg-blue-400" />
+                        </div>
+                      ) : (
+                        <Square className="w-4 h-4" />
+                      )}
+                    </button>
+                  </th>
                   <th className="py-4 px-4">المجموعة / السكشن</th>
-                  <th className="py-4 px-4">بداية الفترة</th>
-                  <th className="py-4 px-4">نهاية الفترة</th>
+                  <th className="py-4 px-4">القسم المستهدف</th>
+                  <th className="py-4 px-4">رقم التذكرة القادمة</th>
                   <th className="py-4 px-4">إجمالي المحجوز</th>
                   <th className="py-4 px-4">الحالة</th>
-                  <th className="py-4 px-4 text-center">التحكم الفوري والبث</th>
+                  <th className="py-4 px-4 text-center">التحكم الفوري والبث والتذاكر</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80">
-                {windows.map((w) => (
-                  <tr key={w.id} className="hover:bg-slate-800/40 transition">
-                    <td className="py-4 px-4">
-                      <div className="font-bold text-white text-base">{w.sectionName}</div>
-                      <div className="text-xs text-slate-400">{w.groupName}</div>
-                    </td>
-                    <td className="py-4 px-4 font-mono text-xs text-slate-300">
-                      {formatCairoDateTime(w.startsAt)}
-                    </td>
-                    <td className="py-4 px-4 font-mono text-xs text-slate-300">
-                      {formatCairoDateTime(w.endsAt)}
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="font-bold text-white font-mono text-sm">
-                        {w.bookedCount} طالب
-                      </div>
-                      <div className="text-[11px] text-emerald-400">
-                        متاح لجميع طلاب السكشن
-                      </div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <span
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
-                          w.status === "OPEN"
-                            ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
-                            : w.status === "PAUSED"
-                            ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
-                            : w.status === "CLOSED"
-                            ? "bg-red-500/10 text-red-400 border border-red-500/30"
-                            : "bg-slate-800 text-slate-400"
-                        }`}
-                      >
-                        {w.status === "OPEN" && (
-                          <>
-                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                            <span>مفتوح للحجز</span>
-                          </>
-                        )}
-                        {w.status === "PAUSED" && (
-                          <>
-                            <Pause className="w-3 h-3 text-amber-400" />
-                            <span>موقوف مؤقتاً</span>
-                          </>
-                        )}
-                        {w.status === "CLOSED" && (
-                          <>
-                            <XCircle className="w-3 h-3 text-red-400" />
-                            <span>مغلق</span>
-                          </>
-                        )}
-                        {w.status === "DRAFT" && <span>مسودة</span>}
-                      </span>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                        {w.status !== "OPEN" && (
+                {windows.map((w) => {
+                  const isSelected = selectedIds.includes(w.id);
+
+                  return (
+                    <tr
+                      key={w.id}
+                      className={`transition ${
+                        isSelected ? "bg-blue-950/30" : "hover:bg-slate-800/40"
+                      }`}
+                    >
+                      {/* Checkbox */}
+                      <td className="py-4 px-4 text-center">
+                        <button
+                          onClick={() => handleToggleSelect(w.id)}
+                          className="p-1 rounded text-slate-400 hover:text-white transition"
+                        >
+                          {isSelected ? (
+                            <CheckSquare className="w-4 h-4 text-blue-400" />
+                          ) : (
+                            <Square className="w-4 h-4" />
+                          )}
+                        </button>
+                      </td>
+
+                      {/* Group and Section */}
+                      <td className="py-4 px-4">
+                        <div className="font-bold text-white text-base">{w.sectionName}</div>
+                        <div className="text-xs text-slate-400">{w.groupName}</div>
+                      </td>
+
+                      {/* Targeted Sub-Section */}
+                      <td className="py-4 px-4">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                            w.subSection === "B"
+                              ? "bg-purple-950/60 text-purple-300 border-purple-800/60"
+                              : w.subSection === "A"
+                              ? "bg-blue-950/60 text-blue-300 border-blue-800/60"
+                              : "bg-slate-800 text-slate-300 border-slate-700"
+                          }`}
+                        >
+                          {w.subSection === "ALL" || !w.subSection
+                            ? "القسمان (A و B معاً)"
+                            : `قسم ${w.subSection} فقط`}
+                        </span>
+                      </td>
+
+                      {/* Next Queue Ticket */}
+                      <td className="py-4 px-4 font-mono text-xs">
+                        <div className="text-slate-300 font-bold">
+                          رقم: #{String(w.nextQueueNumber || 1).padStart(3, "0")}
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          {w.nextQueueNumber > 1 ? "تم إصدار تذاكر" : "يبدأ من أول 1"}
+                        </div>
+                      </td>
+
+                      {/* Booked Count */}
+                      <td className="py-4 px-4">
+                        <div className="font-bold text-white font-mono text-sm">
+                          {w.bookedCount} طالب
+                        </div>
+                        <div className="text-[11px] text-emerald-400">
+                          طابور مفتوح
+                        </div>
+                      </td>
+
+                      {/* Status Badge */}
+                      <td className="py-4 px-4">
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+                            w.status === "OPEN"
+                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
+                              : w.status === "PAUSED"
+                              ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
+                              : w.status === "CLOSED"
+                              ? "bg-red-500/10 text-red-400 border border-red-500/30"
+                              : "bg-slate-800 text-slate-400"
+                          }`}
+                        >
+                          {w.status === "OPEN" && (
+                            <>
+                              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                              <span>مفتوح للحجز</span>
+                            </>
+                          )}
+                          {w.status === "PAUSED" && (
+                            <>
+                              <Pause className="w-3 h-3 text-amber-400" />
+                              <span>موقوف مؤقتاً</span>
+                            </>
+                          )}
+                          {w.status === "CLOSED" && (
+                            <>
+                              <XCircle className="w-3 h-3 text-red-400" />
+                              <span>مغلق</span>
+                            </>
+                          )}
+                          {w.status === "DRAFT" && <span>مسودة</span>}
+                        </span>
+                      </td>
+
+                      {/* Action Buttons */}
+                      <td className="py-4 px-4">
+                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                          {/* Reset Tickets to 1 Button */}
                           <button
-                            onClick={() => handleStatusChange(w.id, "OPEN")}
-                            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold transition flex items-center gap-1 shadow-md shadow-emerald-600/30"
-                            title="فتح الحجز وإرسال إشعار فوري لجميع طلاب السكشن على التيليجرام"
+                            onClick={() =>
+                              handleResetTickets(
+                                w.id,
+                                `${w.sectionName} (${w.subSection === "ALL" ? "A و B" : `قسم ${w.subSection}`})`
+                              )
+                            }
+                            className="px-2.5 py-1.5 rounded-xl bg-purple-950/40 hover:bg-purple-900/60 text-purple-300 border border-purple-700/40 text-xs font-bold transition flex items-center gap-1 shadow-sm"
+                            title="إعادة تعيين أرقام التذاكر لتبدأ من أول 1"
                           >
-                            <Volume2 className="w-3.5 h-3.5" />
-                            <span>فتح وإشعار السكشن</span>
+                            <RotateCcw className="w-3.5 h-3.5 text-purple-400" />
+                            <span>تصفير لـ 1</span>
                           </button>
-                        )}
-                        {w.status === "OPEN" && (
-                          <button
-                            onClick={() => handleStatusChange(w.id, "PAUSED")}
-                            className="px-3 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-xs font-semibold transition flex items-center gap-1"
-                            title="إيقاف الحجز مؤقتاً وبث تنبيه للطلاب"
-                          >
-                            <Pause className="w-3.5 h-3.5" />
-                            <span>إيقاف وبث التنبيه</span>
-                          </button>
-                        )}
-                        {w.status !== "CLOSED" && (
-                          <button
-                            onClick={() => handleStatusChange(w.id, "CLOSED")}
-                            className="px-3 py-1.5 rounded-xl bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 text-xs font-semibold transition flex items-center gap-1"
-                            title="إغلاق الحجز نهائياً وبث تنبيه للطلاب"
-                          >
-                            <XCircle className="w-3.5 h-3.5" />
-                            <span>إغلاق الفترة</span>
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+
+                          {/* Open & Broadcast */}
+                          {w.status !== "OPEN" && (
+                            <button
+                              onClick={() => handleStatusChange(w.id, "OPEN")}
+                              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold transition flex items-center gap-1 shadow-md shadow-emerald-600/30"
+                              title="فتح الحجز وإرسال إشعار فوري لطلاب هذا السكشن/القسم على التيليجرام"
+                            >
+                              <Volume2 className="w-3.5 h-3.5" />
+                              <span>فتح وإشعار</span>
+                            </button>
+                          )}
+
+                          {/* Pause */}
+                          {w.status === "OPEN" && (
+                            <button
+                              onClick={() => handleStatusChange(w.id, "PAUSED")}
+                              className="px-3 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-xs font-semibold transition flex items-center gap-1"
+                              title="إيقاف الحجز مؤقتاً وبث تنبيه للطلاب"
+                            >
+                              <Pause className="w-3.5 h-3.5" />
+                              <span>إيقاف وبث</span>
+                            </button>
+                          )}
+
+                          {/* Close */}
+                          {w.status !== "CLOSED" && (
+                            <button
+                              onClick={() => handleStatusChange(w.id, "CLOSED")}
+                              className="px-3 py-1.5 rounded-xl bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 text-xs font-semibold transition flex items-center gap-1"
+                              title="إغلاق الحجز نهائياً وبث تنبيه للطلاب"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              <span>إغلاق الفترة</span>
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -361,6 +632,20 @@ export default function AdminBookingWindowsPage() {
                       {s.name} ({s.code})
                     </option>
                   ))}
+                </select>
+              </div>
+
+              {/* Sub-Section Selector */}
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">القسم المستهدف (A أو B):</label>
+                <select
+                  value={formSubSection}
+                  onChange={(e) => setFormSubSection(e.target.value as any)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="ALL">جميع الأقسام (A و B معاً)</option>
+                  <option value="A">قسم A فقط (الطلاب المسجلون بقسم A)</option>
+                  <option value="B">قسم B فقط (الطلاب المسجلون بقسم B)</option>
                 </select>
               </div>
 

@@ -61,6 +61,7 @@ export const studentRegistrationSchema = z.object({
   sectionId: z
     .string({ required_error: "يرجى اختيار السكشن الأكاديمي" })
     .uuid("معرف السكشن غير صالح"),
+  subSection: z.enum(["A", "B"]).default("A").optional(),
 });
 
-export type StudentRegistrationInput = z.infer<typeof studentRegistrationSchema>;
+export type StudentRegistrationInput = z.input<typeof studentRegistrationSchema>;

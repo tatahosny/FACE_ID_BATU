@@ -16,6 +16,7 @@ export default function AdminTelegramBroadcastPage() {
   const [targetType, setTargetType] = useState<"ALL" | "GROUP" | "SECTION">("ALL");
   const [selectedGroupId, setSelectedGroupId] = useState("");
   const [selectedSectionId, setSelectedSectionId] = useState("");
+  const [selectedSubSection, setSelectedSubSection] = useState<"ALL" | "A" | "B">("ALL");
 
   // Audience Preview State
   const [previewData, setPreviewData] = useState<{
@@ -85,6 +86,7 @@ export default function AdminTelegramBroadcastPage() {
         let url = `/api/telegram/campaigns?preview=true&targetType=${targetType}`;
         if (targetType === "GROUP" && selectedGroupId) url += `&groupId=${selectedGroupId}`;
         if (targetType === "SECTION" && selectedSectionId) url += `&sectionId=${selectedSectionId}`;
+        if (selectedSubSection && selectedSubSection !== "ALL") url += `&subSection=${selectedSubSection}`;
 
         const res = await fetch(url);
         const json = await res.json();
@@ -98,7 +100,7 @@ export default function AdminTelegramBroadcastPage() {
       }
     }
     loadPreview();
-  }, [targetType, selectedGroupId, selectedSectionId]);
+  }, [targetType, selectedGroupId, selectedSectionId, selectedSubSection]);
 
   const handleApplyTemplate = (templateContent: string) => {
     setMessage(templateContent);
@@ -125,6 +127,7 @@ export default function AdminTelegramBroadcastPage() {
           targetFilters: {
             groupId: selectedGroupId || undefined,
             sectionId: selectedSectionId || undefined,
+            subSection: selectedSubSection !== "ALL" ? selectedSubSection : undefined,
           },
         }),
       });
@@ -246,7 +249,7 @@ export default function AdminTelegramBroadcastPage() {
 
             {/* Group & Section Dropdowns */}
             {targetType !== "ALL" && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
                 <div>
                   <label className="block text-xs font-bold text-slate-300 mb-1">المجموعة</label>
                   <select
@@ -283,6 +286,19 @@ export default function AdminTelegramBroadcastPage() {
                     </select>
                   </div>
                 )}
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">القسم المستهدف (A / B)</label>
+                  <select
+                    value={selectedSubSection}
+                    onChange={(e) => setSelectedSubSection(e.target.value as any)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700 text-xs bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="ALL">جميع الأقسام (A و B معاً)</option>
+                    <option value="A">قسم A فقط</option>
+                    <option value="B">قسم B فقط</option>
+                  </select>
+                </div>
               </div>
             )}
 

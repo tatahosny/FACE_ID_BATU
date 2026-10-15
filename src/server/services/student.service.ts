@@ -10,13 +10,15 @@ import {
   hashToken,
 } from "@/lib/security/crypto";
 import { StudentRegistrationInput } from "@/lib/validation/student";
+import * as XLSX from "xlsx";
+import { formatCairoDateTime } from "@/lib/utils/datetime";
 
 export class StudentService {
   /**
    * Register a new student with transaction safety, National ID encryption, and duplicate checking.
    */
   static async registerStudent(input: StudentRegistrationInput) {
-    const { fullName, academicNumber, nationalId, groupId, sectionId } = input;
+    const { fullName, academicNumber, nationalId, groupId, sectionId, subSection } = input;
 
     // 1. Verify that selected section belongs to the selected group
     const [section] = await db
@@ -74,6 +76,7 @@ export class StudentService {
           nationalIdHash,
           groupId,
           sectionId,
+          subSection: subSection || "A",
         })
         .returning();
 
@@ -97,6 +100,7 @@ export class StudentService {
           academicNumber,
           groupId,
           sectionId,
+          subSection: subSection || "A",
         },
       });
 
@@ -162,11 +166,12 @@ export class StudentService {
   }
 
   /**
-   * Comprehensive student directory listing with group, section, fingerprint activation, and search filters.
+   * Comprehensive student directory listing with group, section, subSection, fingerprint activation, and search filters.
    */
   static async listStudents(params: {
     groupId?: string;
     sectionId?: string;
+    subSection?: string; // 'A' | 'B' | 'ALL' | ''
     activationStatus?: string; // 'ACTIVATED' | 'NOT_ACTIVATED' | ''
     search?: string;
     page?: number;
@@ -183,6 +188,9 @@ export class StudentService {
     }
     if (params.sectionId) {
       conditions.push(eq(students.sectionId, params.sectionId));
+    }
+    if (params.subSection && params.subSection !== "ALL") {
+      conditions.push(eq(students.subSection, params.subSection));
     }
     if (params.search) {
       const term = `%${params.search.trim()}%`;
@@ -216,6 +224,7 @@ export class StudentService {
         groupName: groups.name,
         sectionId: students.sectionId,
         sectionName: sections.name,
+        subSection: students.subSection,
         telegramUserId: students.telegramUserId,
         telegramUsername: students.telegramUsername,
         telegramLinkedAt: students.telegramLinkedAt,
@@ -278,6 +287,7 @@ export class StudentService {
         groupName: s.groupName,
         sectionId: s.sectionId,
         sectionName: s.sectionName,
+        subSection: s.subSection || "A",
         hasTelegram: !!s.telegramUserId,
         telegramUsername: s.telegramUsername,
         telegramLinkedAt: s.telegramLinkedAt,
@@ -303,5 +313,154 @@ export class StudentService {
       limit,
       totalPages: Math.ceil(count / limit),
     };
+  }
+
+  /**
+   * Export complete Student Directory to an Excel sheet (.xlsx) with Arabic headings,
+   * decrypted National IDs, Section & Sub-Section (قسم A/B), and activation metadata.
+   */
+  static async exportStudentsToExcel(params: {
+    groupId?: string;
+    sectionId?: string;
+    subSection?: string;
+    activationStatus?: string;
+    search?: string;
+  } = {}) {
+    const conditions = [];
+
+    if (params.groupId) {
+      conditions.push(eq(students.groupId, params.groupId));
+    }
+    if (params.sectionId) {
+      conditions.push(eq(students.sectionId, params.sectionId));
+    }
+    if (params.subSection && params.subSection !== "ALL") {
+      conditions.push(eq(students.subSection, params.subSection));
+    }
+    if (params.search) {
+      const term = `%${params.search.trim()}%`;
+      conditions.push(
+        or(
+          sql`${students.fullName} ILIKE ${term}`,
+          sql`${students.academicNumber} ILIKE ${term}`
+        )
+      );
+    }
+
+    if (params.activationStatus === "ACTIVATED") {
+      conditions.push(
+        sql`EXISTS (SELECT 1 FROM ${fingerprintActivations} WHERE ${fingerprintActivations.studentId} = ${students.id} AND ${fingerprintActivations.status} = 'ACTIVATED')`
+      );
+    } else if (params.activationStatus === "NOT_ACTIVATED") {
+      conditions.push(
+        sql`NOT EXISTS (SELECT 1 FROM ${fingerprintActivations} WHERE ${fingerprintActivations.studentId} = ${students.id} AND ${fingerprintActivations.status} = 'ACTIVATED')`
+      );
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const rawStudents = await db
+      .select({
+        id: students.id,
+        fullName: students.fullName,
+        academicNumber: students.academicNumber,
+        nationalIdEncrypted: students.nationalIdEncrypted,
+        groupId: students.groupId,
+        groupName: groups.name,
+        sectionId: students.sectionId,
+        sectionName: sections.name,
+        subSection: students.subSection,
+        telegramUserId: students.telegramUserId,
+        telegramUsername: students.telegramUsername,
+        createdAt: students.createdAt,
+      })
+      .from(students)
+      .innerJoin(groups, eq(students.groupId, groups.id))
+      .innerJoin(sections, eq(students.sectionId, sections.id))
+      .where(whereClause)
+      .orderBy(sql`${groups.name} ASC`, sql`${sections.name} ASC`, sql`${students.fullName} ASC`);
+
+    const studentIds = rawStudents.map((s) => s.id);
+    const activationsMap = new Map<string, { activatedAt: Date; staffName: string }>();
+
+    if (studentIds.length > 0) {
+      const acts = await db
+        .select({
+          studentId: fingerprintActivations.studentId,
+          activatedAt: fingerprintActivations.activatedAt,
+          staffName: users.fullName,
+        })
+        .from(fingerprintActivations)
+        .innerJoin(users, eq(fingerprintActivations.activatedBy, users.id))
+        .where(
+          and(
+            inArray(fingerprintActivations.studentId, studentIds),
+            eq(fingerprintActivations.status, "ACTIVATED")
+          )
+        );
+
+      acts.forEach((a) => {
+        activationsMap.set(a.studentId, {
+          activatedAt: a.activatedAt,
+          staffName: a.staffName,
+        });
+      });
+    }
+
+    // Build Excel Row Data
+    const rows = rawStudents.map((s, index) => {
+      let nationalId = "غير متوفر";
+      try {
+        nationalId = decryptNationalId(s.nationalIdEncrypted);
+      } catch {
+        nationalId = "خطأ في فك التشفير";
+      }
+
+      const activation = activationsMap.get(s.id);
+      const subSectionLabel = s.subSection === "B" ? "قسم B" : "قسم A";
+
+      return {
+        "م": index + 1,
+        "الاسم بالكامل": s.fullName,
+        "الرقم القومي": nationalId,
+        "الرقم الأكاديمي": s.academicNumber,
+        "المجموعة الدراسية": s.groupName,
+        "السكشن": s.sectionName,
+        "القسم الفرعي": subSectionLabel,
+        "حالة ربط التيليجرام": s.telegramUserId ? "مرتبط" : "غير مرتبط",
+        "معرف التيليجرام": s.telegramUsername ? `@${s.telegramUsername}` : s.telegramUserId ? String(s.telegramUserId) : "—",
+        "حالة بصمة الوجه": activation ? "تمت البصمة وتفعيل الوجه" : "قيد الانتظار (لم تبصم بعد)",
+        "تاريخ ووقت توثيق البصمة": activation?.activatedAt ? formatCairoDateTime(activation.activatedAt) : "—",
+        "الموظف المعتمد للبصمة": activation?.staffName || "—",
+        "تاريخ تسجيل الطالب بالمنظومة": formatCairoDateTime(s.createdAt),
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+
+    // Right-to-Left Arabic display in Excel
+    worksheet["!views"] = [{ RTL: true }];
+
+    // Auto-fit column widths
+    worksheet["!cols"] = [
+      { wch: 6 },  // م
+      { wch: 32 }, // الاسم بالكامل
+      { wch: 18 }, // الرقم القومي
+      { wch: 16 }, // الرقم الأكاديمي
+      { wch: 18 }, // المجموعة الدراسية
+      { wch: 14 }, // السكشن
+      { wch: 14 }, // القسم الفرعي
+      { wch: 18 }, // حالة ربط التيليجرام
+      { wch: 20 }, // معرف التيليجرام
+      { wch: 26 }, // حالة بصمة الوجه
+      { wch: 24 }, // تاريخ ووقت توثيق البصمة
+      { wch: 22 }, // الموظف المعتمد للبصمة
+      { wch: 24 }, // تاريخ تسجيل الطالب بالمنظومة
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "دليل الطلاب");
+
+    return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
   }
 }

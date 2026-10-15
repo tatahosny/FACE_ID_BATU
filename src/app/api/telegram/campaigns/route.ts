@@ -21,11 +21,13 @@ export async function GET(req: NextRequest) {
       const targetType = (searchParams.get("targetType") || "ALL") as any;
       const groupId = searchParams.get("groupId") || undefined;
       const sectionId = searchParams.get("sectionId") || undefined;
+      const subSection = (searchParams.get("subSection") || undefined) as any;
 
       const preview = await CampaignService.previewAudience({
         targetType,
         groupId,
         sectionId,
+        subSection,
       });
 
       return apiSuccess({ preview });

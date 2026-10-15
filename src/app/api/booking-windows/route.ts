@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
         endsAt: bookingWindows.endsAt,
         status: bookingWindows.status,
         capacity: bookingWindows.capacity,
+        subSection: bookingWindows.subSection,
         nextQueueNumber: bookingWindows.nextQueueNumber,
         createdAt: bookingWindows.createdAt,
       })
@@ -70,6 +71,7 @@ export async function POST(req: NextRequest) {
         startsAt: new Date(parsed.data.startsAt),
         endsAt: new Date(parsed.data.endsAt),
         capacity: parsed.data.capacity,
+        subSection: parsed.data.subSection || "ALL",
         status: parsed.data.status,
         createdBy: session.userId,
       })

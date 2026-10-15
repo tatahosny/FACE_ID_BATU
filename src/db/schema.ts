@@ -72,6 +72,7 @@ export const students = pgTable(
     sectionId: uuid("section_id")
       .notNull()
       .references(() => sections.id, { onDelete: "restrict" }),
+    subSection: varchar("sub_section", { length: 10 }).default("A").notNull(), // 'A' | 'B'
     telegramUserId: bigint("telegram_user_id", { mode: "number" }).unique(),
     telegramUsername: varchar("telegram_username", { length: 100 }),
     telegramLinkedAt: timestamp("telegram_linked_at", { withTimezone: true }),
@@ -121,6 +122,7 @@ export const bookingWindows = pgTable(
     endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
     status: varchar("status", { length: 20 }).default("DRAFT").notNull(), // 'DRAFT' | 'OPEN' | 'PAUSED' | 'CLOSED'
     capacity: integer("capacity").default(50).notNull(),
+    subSection: varchar("sub_section", { length: 10 }).default("ALL").notNull(), // 'ALL' | 'A' | 'B'
     nextQueueNumber: integer("next_queue_number").default(1).notNull(), // Concurrency safe atomic counter
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

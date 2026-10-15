@@ -21,6 +21,7 @@ import {
   LogIn,
   RotateCcw,
   UserCheck,
+  FileSpreadsheet,
 } from "lucide-react";
 
 export default function AdminStudentsPage() {
@@ -30,6 +31,7 @@ export default function AdminStudentsPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [exportLoading, setExportLoading] = useState(false);
   const [authError, setAuthError] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -37,6 +39,7 @@ export default function AdminStudentsPage() {
   // Filters
   const [selectedGroup, setSelectedGroup] = useState("");
   const [selectedSection, setSelectedSection] = useState("");
+  const [selectedSubSection, setSelectedSubSection] = useState("");
   const [activationFilter, setActivationFilter] = useState("");
   const [search, setSearch] = useState("");
 
@@ -68,6 +71,7 @@ export default function AdminStudentsPage() {
       params.set("limit", "25");
       if (selectedGroup) params.set("groupId", selectedGroup);
       if (selectedSection) params.set("sectionId", selectedSection);
+      if (selectedSubSection) params.set("subSection", selectedSubSection);
       if (activationFilter) params.set("activationStatus", activationFilter);
       if (search) params.set("search", search);
 
@@ -96,9 +100,40 @@ export default function AdminStudentsPage() {
     }
   };
 
+  const handleExportExcel = async () => {
+    try {
+      setExportLoading(true);
+      const params = new URLSearchParams();
+      if (selectedGroup) params.set("groupId", selectedGroup);
+      if (selectedSection) params.set("sectionId", selectedSection);
+      if (selectedSubSection) params.set("subSection", selectedSubSection);
+      if (activationFilter) params.set("activationStatus", activationFilter);
+      if (search) params.set("search", search);
+
+      const res = await fetch(`/api/admin/students/export?${params.toString()}`);
+      if (!res.ok) {
+        throw new Error("فشل تصدير ملف الإكسيل");
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `BATU_Students_Directory_${new Date().toISOString().split("T")[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setFeedback({ message: "تم تصدير كشف الطلاب بنجاح بصيغة Excel!", type: "success" });
+    } catch (err: any) {
+      setFeedback({ message: err.message || "حدث خطأ أثناء تصدير شيت الإكسيل", type: "error" });
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchStudents();
-  }, [page, selectedGroup, selectedSection, activationFilter]);
+  }, [page, selectedGroup, selectedSection, selectedSubSection, activationFilter]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -197,14 +232,25 @@ export default function AdminStudentsPage() {
           </p>
         </div>
 
-        <button
-          onClick={fetchStudents}
-          disabled={loading}
-          className="self-start md:self-auto px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold border border-slate-700 shadow-md transition flex items-center gap-2"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-blue-400" : ""}`} />
-          <span>تحديث القائمة</span>
-        </button>
+        <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
+          <button
+            onClick={handleExportExcel}
+            disabled={exportLoading}
+            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-md shadow-emerald-600/30 transition flex items-center gap-2 disabled:opacity-50"
+            title="تصدير كشف الطلاب الحالي كاملاً مع الأرقام القومية والأكاديمية والسكاشن لشيت Excel"
+          >
+            <FileSpreadsheet className={`w-4 h-4 ${exportLoading ? "animate-bounce" : ""}`} />
+            <span>{exportLoading ? "جاري تجهيز الشيت..." : "تصدير شيت إكسيل (Excel)"}</span>
+          </button>
+          <button
+            onClick={fetchStudents}
+            disabled={loading}
+            className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold border border-slate-700 shadow-md transition flex items-center gap-2"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-blue-400" : ""}`} />
+            <span>تحديث القائمة</span>
+          </button>
+        </div>
       </div>
 
       {/* Feedback Message */}
@@ -265,7 +311,7 @@ export default function AdminStudentsPage() {
 
       {/* Filters Bar */}
       <div className="bg-slate-900/90 rounded-2xl border border-slate-800 shadow-xl p-4 sm:p-5 space-y-4 backdrop-blur-xl">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           {/* Group Filter */}
           <div>
             <label className="block text-xs font-bold text-slate-300 mb-1">تصفية بالمجموعة:</label>
@@ -304,6 +350,23 @@ export default function AdminStudentsPage() {
                   {s.name}
                 </option>
               ))}
+            </select>
+          </div>
+
+          {/* Sub-Section Filter */}
+          <div>
+            <label className="block text-xs font-bold text-slate-300 mb-1">القسم الفرعي للسكشن:</label>
+            <select
+              value={selectedSubSection}
+              onChange={(e) => {
+                setSelectedSubSection(e.target.value);
+                setPage(1);
+              }}
+              className="w-full px-3 py-2 rounded-xl border border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white"
+            >
+              <option value="">جميع الأقسام (A و B)</option>
+              <option value="A">قسم A فقط</option>
+              <option value="B">قسم B فقط</option>
             </select>
           </div>
 
@@ -347,13 +410,14 @@ export default function AdminStudentsPage() {
         </div>
 
         {/* Clear Filters Helper */}
-        {(selectedGroup || selectedSection || activationFilter || search) && (
+        {(selectedGroup || selectedSection || selectedSubSection || activationFilter || search) && (
           <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
             <span className="text-slate-400">الفلاتر النشطة تطبق على القائمة حالياً.</span>
             <button
               onClick={() => {
                 setSelectedGroup("");
                 setSelectedSection("");
+                setSelectedSubSection("");
                 setActivationFilter("");
                 setSearch("");
                 setPage(1);
@@ -391,6 +455,7 @@ export default function AdminStudentsPage() {
                   <th className="p-4">الرقم القومي</th>
                   <th className="p-4">الرقم الأكاديمي</th>
                   <th className="p-4">المجموعة والسكشن</th>
+                  <th className="p-4">القسم الفرعي</th>
                   <th className="p-4">التيليجرام</th>
                   <th className="p-4">حالة البصمة</th>
                   <th className="p-4">بيانات التوثيق والاعتماد</th>
@@ -425,6 +490,19 @@ export default function AdminStudentsPage() {
                       <td className="p-4 text-xs">
                         <div className="font-semibold text-slate-200">{student.groupName}</div>
                         <div className="text-slate-400 text-[11px]">{student.sectionName}</div>
+                      </td>
+
+                      {/* Sub-Section */}
+                      <td className="p-4 text-xs">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+                            student.subSection === "B"
+                              ? "bg-purple-950/50 text-purple-300 border-purple-800/50"
+                              : "bg-blue-950/50 text-blue-300 border-blue-800/50"
+                          }`}
+                        >
+                          قسم {student.subSection || "A"}
+                        </span>
                       </td>
 
                       {/* Telegram Status */}

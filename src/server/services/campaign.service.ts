@@ -17,6 +17,7 @@ export class CampaignService {
     targetType: "ALL" | "GROUP" | "SECTION";
     groupId?: string;
     sectionId?: string;
+    subSection?: "ALL" | "A" | "B";
   }) {
     const conditions = [];
 
@@ -24,6 +25,10 @@ export class CampaignService {
       conditions.push(eq(students.groupId, params.groupId));
     } else if (params.targetType === "SECTION" && params.sectionId) {
       conditions.push(eq(students.sectionId, params.sectionId));
+    }
+
+    if (params.subSection && params.subSection !== "ALL") {
+      conditions.push(eq(students.subSection, params.subSection));
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -52,7 +57,7 @@ export class CampaignService {
     title: string;
     message: string;
     targetType: "ALL" | "GROUP" | "SECTION";
-    targetFilters?: { groupId?: string; sectionId?: string };
+    targetFilters?: { groupId?: string; sectionId?: string; subSection?: "ALL" | "A" | "B" };
     createdBy: string;
   }) {
     return await db.transaction(async (tx) => {
@@ -63,6 +68,10 @@ export class CampaignService {
         conditions.push(eq(students.groupId, params.targetFilters.groupId));
       } else if (params.targetType === "SECTION" && params.targetFilters?.sectionId) {
         conditions.push(eq(students.sectionId, params.targetFilters.sectionId));
+      }
+
+      if (params.targetFilters?.subSection && params.targetFilters.subSection !== "ALL") {
+        conditions.push(eq(students.subSection, params.targetFilters.subSection));
       }
 
       const eligibleStudents = await tx

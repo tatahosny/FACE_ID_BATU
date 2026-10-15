@@ -8,6 +8,7 @@ export const createCampaignSchema = z.object({
     .object({
       groupId: z.string().uuid().optional(),
       sectionId: z.string().uuid().optional(),
+      subSection: z.enum(["ALL", "A", "B"]).optional(),
     })
     .optional(),
   templateId: z.string().uuid().optional(),
