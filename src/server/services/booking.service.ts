@@ -401,7 +401,7 @@ export class BookingService {
     actorId: string,
     notes?: string
   ) {
-    return await db.transaction(async (tx) => {
+    const updated = await db.transaction(async (tx) => {
       const [booking] = await tx
         .select()
         .from(bookings)
@@ -485,6 +485,14 @@ export class BookingService {
 
       return updated;
     });
+
+    if (newStatus === BOOKING_STATUSES.COMPLETED || newStatus === BOOKING_STATUSES.CANCELLED) {
+      BookingService.notifyQueueProgress(updated.bookingWindowId).catch((err) => {
+        console.error("[BookingStatus] Failed to notify queue progress:", err.message);
+      });
+    }
+
+    return updated;
   }
 
   /**
@@ -547,7 +555,7 @@ export class BookingService {
    * Push back a student by 10 positions if they didn't show up when called.
    */
   static async pushBackTenPositions(bookingId: string) {
-    return await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx) => {
       const [bookingData] = await tx
         .select({
           booking: bookings,
@@ -618,12 +626,19 @@ export class BookingService {
 
       return {
         success: true,
+        bookingWindowId: booking.bookingWindowId,
         previousQueueNumber: booking.queueNumber,
         newQueueNumber,
         formattedQueueNumber: formatQueueNumber(newQueueNumber),
         telegramSent,
       };
     });
+
+    BookingService.notifyQueueProgress(result.bookingWindowId).catch((err) => {
+      console.error("[PushBackTen] Failed to notify queue progress:", err.message);
+    });
+
+    return result;
   }
 
   /**
@@ -669,16 +684,16 @@ export class BookingService {
     // Send Telegram cancellation message
     let telegramSent = false;
     if (student.telegramUserId) {
-      const cancelMsg = `🏛️ <b>جامعة برج العرب التكنولوجية (BATU)</b>
+      const cancelMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
-❌ <b>تم إلغاء دورك بسبب عدم حضورك ومغادرة الطابور</b>
+<b>تم إلغاء دورك بسبب عدم حضورك ومغادرة الطابور</b>
 
 عزيزي الطالب: <b>${student.fullName}</b>
-🆔 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
+<b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
 
 نحيطكم علماً بأنه قد تم إلغاء حجز دورك رسمياً نظراً لعدم التواجد بعد تكرار النداء.
-💡 يمكنك إعادة الحجز من المنصة عند فتح فترة حجز جديدة لسكشنك أو مراجعة إدارة شؤون الطلاب بالكلية.`;
+يمكنك إعادة الحجز من المنصة عند فتح فترة حجز جديدة لسكشنك أو مراجعة إدارة شؤون الطلاب بالكلية.`;
 
       try {
         await TelegramService.sendMessage(Number(student.telegramUserId), cancelMsg);
@@ -687,6 +702,10 @@ export class BookingService {
         console.error("[CancelNoShow] Failed to send cancel notification:", err?.message || err);
       }
     }
+
+    BookingService.notifyQueueProgress(booking.bookingWindowId).catch((err) => {
+      console.error("[CancelNoShow] Failed to notify queue progress:", err.message);
+    });
 
     return { success: true, message: "تم إلغاء دور الطالب بنجاح", telegramSent };
   }
@@ -901,5 +920,68 @@ export class BookingService {
 
     await TelegramService.sendMessage(Number(student.telegramUserId), msg);
     return { success: true, message: "تم إرسال تفاصيل الدور إلى حسابك على التيليجرام بنجاح" };
+  }
+
+  /**
+   * Broadcast updated queue position to all remaining waiting students in a booking window
+   * when a preceding student is accepted/completed/moved.
+   */
+  static async notifyQueueProgress(bookingWindowId: string) {
+    try {
+      // 1. Fetch all active bookings in this window in queue order
+      const activeBookings = await db
+        .select({
+          bookingId: bookings.id,
+          queueNumber: bookings.queueNumber,
+          status: bookings.status,
+          studentId: students.id,
+          fullName: students.fullName,
+          telegramUserId: students.telegramUserId,
+        })
+        .from(bookings)
+        .innerJoin(students, eq(bookings.studentId, students.id))
+        .where(
+          and(
+            eq(bookings.bookingWindowId, bookingWindowId),
+            sql`${bookings.status} IN ('WAITING', 'CALLED')`
+          )
+        )
+        .orderBy(bookings.queueNumber);
+
+      if (!activeBookings.length) return;
+
+      // 2. Iterate each waiting student and send their new turn position
+      for (let i = 0; i < activeBookings.length; i++) {
+        const item = activeBookings[i];
+        // Only notify students who are still WAITING (if someone is already CALLED, they already received call message)
+        if (item.status !== "WAITING" || !item.telegramUserId) continue;
+
+        const aheadCount = i;
+        const currentTurn = aheadCount + 1;
+        const formattedTurn = formatQueueNumber(currentTurn);
+        const formattedNum = formatQueueNumber(item.queueNumber);
+
+        const progressMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
+قسم تكنولوجيا المعلومات — نظام بصمة الوجه
+
+<b>تحديث حركة الطابور:</b>
+عزيزي الطالب <b>${item.fullName}</b>،
+تم إنهاء معاملة الطالب السابق وتقدم الطابور، وأصبح دورك الحالي في الانتظار: <b>#${formattedTurn}</b> (تذكرة حجز رقم: <code>#${formattedNum}</code>).
+${
+  aheadCount === 0
+    ? "أنت التالي في الطابور مباشرة! يرجى الوقوف أمام شباك التسجيل بالمعمل للاستعداد."
+    : `باقي أمامك في الانتظار: ${aheadCount} طلاب.`
+}
+
+<b>المقر:</b> مبنى كلية تكنولوجيا الصناعة والطاقة — معمل الحاسب الآلي (شباك بصمة الوجه)`;
+
+        // Send via Telegram
+        TelegramService.sendMessage(Number(item.telegramUserId), progressMsg).catch((err) => {
+          console.error(`[QueueProgress] Failed to notify student ${item.studentId}:`, err.message);
+        });
+      }
+    } catch (err: any) {
+      console.error("[QueueProgress] Error broadcasting queue progress:", err.message);
+    }
   }
 }

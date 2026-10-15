@@ -11,6 +11,7 @@ import { eq, and, sql, desc } from "drizzle-orm";
 import { BOOKING_STATUSES } from "@/lib/constants/statuses";
 import { formatCairoDateTime } from "@/lib/utils/datetime";
 import { TelegramService } from "@/server/services/telegram.service";
+import { BookingService } from "@/server/services/booking.service";
 
 export class StaffService {
   /**
@@ -69,7 +70,7 @@ export class StaffService {
   }) {
     const { studentId, bookingId, staffUserId, notes } = params;
 
-    return await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx) => {
       // 1. Verify staff account
       const [staff] = await tx
         .select()
@@ -104,15 +105,20 @@ export class StaffService {
 
       // 4. Update booking as COMPLETED
       let resolvedBookingId = bookingId;
+      let affectedWindowId: string | null = null;
       if (resolvedBookingId) {
-        await tx
+        const [targetBooking] = await tx
           .update(bookings)
           .set({
             status: BOOKING_STATUSES.COMPLETED,
             completedAt: new Date(),
             updatedAt: new Date(),
           })
-          .where(eq(bookings.id, resolvedBookingId));
+          .where(eq(bookings.id, resolvedBookingId))
+          .returning();
+        if (targetBooking) {
+          affectedWindowId = targetBooking.bookingWindowId;
+        }
       } else {
         // Automatically find and complete any active booking for this student
         const [activeBooking] = await tx
@@ -128,6 +134,7 @@ export class StaffService {
 
         if (activeBooking) {
           resolvedBookingId = activeBooking.id;
+          affectedWindowId = activeBooking.bookingWindowId;
           await tx
             .update(bookings)
             .set({
@@ -206,10 +213,19 @@ export class StaffService {
       return {
         activation,
         resolvedBookingId,
+        affectedWindowId,
         notificationQueued,
         telegramSent,
       };
     });
+
+    if (result.affectedWindowId) {
+      BookingService.notifyQueueProgress(result.affectedWindowId).catch((err) => {
+        console.error("[RecordActivation] Failed to notify queue progress:", err.message);
+      });
+    }
+
+    return result;
   }
 
   /**
