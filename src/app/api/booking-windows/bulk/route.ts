@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
       .returning();
 
     // Fetch window section and student details for asynchronous Telegram broadcasting
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "https://face-id-batu-hvk9.vercel.app";
 
     for (const win of updatedList) {
       try {

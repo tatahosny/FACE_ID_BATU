@@ -102,7 +102,7 @@ export async function PATCH(
       .from(students)
       .where(and(...studentConditions));
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "https://face-id-batu-hvk9.vercel.app";
     const subSectionText = updated.subSection && updated.subSection !== "ALL" ? ` (قسم ${updated.subSection})` : "";
 
     // 1. If opened, broadcast Telegram opening notification
