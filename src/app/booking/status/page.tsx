@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { formatCairoDateTime } from "@/lib/utils/datetime";
@@ -18,7 +18,7 @@ import {
   Sparkles,
 } from "lucide-react";
 
-export default function BookingStatusPage() {
+function BookingStatusContent() {
   const searchParams = useSearchParams();
   const urlAcademicNumber = searchParams?.get("academicNumber") || "";
 
@@ -318,5 +318,13 @@ export default function BookingStatusPage() {
         </>
       )}
     </div>
+  );
+}
+
+export default function BookingStatusPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400 text-sm font-bold">جاري تحميل حالة الدور...</div>}>
+      <BookingStatusContent />
+    </Suspense>
   );
 }
