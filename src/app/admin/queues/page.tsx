@@ -24,6 +24,18 @@ export default function AdminQueuesPage() {
   const [search, setSearch] = useState("");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [sessionUser, setSessionUser] = useState<any>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.success && j.data?.user) setSessionUser(j.data.user);
+      })
+      .catch(() => {});
+  }, []);
+
+  const isSuperAdmin = sessionUser?.role === "SUPER_ADMIN";
 
   const fetchQueues = async () => {
     try {
@@ -148,16 +160,18 @@ export default function AdminQueuesPage() {
         </div>
 
         <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
-          {/* End-of-day Queue Reset Button */}
-          <button
-            onClick={handleResetAllTickets}
-            disabled={resetLoading}
-            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-700 to-indigo-700 hover:from-purple-600 hover:to-indigo-600 text-white text-xs font-bold shadow-lg shadow-purple-700/30 border border-purple-500/40 transition flex items-center gap-2 disabled:opacity-50"
-            title="إعادة تعيين أرقام التذاكر لتبدأ من رقم 1 لجميع سكاشن النظام في نهاية اليوم"
-          >
-            <RotateCcw className={`w-3.5 h-3.5 text-purple-200 ${resetLoading ? "animate-spin" : ""}`} />
-            <span>{resetLoading ? "جاري تصفير التذاكر..." : "تصفير التذاكر لـ 1 (نهاية اليوم)"}</span>
-          </button>
+          {/* End-of-day Queue Reset Button - Super Admin Only */}
+          {isSuperAdmin && (
+            <button
+              onClick={handleResetAllTickets}
+              disabled={resetLoading}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-700 to-indigo-700 hover:from-purple-600 hover:to-indigo-600 text-white text-xs font-bold shadow-lg shadow-purple-700/30 border border-purple-500/40 transition flex items-center gap-2 disabled:opacity-50"
+              title="إعادة تعيين أرقام التذاكر لتبدأ من رقم 1 لجميع سكاشن النظام في نهاية اليوم"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 text-purple-200 ${resetLoading ? "animate-spin" : ""}`} />
+              <span>{resetLoading ? "جاري تصفير التذاكر..." : "تصفير التذاكر لـ 1 (نهاية اليوم)"}</span>
+            </button>
+          )}
 
           <button
             onClick={fetchQueues}

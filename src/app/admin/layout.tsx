@@ -86,6 +86,20 @@ export default function AdminLayout({
     router.push("/login");
   };
 
+  const isSuperAdmin = sessionUser?.role === "SUPER_ADMIN";
+  const isStaff = sessionUser?.role === "STAFF";
+  const staffAllowedHrefs = new Set(["/admin", "/admin/queues", "/admin/students"]);
+
+  // Route protection guard: redirect STAFF from restricted pages
+  useEffect(() => {
+    if (!authLoaded || !sessionUser) return;
+    if (sessionUser.role === "STAFF") {
+      if (!staffAllowedHrefs.has(pathname) && pathname.startsWith("/admin")) {
+        router.replace("/admin");
+      }
+    }
+  }, [authLoaded, sessionUser, pathname, router]);
+
   const navSections = [
     {
       title: "غرفة العمليات المباشرة",
@@ -121,6 +135,16 @@ export default function AdminLayout({
       ],
     },
   ];
+
+  // Restrict navigation for Staff: only show dashboard, queues, and students
+  const visibleNavSections = isStaff
+    ? navSections
+        .map((sec) => ({
+          ...sec,
+          items: sec.items.filter((item) => staffAllowedHrefs.has(item.href)),
+        }))
+        .filter((sec) => sec.items.length > 0)
+    : navSections;
 
   return (
     <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col font-arabic selection:bg-blue-600 selection:text-white">
@@ -165,14 +189,20 @@ export default function AdminLayout({
                 <span className="font-extrabold text-sm sm:text-base tracking-wide bg-gradient-to-r from-white via-slate-200 to-blue-300 bg-clip-text text-transparent">
                   BATU COMMAND CENTER
                 </span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30">
-                  SUPER ADMIN
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${
+                  isStaff
+                    ? "bg-cyan-500/10 text-cyan-300 border-cyan-500/30"
+                    : "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                }`}>
+                  {isStaff ? "STAFF MEMBER" : "SUPER ADMIN"}
                 </span>
               </div>
               <div className="text-[11px] text-slate-400 flex items-center gap-2">
                 <span>جامعة برج العرب التكنولوجية</span>
                 <span>•</span>
-                <span className="text-blue-400">إدارة منظومة بصمة الوجه والتحكم المركزي</span>
+                <span className="text-blue-400">
+                  {isStaff ? "بوابة طاقم موظفي البصمة" : "إدارة منظومة بصمة الوجه والتحكم المركزي"}
+                </span>
               </div>
             </div>
           </div>
@@ -221,8 +251,12 @@ export default function AdminLayout({
           <div className="flex items-center gap-3 pl-1 border-r border-slate-800 pr-3">
             {sessionUser ? (
               <>
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-700 to-indigo-800 flex items-center justify-center font-bold text-sm text-white shadow-md border border-blue-500/40">
-                  SA
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm text-white shadow-md border ${
+                  isStaff
+                    ? "bg-gradient-to-tr from-cyan-700 to-blue-800 border-cyan-500/40"
+                    : "bg-gradient-to-tr from-blue-700 to-indigo-800 border-blue-500/40"
+                }`}>
+                  {isStaff ? "ST" : "SA"}
                 </div>
                 <button
                   onClick={handleLogout}
@@ -256,7 +290,7 @@ export default function AdminLayout({
         >
           {/* Scrollable Nav List */}
           <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
-            {navSections.map((sec, idx) => (
+            {visibleNavSections.map((sec, idx) => (
               <div key={idx} className="space-y-1.5">
                 <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 mb-1 flex items-center justify-between">
                   <span>{sec.title}</span>

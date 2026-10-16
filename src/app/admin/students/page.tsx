@@ -53,6 +53,7 @@ export default function AdminStudentsPage() {
   const [search, setSearch] = useState("");
 
   const [staffList, setStaffList] = useState<any[]>([]);
+  const [sessionUser, setSessionUser] = useState<any>(null);
   const [stats, setStats] = useState<{
     totalRegistered: number;
     totalActivated: number;
@@ -65,8 +66,15 @@ export default function AdminStudentsPage() {
     filteredStaffDateCount: null,
   });
 
-  // Load groups on mount
+  // Load user session, groups, and staff on mount
   useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.success && j.data?.user) setSessionUser(j.data.user);
+      })
+      .catch(() => {});
+
     fetch("/api/groups")
       .then((r) => r.json())
       .then((j) => j.success && setGroups(j.data.groups || []));
@@ -75,6 +83,8 @@ export default function AdminStudentsPage() {
       .then((r) => r.json())
       .then((j) => j.success && setStaffList(j.data?.staff || []));
   }, []);
+
+  const isSuperAdmin = sessionUser?.role === "SUPER_ADMIN";
 
   // Load sections when group changes
   useEffect(() => {
@@ -409,7 +419,15 @@ export default function AdminStudentsPage() {
       <div className="bg-blue-950/30 border border-blue-900/40 rounded-2xl p-4 flex items-center gap-3 text-xs text-blue-300">
         <ShieldCheck className="w-5 h-5 text-blue-400 flex-shrink-0" />
         <div>
-          <span className="font-bold">تحكم ثنائي الاتجاه بالبصمة:</span> يمكنك <b>تفعيل البصمة</b> مباشرة لأي طالب غير مفعل ليتم توثيقه وإرسال إشعار التيليجرام له، أو <b>إلغاء البصمة وإعادة الحجز</b> لأي طالب مفعل ليتمكن من حجز دور جديد من الصفر.
+          {isSuperAdmin ? (
+            <>
+              <span className="font-bold">تحكم ثنائي الاتجاه بالبصمة:</span> يمكنك <b>تفعيل البصمة</b> مباشرة لأي طالب غير مفعل ليتم توثيقه وإرسال إشعار التيليجرام له، أو <b>إلغاء البصمة وإعادة الحجز</b> لأي طالب مفعل ليتمكن من حجز دور جديد من الصفر.
+            </>
+          ) : (
+            <>
+              <span className="font-bold">سجل حالة البصمة (صلاحية استعراض فقط):</span> يمكنك تصفح بيانات الطلاب والتصفية وتصدير كشوف الإكسيل. إجراءات تفعيل وإلغاء واعتماد البصمة وحذف الطلاب مقتصرة حصرياً على المشرف العام (Super Admin).
+            </>
+          )}
         </div>
       </div>
 
@@ -709,8 +727,8 @@ export default function AdminStudentsPage() {
         )}
       </div>
 
-      {/* Bulk Action Toolbar for Students */}
-      {selectedStudentIds.length > 0 && (
+      {/* Bulk Action Toolbar for Students - Super Admin Only */}
+      {isSuperAdmin && selectedStudentIds.length > 0 && (
         <div className="bg-gradient-to-r from-red-950/80 via-slate-900/90 to-slate-950/90 border border-red-500/40 rounded-2xl p-4 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-4 backdrop-blur-xl animate-fade-in">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-red-600/30 border border-red-400/40 flex items-center justify-center text-red-300 font-bold text-sm font-mono">
@@ -769,23 +787,25 @@ export default function AdminStudentsPage() {
             <table className="w-full text-right border-collapse">
               <thead>
                 <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-400 text-xs font-bold">
-                  <th className="p-4 w-12 text-center">
-                    <button
-                      onClick={handleSelectAllStudents}
-                      className="p-1 rounded text-slate-400 hover:text-white transition"
-                      title={allSelected ? "إلغاء تحديد الكل" : "تحديد الكل"}
-                    >
-                      {allSelected ? (
-                        <CheckSquare className="w-4 h-4 text-red-400" />
-                      ) : isIndeterminate ? (
-                        <div className="w-4 h-4 rounded border-2 border-red-400 flex items-center justify-center bg-red-500/20">
-                          <div className="w-2 h-0.5 bg-red-400" />
-                        </div>
-                      ) : (
-                        <Square className="w-4 h-4" />
-                      )}
-                    </button>
-                  </th>
+                  {isSuperAdmin && (
+                    <th className="p-4 w-12 text-center">
+                      <button
+                        onClick={handleSelectAllStudents}
+                        className="p-1 rounded text-slate-400 hover:text-white transition"
+                        title={allSelected ? "إلغاء تحديد الكل" : "تحديد الكل"}
+                      >
+                        {allSelected ? (
+                          <CheckSquare className="w-4 h-4 text-red-400" />
+                        ) : isIndeterminate ? (
+                          <div className="w-4 h-4 rounded border-2 border-red-400 flex items-center justify-center bg-red-500/20">
+                            <div className="w-2 h-0.5 bg-red-400" />
+                          </div>
+                        ) : (
+                          <Square className="w-4 h-4" />
+                        )}
+                      </button>
+                    </th>
+                  )}
                   <th className="p-4">اسم الطالب</th>
                   <th className="p-4">الرقم القومي</th>
                   <th className="p-4">الرقم الأكاديمي</th>
@@ -794,7 +814,9 @@ export default function AdminStudentsPage() {
                   <th className="p-4">التيليجرام</th>
                   <th className="p-4">حالة البصمة</th>
                   <th className="p-4">بيانات التوثيق والاعتماد</th>
-                  <th className="p-4 text-center">التحكم بالبصمة وإلغاء القيد</th>
+                  <th className="p-4 text-center">
+                    {isSuperAdmin ? "التحكم بالبصمة وإلغاء القيد" : "إجراءات التحكم"}
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80 text-sm">
@@ -810,19 +832,21 @@ export default function AdminStudentsPage() {
                         isSelected ? "bg-red-950/20" : "hover:bg-slate-800/40"
                       }`}
                     >
-                      {/* Checkbox */}
-                      <td className="p-4 text-center">
-                        <button
-                          onClick={() => handleToggleSelectStudent(student.id)}
-                          className="p-1 rounded text-slate-400 hover:text-white transition"
-                        >
-                          {isSelected ? (
-                            <CheckSquare className="w-4 h-4 text-red-400" />
-                          ) : (
-                            <Square className="w-4 h-4" />
-                          )}
-                        </button>
-                      </td>
+                      {/* Checkbox - Super Admin Only */}
+                      {isSuperAdmin && (
+                        <td className="p-4 text-center">
+                          <button
+                            onClick={() => handleToggleSelectStudent(student.id)}
+                            className="p-1 rounded text-slate-400 hover:text-white transition"
+                          >
+                            {isSelected ? (
+                              <CheckSquare className="w-4 h-4 text-red-400" />
+                            ) : (
+                              <Square className="w-4 h-4" />
+                            )}
+                          </button>
+                        </td>
+                      )}
 
                       {/* Student Name */}
                       <td className="p-4 font-bold text-white">
@@ -906,41 +930,47 @@ export default function AdminStudentsPage() {
                         )}
                       </td>
 
-                      {/* Actions: Direct Activation / Revoke Activation / Delete */}
+                      {/* Actions: Direct Activation / Revoke Activation / Delete (Super Admin) or View Only (Staff) */}
                       <td className="p-4 text-center">
-                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                          {isDone ? (
-                            <button
-                              onClick={() => handleRevokeActivation(student.id, student.fullName)}
-                              disabled={actionLoading === student.id}
-                              title="إلغاء اعتماد البصمة وإلغاء الدور ليتمكن الطالب من حجز دور جديد من البداية"
-                              className="px-2.5 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-xs font-bold transition flex items-center gap-1 disabled:opacity-50"
-                            >
-                              <RotateCcw className={`w-3.5 h-3.5 ${actionLoading === student.id ? "animate-spin" : ""}`} />
-                              <span>إلغاء البصمة</span>
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleActivate(student.id, student.fullName)}
-                              disabled={actionLoading === student.id}
-                              title="تفعيل بصمة الوجه للطالب واعتمادها الآن وإرسال رسالة التهنئة على التيليجرام"
-                              className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-sm flex items-center gap-1 disabled:opacity-50"
-                            >
-                              <UserCheck className={`w-3.5 h-3.5 ${actionLoading === student.id ? "animate-spin" : ""}`} />
-                              <span>تفعيل البصمة</span>
-                            </button>
-                          )}
+                        {isSuperAdmin ? (
+                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                            {isDone ? (
+                              <button
+                                onClick={() => handleRevokeActivation(student.id, student.fullName)}
+                                disabled={actionLoading === student.id}
+                                title="إلغاء اعتماد البصمة وإلغاء الدور ليتمكن الطالب من حجز دور جديد من البداية"
+                                className="px-2.5 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-xs font-bold transition flex items-center gap-1 disabled:opacity-50"
+                              >
+                                <RotateCcw className={`w-3.5 h-3.5 ${actionLoading === student.id ? "animate-spin" : ""}`} />
+                                <span>إلغاء البصمة</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleActivate(student.id, student.fullName)}
+                                disabled={actionLoading === student.id}
+                                title="تفعيل بصمة الوجه للطالب واعتمادها الآن وإرسال رسالة التهنئة على التيليجرام"
+                                className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-sm flex items-center gap-1 disabled:opacity-50"
+                              >
+                                <UserCheck className={`w-3.5 h-3.5 ${actionLoading === student.id ? "animate-spin" : ""}`} />
+                                <span>تفعيل البصمة</span>
+                              </button>
+                            )}
 
-                          {/* Delete Student Button */}
-                          <button
-                            onClick={() => handleDeleteStudent(student.id, student.fullName)}
-                            disabled={actionLoading === student.id}
-                            title="حذف الطالب وإلغاء تسجيله نهائياً من دليل الطلاب"
-                            className="p-1.5 rounded-xl bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-800/40 transition hover:text-red-200 disabled:opacity-50"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                            {/* Delete Student Button */}
+                            <button
+                              onClick={() => handleDeleteStudent(student.id, student.fullName)}
+                              disabled={actionLoading === student.id}
+                              title="حذف الطالب وإلغاء تسجيله نهائياً من دليل الطلاب"
+                              className="p-1.5 rounded-xl bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-800/40 transition hover:text-red-200 disabled:opacity-50"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-slate-400 font-medium px-2.5 py-1 bg-slate-950/60 rounded-xl border border-slate-800">
+                            صلاحية استعراض فقط
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );

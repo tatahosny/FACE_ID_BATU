@@ -6,8 +6,16 @@ import Link from "next/link";
 export default function AdminDashboardPage() {
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [sessionUser, setSessionUser] = useState<any>(null);
 
   useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.success && j.data?.user) setSessionUser(j.data.user);
+      })
+      .catch(() => {});
+
     async function loadStats() {
       try {
         setLoading(true);
@@ -24,6 +32,8 @@ export default function AdminDashboardPage() {
     }
     loadStats();
   }, []);
+
+  const isSuperAdmin = sessionUser?.role === "SUPER_ADMIN";
 
   if (loading) {
     return (
@@ -68,20 +78,33 @@ export default function AdminDashboardPage() {
               <span>🎟️</span>
               <span>مراقبة الطابور الحي</span>
             </Link>
+
             <Link
-              href="/admin/schedules"
+              href="/admin/students"
               className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 hover:text-white border border-slate-700 text-xs font-bold transition flex items-center gap-2"
             >
-              <span>🖨️</span>
-              <span>جدول المواعيد وPDF</span>
+              <span>🎓</span>
+              <span>دليل الطلاب وسجل البصمة</span>
             </Link>
-            <Link
-              href="/admin/booking-windows"
-              className="px-4 py-2.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition flex items-center gap-2"
-            >
-              <span>⏱️</span>
-              <span>تفعيل وقت السكاشن</span>
-            </Link>
+
+            {isSuperAdmin && (
+              <>
+                <Link
+                  href="/admin/schedules"
+                  className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 hover:text-white border border-slate-700 text-xs font-bold transition flex items-center gap-2"
+                >
+                  <span>🖨️</span>
+                  <span>جدول المواعيد وPDF</span>
+                </Link>
+                <Link
+                  href="/admin/booking-windows"
+                  className="px-4 py-2.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition flex items-center gap-2"
+                >
+                  <span>⏱️</span>
+                  <span>تفعيل وقت السكاشن</span>
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </div>

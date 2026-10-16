@@ -44,9 +44,9 @@ export async function DELETE(
   try {
     const session = await requireAuth();
 
-    // Only Super Admin and Staff can delete a student
-    if (session.role !== USER_ROLES.SUPER_ADMIN && session.role !== USER_ROLES.STAFF) {
-      return apiError("غير مصرح: حذف الطالب متاح فقط للمشرفين ومسؤولي النظام", 403, "FORBIDDEN");
+    // Only Super Admin can delete a student
+    if (session.role !== USER_ROLES.SUPER_ADMIN) {
+      return apiError("غير مصرح: حذف الطالب متاح فقط للمسؤول العام (Super Admin)", 403, "FORBIDDEN");
     }
 
     const studentId = params.id;

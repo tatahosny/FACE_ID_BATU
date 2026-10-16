@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireRole([USER_ROLES.SUPER_ADMIN, USER_ROLES.STAFF]);
+    const session = await requireRole([USER_ROLES.SUPER_ADMIN]);
 
     const body = await req.json();
     const { studentId, reason } = body;

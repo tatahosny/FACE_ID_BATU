@@ -10,8 +10,8 @@ export async function POST(req: NextRequest) {
   try {
     const session = await requireAuth();
 
-    if (session.role !== USER_ROLES.SUPER_ADMIN && session.role !== USER_ROLES.STAFF) {
-      return apiError("غير مصرح: الحذف المجمّع متاح فقط للمشرفين ومسؤولي النظام", 403, "FORBIDDEN");
+    if (session.role !== USER_ROLES.SUPER_ADMIN) {
+      return apiError("غير مصرح: الحذف المجمّع متاح فقط للمسؤول العام (Super Admin)", 403, "FORBIDDEN");
     }
 
     const body = await req.json();
