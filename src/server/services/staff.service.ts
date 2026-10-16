@@ -12,6 +12,7 @@ import { BOOKING_STATUSES } from "@/lib/constants/statuses";
 import { formatCairoDateTime } from "@/lib/utils/datetime";
 import { TelegramService } from "@/server/services/telegram.service";
 import { BookingService } from "@/server/services/booking.service";
+import { SettingsService } from "@/server/services/settings.service";
 
 export class StaffService {
   /**
@@ -151,6 +152,7 @@ export class StaffService {
       let telegramSent = false;
 
       if (student.telegramUserId) {
+        const activationLocation = await SettingsService.getActivationLocation();
         const idempotencyKey = `activation_notify_${activation.id}`;
         await tx
           .insert(notificationOutbox)
@@ -163,6 +165,7 @@ export class StaffService {
               academicNumber: student.academicNumber,
               staffName: staff.fullName,
               activatedAt: formatCairoDateTime(activation.activatedAt),
+              location: activationLocation,
             },
             idempotencyKey,
           })
@@ -183,7 +186,7 @@ export class StaffService {
 
 <b>المسؤول المعتمد:</b> ${staff.fullName}
 <b>توقيت الاعتماد:</b> ${formatCairoDateTime(activation.activatedAt)}
-<b>المقر:</b> معمل الحاسب الآلي الرئيسي (شباك بصمة الوجه)
+<b>المقر:</b> ${activationLocation}
 
 نتمنى لك دوام التوفيق والنجاح!`;
 

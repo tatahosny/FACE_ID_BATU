@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { formatCairoDateTime } from "@/lib/utils/datetime";
 import {
   Clock,
@@ -18,6 +19,7 @@ import {
   CheckSquare,
   Square,
   Sparkles,
+  MapPin,
 } from "lucide-react";
 
 export default function AdminBookingWindowsPage() {
@@ -250,13 +252,23 @@ export default function AdminBookingWindowsPage() {
             التحكم في مواعيد فتح وإيقاف الحجز لكل سكشن وتحديد القسم المسموح له بالحجز (قسم A أو B أو معاً)، مع إرسال إشعار فوري عبر التيليجرام للطلاب عند الفتح. (تصفير أرقام التذاكر لنهاية اليوم متاح بشاشة الطابور الحي).
           </p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-blue-600/30 transition flex items-center gap-2 self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>إنشاء فترة حجز جديدة لسكشن</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          <Link
+            href="/admin/settings"
+            className="py-2.5 px-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 text-xs font-bold transition flex items-center gap-1.5 shadow-md"
+            title="تحديد وتعديل المقر المعتمد للبصمة المرسل في رسالة التيليجرام للطلاب"
+          >
+            <MapPin className="w-3.5 h-3.5 text-cyan-400" />
+            <span>تحديد مقر البصمة بالرسالة</span>
+          </Link>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-blue-600/30 transition flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            <span>إنشاء فترة حجز جديدة لسكشن</span>
+          </button>
+        </div>
       </div>
 
       {/* Feedback Message */}

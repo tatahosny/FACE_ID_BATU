@@ -157,7 +157,21 @@ export class NotificationService {
         return `<b>تأكيد حجز موعد البصمة</b>\n\nعزيزي الطالب <b>${payload.studentName}</b>,\nتم تسجيل حجزك بنجاح.\n\n<b>رقمك في قائمة الانتظار:</b> ${payload.queueNumber}\n<b>الرقم الأكاديمي:</b> ${payload.academicNumber}\n\nيرجى متابعة إشعارات البوت عند فتح فترة الحضور واقتراب دورك.`;
 
       case "ACTIVATION_SUCCESS":
-        return `<b>جامعة برج العرب التكنولوجية</b>\nقسم تكنولوجيا المعلومات\n\nمرحباً <b>${payload.studentName}</b>,\n\n<b>تم تفعيل بصمة الوجه الخاصة بك بنجاح.</b>\n\n<b>الرقم الأكاديمي:</b> ${payload.academicNumber}\n<b>تمت المعالجة بواسطة:</b> ${payload.staffName}\n<b>تاريخ ووقت التفعيل:</b> ${payload.activatedAt}\n\nشكراً لتعاونكم مع إدارة الكلية.`;
+        return `<b>جامعة برج العرب التكنولوجية (BATU)</b>
+قسم تكنولوجيا المعلومات — كلية تكنولوجيا الصناعة والطاقة
+
+<b>تم تفعيل بصمة الوجه بنجاح!</b>
+
+عزيزي الطالب: <b>${payload.studentName}</b>
+<b>الرقم الأكاديمي:</b> <code>${payload.academicNumber}</code>
+
+نحيطكم علماً بأنه قد تم تسجيل وتوثيق بصمة الوجه الخاصة بك رسمياً بنجاح تام، وتأكيد حضورك لدى شؤون الطلاب.
+
+<b>المسؤول المعتمد:</b> ${payload.staffName}
+<b>توقيت الاعتماد:</b> ${payload.activatedAt}
+<b>المقر:</b> ${payload.location || "معمل الحاسب الآلي الرئيسي (شباك بصمة الوجه)"}
+
+نتمنى لك دوام التوفيق والنجاح!`;
 
       case "CAMPAIGN_MESSAGE":
         return `<b>إعلان رسمي</b>\n\n${payload.message}`;

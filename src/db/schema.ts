@@ -310,6 +310,16 @@ export const auditLogs = pgTable(
   })
 );
 
+// 16. System Settings (Centralized configuration such as fingerprint activation location)
+export const systemSettings = pgTable("system_settings", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  key: varchar("key", { length: 100 }).notNull().unique(),
+  value: text("value").notNull(),
+  description: text("description"),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 // Relations definitions
 export const groupsRelations = relations(groups, ({ many }) => ({
   sections: many(sections),
