@@ -132,15 +132,24 @@ function BookingStatusContent() {
     <div className="flex-1 py-12 px-4 sm:px-6 lg:px-8 max-w-xl mx-auto w-full space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-[11px] font-mono text-emerald-400 font-bold uppercase tracking-wider">
-              LIVE QUEUE RADAR
-            </span>
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-xl bg-white p-1 border border-slate-700 shadow-md flex items-center justify-center flex-shrink-0">
+            <img
+              src="/images/batu-logo.png"
+              alt="جامعة برج العرب التكنولوجية"
+              className="w-full h-full object-contain"
+            />
           </div>
-          <h1 className="text-2xl font-black text-slate-100">شاشة متابعة الطابور المباشرة</h1>
-          <p className="text-xs text-slate-400">متابعة لحظية لحالة حجزك وترتيب دورك بالرقم الأكاديمي</p>
+          <div>
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[11px] font-mono text-emerald-400 font-bold uppercase tracking-wider">
+                LIVE QUEUE RADAR
+              </span>
+            </div>
+            <h1 className="text-xl sm:text-2xl font-black text-slate-100">شاشة متابعة الطابور المباشرة</h1>
+            <p className="text-xs text-slate-400">متابعة لحظية لحالة حجزك وترتيب دورك بالرقم الأكاديمي</p>
+          </div>
         </div>
         {searched && (
           <button

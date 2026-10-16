@@ -58,9 +58,13 @@ function LoginForm() {
   return (
     <div className="flex-1 flex items-center justify-center py-16 px-4 sm:px-6 lg:px-8 selection:bg-blue-600 selection:text-white">
       <div className="max-w-md w-full bg-slate-900/90 rounded-3xl border border-slate-800 shadow-2xl p-6 sm:p-8 space-y-6 backdrop-blur-xl">
-        <div className="text-center space-y-2">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center mx-auto shadow-lg shadow-blue-600/30">
-            <ShieldCheck className="w-8 h-8 text-white" />
+        <div className="text-center space-y-3">
+          <div className="w-16 h-16 rounded-2xl bg-white p-1.5 flex items-center justify-center mx-auto shadow-xl shadow-blue-600/20 border border-slate-700">
+            <img
+              src="/images/batu-logo.png"
+              alt="جامعة برج العرب التكنولوجية"
+              className="w-full h-full object-contain"
+            />
           </div>
           <h1 className="text-2xl font-black text-white">تسجيل الدخول إلى المنظومة</h1>
           <p className="text-xs text-slate-400">

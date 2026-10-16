@@ -118,21 +118,31 @@ export default function PublicSchedulesPage() {
           <div className="absolute bottom-0 left-1/4 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
 
           <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div className="space-y-3 max-w-2xl">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs font-mono font-semibold">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span>الجدول الرسمي المعتمد • جامعة برج العرب التكنولوجية (BATU)</span>
+            <div className="flex items-start gap-4">
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-white p-2 shadow-xl shadow-blue-500/20 border border-slate-700/60 flex-shrink-0 flex items-center justify-center">
+                <img
+                  src="/images/batu-logo.png"
+                  alt="جامعة برج العرب التكنولوجية"
+                  className="w-full h-full object-contain"
+                />
               </div>
 
-              <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight leading-snug">
-                جدول مواعيد تسجيل بصمة الوجه المعتمد
-              </h1>
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs font-mono font-semibold">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>الجدول الرسمي المعتمد • جامعة برج العرب التكنولوجية (BATU)</span>
+                </div>
 
-              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                مواعيد حضور سكاشن الفرقة الثانية (قسم تكنولوجيا المعلومات) لتسجيل بصمة الوجه المعتمدة،
-                مقسمة بدقة حسب المجموعات والسكاشن وتقسيمتي <b className="text-blue-400">قسم A</b> و{" "}
-                <b className="text-purple-400">قسم B</b> لتنظيم الحضور ومنع التكدس.
-              </p>
+                <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight leading-snug">
+                  جدول مواعيد تسجيل بصمة الوجه المعتمد
+                </h1>
+
+                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-xl">
+                  مواعيد حضور سكاشن الفرقة الثانية (قسم تكنولوجيا المعلومات) لتسجيل بصمة الوجه المعتمدة،
+                  مقسمة بدقة حسب المجموعات والسكاشن وتقسيمتي <b className="text-blue-400">قسم A</b> و{" "}
+                  <b className="text-purple-400">قسم B</b> لتنظيم الحضور ومنع التكدس.
+                </p>
+              </div>
             </div>
 
             {/* Quick Links Card */}
@@ -248,47 +258,44 @@ export default function PublicSchedulesPage() {
 
         {/* Printable Official Document Container */}
         <div className="bg-slate-900/90 rounded-3xl border border-slate-800 shadow-2xl p-6 sm:p-10 backdrop-blur-xl text-white print:bg-white print:text-black print:border-none print:shadow-none print:p-0">
-          {/* Printable Official University Header */}
-          <div className="hidden print:flex flex-row justify-between items-center border-b-2 border-slate-900 pb-6 mb-8 text-right">
-            <div>
-              <h2 className="text-lg font-black text-slate-900">جمهورية مصر العربية</h2>
-              <h3 className="text-base font-bold text-slate-800">وزارة التعليم العالي والبحث العلمي</h3>
-              <h3 className="text-base font-extrabold text-blue-900">
-                جامعة برج العرب التكنولوجية (BATU)
-              </h3>
-              <p className="text-xs text-slate-600 font-semibold">
-                كلية تكنولوجيا الصناعة والطاقة • قسم تكنولوجيا المعلومات
-              </p>
+          {/* Printable Official University Header with Logo */}
+          <div className="hidden print:flex flex-col items-center justify-center border-b-2 border-black pb-4 mb-6 text-center">
+            <div className="w-24 h-24 mx-auto mb-2 flex items-center justify-center">
+              <img
+                src="/images/batu-logo.png"
+                alt="شعار جامعة برج العرب التكنولوجية"
+                className="max-h-full max-w-full object-contain"
+              />
             </div>
-
-            <div className="text-center">
-              <div className="w-16 h-16 rounded-2xl bg-slate-900 text-amber-400 font-black text-2xl flex items-center justify-center mx-auto mb-1 border-2 border-amber-400">
-                BATU
-              </div>
-              <span className="text-[10px] font-bold text-slate-500">العام الجامعي 2026 / 2027</span>
-            </div>
-
-            <div className="text-left font-mono text-xs text-slate-700">
-              <div>التاريخ: {new Date().toLocaleDateString("ar-EG")}</div>
-              <div>نظام إدارة طوابير البصمة</div>
-              <div className="font-bold text-emerald-700 flex items-center gap-1 justify-end">
-                <span>معتمد رسمياً</span>
-                <CheckCircle2 className="w-3.5 h-3.5" />
-              </div>
+            <h1 className="text-xl font-black text-black tracking-tight">
+              جامعة برج العرب التكنولوجية (BATU)
+            </h1>
+            <h2 className="text-sm font-bold text-slate-800 mt-0.5">
+              كلية تكنولوجيا الصناعة والطاقة • قسم تكنولوجيا المعلومات
+            </h2>
+            <h3 className="text-base font-extrabold text-blue-900 mt-2 bg-slate-100 px-4 py-1 rounded-lg border border-slate-300 inline-block">
+              الجدول الرسمي المعتمد لتسجيل بصمة الوجه (الفرقة الثانية)
+            </h3>
+            <div className="flex items-center justify-center gap-4 text-xs font-bold text-slate-700 mt-2">
+              <span>العام الجامعي: 2026 / 2027</span>
+              <span>•</span>
+              <span>تاريخ الطباعة: {new Date().toLocaleDateString("ar-EG")}</span>
+              <span>•</span>
+              <span className="text-emerald-800 font-bold">معتمد رسمياً للنشر</span>
             </div>
           </div>
 
-          {/* Schedule Title */}
-          <div className="text-center mb-6">
-            <h2 className="text-xl sm:text-2xl font-black text-white print:text-slate-900">
+          {/* Schedule Title for Screen (Hidden in Print) */}
+          <div className="print:hidden text-center mb-6">
+            <h2 className="text-xl sm:text-2xl font-black text-white">
               الجدول الرسمي المعتمد لتسجيل بصمة الوجه (الفرقة الثانية)
             </h2>
-            <p className="text-xs sm:text-sm text-slate-400 print:text-slate-500 mt-1">
+            <p className="text-xs sm:text-sm text-slate-400 mt-1">
               قسم تكنولوجيا المعلومات — يرجى الالتزام التام بالمواعيد والمقرات المحددة لكل سكشن وقسم (A / B)
             </p>
           </div>
 
-          {/* Schedule Table */}
+          {/* Schedule Table (Standard rows and columns with clear borders) */}
           {loading ? (
             <div className="p-16 text-center text-slate-400 text-sm space-y-3">
               <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
@@ -310,55 +317,67 @@ export default function PublicSchedulesPage() {
               </button>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-right border-collapse">
+            <div className="overflow-x-auto print:overflow-visible">
+              <table className="w-full text-right border-collapse border border-slate-700 print:border-2 print:border-black text-xs sm:text-sm">
                 <thead>
-                  <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-400 text-xs font-black print:bg-slate-100 print:text-slate-800 print:border-b-2 print:border-slate-300">
-                    <th className="p-3.5">المجموعة</th>
-                    <th className="p-3.5">السكشن</th>
-                    <th className="p-3.5">القسم المستهدف (A / B)</th>
-                    <th className="p-3.5">اليوم والتاريخ</th>
-                    <th className="p-3.5">فترة الحضور</th>
-                    <th className="p-3.5">المقر والمكان بالتفصيل</th>
+                  <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-300 text-xs font-black print:bg-slate-100 print:text-black print:border-b-2 print:border-black">
+                    <th className="p-3 border border-slate-800 print:border print:border-black text-center w-10">
+                      م
+                    </th>
+                    <th className="p-3 border border-slate-800 print:border print:border-black">المجموعة</th>
+                    <th className="p-3 border border-slate-800 print:border print:border-black">السكشن</th>
+                    <th className="p-3 border border-slate-800 print:border print:border-black text-center">
+                      القسم (A / B)
+                    </th>
+                    <th className="p-3 border border-slate-800 print:border print:border-black text-center">
+                      اليوم والتاريخ
+                    </th>
+                    <th className="p-3 border border-slate-800 print:border print:border-black text-center">
+                      فترة الحضور
+                    </th>
+                    <th className="p-3 border border-slate-800 print:border print:border-black">
+                      المقر وقاعة البصمة بالتفصيل
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/80 text-xs sm:text-sm">
-                  {filtered.map((sc) => (
+                  {filtered.map((sc, idx) => (
                     <tr
                       key={sc.id}
-                      className="hover:bg-slate-800/40 border-b border-slate-800/60 transition print:bg-white print:border-slate-200"
+                      className="hover:bg-slate-800/40 border-b border-slate-800/60 transition print:bg-white print:border print:border-black print:text-black"
                     >
-                      <td className="p-3.5 font-bold text-white print:text-slate-900">{sc.groupName}</td>
-                      <td className="p-3.5 font-extrabold text-blue-400 font-mono print:text-blue-700">
+                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-bold font-mono print:text-black">
+                        {idx + 1}
+                      </td>
+                      <td className="p-3 border border-slate-800/80 print:border print:border-black font-bold text-white print:text-black">
+                        {sc.groupName}
+                      </td>
+                      <td className="p-3 border border-slate-800/80 print:border print:border-black font-black text-blue-400 font-mono print:text-black">
                         {sc.sectionName} ({sc.sectionCode})
                       </td>
-                      <td className="p-3.5">
+                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-center">
                         {sc.subSection === "A" ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-blue-500/10 text-blue-400 border border-blue-500/30 print:bg-blue-50 print:text-blue-900 print:border-blue-400">
+                          <span className="inline-block px-2.5 py-1 rounded-full text-xs font-black bg-blue-500/10 text-blue-400 border border-blue-500/30 print:border print:border-blue-900 print:bg-blue-50 print:text-blue-950 font-bold">
                             قسم A فقط
                           </span>
                         ) : sc.subSection === "B" ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-purple-500/10 text-purple-400 border border-purple-500/30 print:bg-purple-50 print:text-purple-900 print:border-purple-400">
+                          <span className="inline-block px-2.5 py-1 rounded-full text-xs font-black bg-purple-500/10 text-purple-400 border border-purple-500/30 print:border print:border-purple-900 print:bg-purple-50 print:text-purple-950 font-bold">
                             قسم B فقط
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 print:bg-emerald-50 print:text-emerald-900 print:border-emerald-400">
+                          <span className="inline-block px-2.5 py-1 rounded-full text-xs font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 print:border print:border-emerald-900 print:bg-emerald-50 print:text-emerald-950 font-bold">
                             A و B معاً (الكامل)
                           </span>
                         )}
                       </td>
-                      <td className="p-3.5 font-bold text-slate-200 print:text-slate-800 flex items-center gap-1.5 pt-4">
-                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                        <span>{sc.date}</span>
+                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-bold text-slate-200 print:text-black">
+                        {sc.date}
                       </td>
-                      <td className="p-3.5 font-mono text-slate-200 font-semibold print:text-slate-900">
+                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-mono font-bold text-slate-200 print:text-black">
                         من {sc.startTime} إلى {sc.endTime}
                       </td>
-                      <td className="p-3.5 text-xs text-slate-300 font-medium leading-relaxed max-w-sm print:text-slate-800">
-                        <div className="flex items-start gap-1.5">
-                          <MapPin className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
-                          <span>{sc.notes || "معمل الحاسب الآلي الرئيسي (الدور الأرضي)"}</span>
-                        </div>
+                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-xs text-slate-300 font-medium print:text-black">
+                        {sc.notes || "معمل الحاسب الآلي الرئيسي (الدور الأرضي)"}
                       </td>
                     </tr>
                   ))}
@@ -366,28 +385,6 @@ export default function PublicSchedulesPage() {
               </table>
             </div>
           )}
-
-          {/* Printable Official Footer / Signatures */}
-          <div className="hidden print:flex flex-row justify-between items-center border-t-2 border-slate-300 pt-8 mt-12 text-xs font-bold text-slate-800">
-            <div className="text-center">
-              <div>منسق قسم تكنولوجيا المعلومات</div>
-              <div className="h-12"></div>
-              <div>.................................</div>
-            </div>
-
-            <div className="text-center">
-              <div>عميد كلية تكنولوجيا الصناعة والطاقة</div>
-              <div className="h-12"></div>
-              <div>.................................</div>
-            </div>
-
-            <div className="text-center">
-              <div>ختم شؤون الطلاب والكلية</div>
-              <div className="h-12 w-28 border-2 border-dashed border-slate-400 rounded-xl mx-auto my-1 flex items-center justify-center text-[10px] text-slate-400">
-                خاتم شعار الجمهورية
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Important Guidelines Notice Card (Hidden in Print) */}

@@ -9,8 +9,16 @@ export default function HomePage() {
       <div className="absolute bottom-1/4 -left-20 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
 
       <div className="max-w-5xl w-full space-y-10 relative z-10 text-center">
-        {/* University Header */}
-        <div className="space-y-3">
+        {/* University Logo & Header */}
+        <div className="space-y-4">
+          <div className="w-24 h-24 sm:w-28 sm:h-28 mx-auto rounded-3xl bg-white p-2.5 shadow-2xl shadow-blue-500/20 border-2 border-slate-800 flex items-center justify-center hover:scale-105 transition-transform duration-300">
+            <img
+              src="/images/batu-logo.png"
+              alt="شعار جامعة برج العرب التكنولوجية"
+              className="w-full h-full object-contain"
+            />
+          </div>
+
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs font-mono">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <span>جامعة برج العرب التكنولوجية • كلية تكنولوجيا الصناعة والطاقة</span>

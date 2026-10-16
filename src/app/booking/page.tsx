@@ -153,6 +153,14 @@ export default function BookingPage() {
 
         {/* Header Title */}
         <div className="text-center space-y-3">
+          <div className="w-16 h-16 sm:w-20 sm:h-20 mx-auto rounded-2xl bg-white p-2 shadow-xl shadow-blue-500/20 border border-slate-700 flex items-center justify-center">
+            <img
+              src="/images/batu-logo.png"
+              alt="جامعة برج العرب التكنولوجية"
+              className="w-full h-full object-contain"
+            />
+          </div>
+
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs font-mono">
             <Ticket className="w-3.5 h-3.5 text-blue-400" />
             <span>نظام حجز الأدوار البيومترية المعتمد</span>

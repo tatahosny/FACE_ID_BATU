@@ -189,8 +189,12 @@ export default function RegisterPage() {
     <div className="flex-1 py-12 px-4 sm:px-6 lg:px-8 max-w-2xl mx-auto w-full">
       {/* Page Header */}
       <div className="text-center mb-8">
-        <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-blue-600/20 text-blue-400 font-bold mb-3 shadow-inner border border-blue-500/30">
-          IT
+        <div className="w-16 h-16 sm:w-20 sm:h-20 mx-auto rounded-2xl bg-white p-2 mb-3 shadow-xl shadow-blue-500/20 border border-slate-700 flex items-center justify-center">
+          <img
+            src="/images/batu-logo.png"
+            alt="جامعة برج العرب التكنولوجية"
+            className="w-full h-full object-contain"
+          />
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-white">
           تسجيل بيانات الطالب الأكاديمية

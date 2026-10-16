@@ -188,8 +188,12 @@ export default function AdminLayout({
 
           {/* Command Center Title */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-cyan-400 p-0.5 shadow-lg shadow-blue-500/20 flex items-center justify-center">
-              <Zap className="w-5 h-5 text-white" />
+            <div className="w-10 h-10 rounded-xl bg-white p-1 shadow-lg shadow-blue-500/20 border border-slate-700 flex items-center justify-center flex-shrink-0">
+              <img
+                src="/images/batu-logo.png"
+                alt="BATU Logo"
+                className="w-full h-full object-contain"
+              />
             </div>
             <div>
               <div className="flex items-center gap-2">

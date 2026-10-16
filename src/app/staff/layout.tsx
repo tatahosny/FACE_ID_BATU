@@ -28,14 +28,23 @@ export default function StaffLayout({
       {/* Staff Sidebar */}
       <aside className="w-full md:w-64 bg-slate-900/95 backdrop-blur-xl text-white p-5 flex flex-col justify-between border-b md:border-b-0 md:border-l border-slate-800 shadow-xl">
         <div className="space-y-6">
-          <div className="pb-4 border-b border-slate-800">
-            <span className="text-xs uppercase tracking-wider text-amber-400 font-bold block">
-              بوابة موظفي البصمة
-            </span>
-            <h2 className="text-lg font-bold text-white mt-1">
-              مكتب تفعيل بصمة الوجه
-            </h2>
-            <p className="text-xs text-slate-400">قسم تكنولوجيا المعلومات • BATU</p>
+          <div className="pb-4 border-b border-slate-800 flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-white p-1 flex items-center justify-center flex-shrink-0 border border-slate-700 shadow-md">
+              <img
+                src="/images/batu-logo.png"
+                alt="BATU"
+                className="w-full h-full object-contain"
+              />
+            </div>
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-amber-400 font-bold block">
+                بوابة موظفي البصمة
+              </span>
+              <h2 className="text-base font-bold text-white leading-tight">
+                مكتب تفعيل بصمة الوجه
+              </h2>
+              <p className="text-[11px] text-slate-400">قسم تكنولوجيا المعلومات • BATU</p>
+            </div>
           </div>
 
           <nav className="space-y-1">
