@@ -104,6 +104,7 @@ export const sectionSchedules = pgTable(
     date: date("date").notNull(),
     startTime: time("start_time").notNull(),
     endTime: time("end_time").notNull(),
+    subSection: varchar("sub_section", { length: 10 }).default("ALL").notNull(), // 'ALL' | 'A' | 'B'
     notes: text("notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },

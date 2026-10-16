@@ -79,9 +79,16 @@ export class AcademicService {
     date: string;
     startTime: string;
     endTime: string;
+    subSection?: "ALL" | "A" | "B";
     notes?: string;
   }) {
-    const [created] = await db.insert(sectionSchedules).values(data).returning();
+    const [created] = await db
+      .insert(sectionSchedules)
+      .values({
+        ...data,
+        subSection: data.subSection || "ALL",
+      })
+      .returning();
     return created;
   }
 }

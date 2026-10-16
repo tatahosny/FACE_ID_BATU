@@ -25,6 +25,7 @@ export default function AdminSchedulesPage() {
   const [showModal, setShowModal] = useState(false);
   const [formGroupId, setFormGroupId] = useState("");
   const [formSectionId, setFormSectionId] = useState("");
+  const [formSubSection, setFormSubSection] = useState<"ALL" | "A" | "B">("ALL");
   const [formDate, setFormDate] = useState("");
   const [formStartTime, setFormStartTime] = useState("09:00");
   const [formEndTime, setFormEndTime] = useState("13:00");
@@ -33,6 +34,11 @@ export default function AdminSchedulesPage() {
   );
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  // Filters State
+  const [filterGroupId, setFilterGroupId] = useState("ALL");
+  const [filterSectionId, setFilterSectionId] = useState("ALL");
+  const [filterSubSection, setFilterSubSection] = useState<"ALL" | "A" | "B">("ALL");
 
   const venuePresets = [
     "معمل الحاسب الآلي الرئيسي — الطابق الأرضي — شباك تسجيل البصمة",
@@ -88,6 +94,7 @@ export default function AdminSchedulesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sectionId: formSectionId,
+          subSection: formSubSection,
           date: formDate,
           startTime: formStartTime,
           endTime: formEndTime,
@@ -104,6 +111,7 @@ export default function AdminSchedulesPage() {
       setFeedback({ message: "تمت إضافة الموعد ومقر البصمة إلى الجدول الرسمي بنجاح!", type: "success" });
       setShowModal(false);
       setFormSectionId("");
+      setFormSubSection("ALL");
       setFormDate("");
       await fetchSchedules();
     } catch (err: any) {
@@ -234,6 +242,82 @@ export default function AdminSchedulesPage() {
           </p>
         </div>
 
+        {/* Non-Printable Filter Controls */}
+        <div className="print:hidden mb-6 p-4 rounded-2xl bg-slate-950/60 border border-slate-800 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-xs font-bold text-slate-400">تصفية الجدول:</span>
+
+            {/* Filter by Group */}
+            <select
+              value={filterGroupId}
+              onChange={(e) => {
+                setFilterGroupId(e.target.value);
+                setFilterSectionId("ALL");
+              }}
+              className="px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-900 text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="ALL">جميع المجموعات</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+
+            {/* Filter by SubSection A / B */}
+            <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-700 text-xs">
+              <button
+                type="button"
+                onClick={() => setFilterSubSection("ALL")}
+                className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                  filterSubSection === "ALL"
+                    ? "bg-slate-700 text-white shadow"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                الكل
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterSubSection("A")}
+                className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                  filterSubSection === "A"
+                    ? "bg-blue-600 text-white shadow"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                قسم A
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterSubSection("B")}
+                className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                  filterSubSection === "B"
+                    ? "bg-purple-600 text-white shadow"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                قسم B
+              </button>
+            </div>
+          </div>
+
+          <div className="text-xs text-slate-400 font-mono">
+            المواعيد المعروضة:{" "}
+            <span className="text-white font-bold">
+              {
+                schedules.filter((sc) => {
+                  if (filterGroupId !== "ALL" && sc.groupId !== filterGroupId) return false;
+                  if (filterSubSection !== "ALL" && sc.subSection !== "ALL" && sc.subSection !== filterSubSection)
+                    return false;
+                  return true;
+                }).length
+              }
+            </span>{" "}
+            من أصل {schedules.length}
+          </div>
+        </div>
+
         {/* Schedule Table */}
         {loading ? (
           <div className="p-16 text-center text-slate-400 text-sm space-y-3">
@@ -251,6 +335,7 @@ export default function AdminSchedulesPage() {
                 <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-400 text-xs font-black print:bg-slate-100 print:text-slate-800 print:border-b-2 print:border-slate-300">
                   <th className="p-3.5">المجموعة</th>
                   <th className="p-3.5">السكشن</th>
+                  <th className="p-3.5">القسم (A / B)</th>
                   <th className="p-3.5">اليوم والتاريخ</th>
                   <th className="p-3.5">فترة الحضور</th>
                   <th className="p-3.5">المقر والمكان بالتفصيل</th>
@@ -258,37 +343,62 @@ export default function AdminSchedulesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80 text-xs sm:text-sm">
-                {schedules.map((sc) => (
-                  <tr key={sc.id} className="hover:bg-slate-800/40 border-b border-slate-800/60 transition print:bg-white print:border-slate-200">
-                    <td className="p-3.5 font-bold text-white print:text-slate-900">{sc.groupName}</td>
-                    <td className="p-3.5 font-extrabold text-blue-400 font-mono print:text-blue-700">
-                      {sc.sectionName} ({sc.sectionCode})
-                    </td>
-                    <td className="p-3.5 font-bold text-slate-200 print:text-slate-800 flex items-center gap-1.5 pt-4">
-                      <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                      <span>{sc.date}</span>
-                    </td>
-                    <td className="p-3.5 font-mono text-slate-200 font-semibold print:text-slate-900">
-                      من {sc.startTime} إلى {sc.endTime}
-                    </td>
-                    <td className="p-3.5 text-xs text-slate-300 font-medium leading-relaxed max-w-sm print:text-slate-800">
-                      <div className="flex items-start gap-1.5">
-                        <MapPin className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
-                        <span>{sc.notes || "معمل الحاسب الآلي الرئيسي (الدور الأرضي)"}</span>
-                      </div>
-                    </td>
-                    <td className="p-3.5 print:hidden text-center">
-                      <button
-                        onClick={() => handleDeleteSchedule(sc.id)}
-                        className="p-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-300 text-xs font-bold transition border border-red-500/30 inline-flex items-center gap-1"
-                        title="حذف الموعد"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>حذف</span>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {schedules
+                  .filter((sc) => {
+                    if (filterGroupId !== "ALL" && sc.groupId !== filterGroupId) return false;
+                    if (filterSubSection !== "ALL" && sc.subSection !== "ALL" && sc.subSection !== filterSubSection)
+                      return false;
+                    return true;
+                  })
+                  .map((sc) => (
+                    <tr
+                      key={sc.id}
+                      className="hover:bg-slate-800/40 border-b border-slate-800/60 transition print:bg-white print:border-slate-200"
+                    >
+                      <td className="p-3.5 font-bold text-white print:text-slate-900">{sc.groupName}</td>
+                      <td className="p-3.5 font-extrabold text-blue-400 font-mono print:text-blue-700">
+                        {sc.sectionName} ({sc.sectionCode})
+                      </td>
+                      <td className="p-3.5">
+                        {sc.subSection === "A" ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-blue-500/10 text-blue-400 border border-blue-500/30 print:bg-blue-50 print:text-blue-900 print:border-blue-400">
+                            قسم A فقط
+                          </span>
+                        ) : sc.subSection === "B" ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-purple-500/10 text-purple-400 border border-purple-500/30 print:bg-purple-50 print:text-purple-900 print:border-purple-400">
+                            قسم B فقط
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 print:bg-emerald-50 print:text-emerald-900 print:border-emerald-400">
+                            A و B معاً (الكامل)
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-3.5 font-bold text-slate-200 print:text-slate-800 flex items-center gap-1.5 pt-4">
+                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                        <span>{sc.date}</span>
+                      </td>
+                      <td className="p-3.5 font-mono text-slate-200 font-semibold print:text-slate-900">
+                        من {sc.startTime} إلى {sc.endTime}
+                      </td>
+                      <td className="p-3.5 text-xs text-slate-300 font-medium leading-relaxed max-w-sm print:text-slate-800">
+                        <div className="flex items-start gap-1.5">
+                          <MapPin className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
+                          <span>{sc.notes || "معمل الحاسب الآلي الرئيسي (الدور الأرضي)"}</span>
+                        </div>
+                      </td>
+                      <td className="p-3.5 print:hidden text-center">
+                        <button
+                          onClick={() => handleDeleteSchedule(sc.id)}
+                          className="p-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-300 text-xs font-bold transition border border-red-500/30 inline-flex items-center gap-1"
+                          title="حذف الموعد"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>حذف</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>
@@ -370,6 +480,51 @@ export default function AdminSchedulesPage() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              {/* Sub-Section Selector (A / B / ALL) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  القسم المستهدف (تقسيم A و B للسكشن):
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFormSubSection("ALL")}
+                    className={`py-2 px-2.5 rounded-xl text-xs font-bold border transition text-center ${
+                      formSubSection === "ALL"
+                        ? "bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/30"
+                        : "bg-slate-950 text-slate-400 border-slate-700 hover:text-white"
+                    }`}
+                  >
+                    A و B معاً (الكل)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormSubSection("A")}
+                    className={`py-2 px-2.5 rounded-xl text-xs font-bold border transition text-center ${
+                      formSubSection === "A"
+                        ? "bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-600/30"
+                        : "bg-slate-950 text-slate-400 border-slate-700 hover:text-white"
+                    }`}
+                  >
+                    قسم A فقط
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormSubSection("B")}
+                    className={`py-2 px-2.5 rounded-xl text-xs font-bold border transition text-center ${
+                      formSubSection === "B"
+                        ? "bg-purple-600 text-white border-purple-500 shadow-md shadow-purple-600/30"
+                        : "bg-slate-950 text-slate-400 border-slate-700 hover:text-white"
+                    }`}
+                  >
+                    قسم B فقط
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  تحديد الموعد لطلاب قسم A أو قسم B أو السكشن بالكامل (تفعيل مطابق لفترات الحجز).
+                </p>
               </div>
 
               {/* Date */}

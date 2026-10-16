@@ -222,19 +222,28 @@ export class TelegramService {
       const [schedule] = await db
         .select()
         .from(sectionSchedules)
-        .where(eq(sectionSchedules.sectionId, student.sectionId))
+        .where(
+          and(
+            eq(sectionSchedules.sectionId, student.sectionId),
+            sql`(${sectionSchedules.subSection} = ${student.subSection || "A"} OR ${sectionSchedules.subSection} = 'ALL')`
+          )
+        )
         .orderBy(desc(sectionSchedules.date))
         .limit(1);
 
+      const subSectionLabel = schedule?.subSection === "ALL" 
+        ? "لجميع طلاب السكشن" 
+        : `المخصص لطلاب (قسم ${schedule?.subSection || student.subSection || "A"})`;
+
       const scheduleDetails = schedule
-        ? `<b>الموعد المخصص لسكشنك:</b> ${schedule.date} (من ${schedule.startTime} حتى ${schedule.endTime})`
+        ? `<b>الموعد المخصص لسكشنك:</b> ${schedule.date} (من ${schedule.startTime} حتى ${schedule.endTime}) — <i>${subSectionLabel}</i>`
         : `<b>الموعد المخصص لسكشنك:</b> وفق المواعيد المقررة (من 09:00 صباحاً حتى 02:00 ظهراً)`;
 
       const venueDetails = schedule?.notes
         ? schedule.notes
         : `مبنى كلية تكنولوجيا الصناعة والطاقة — الطابق الأرضي — معمل الحاسب الآلي وتكنولوجيا المعلومات (شباك بصمة الوجه)`;
 
-      const confirmationText = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تم توثيق وربط حسابك بنجاح</b>\n\n<b>اسم الطالب:</b> ${student.fullName}\n<b>الرقم الأكاديمي:</b> ${student.academicNumber}\n<b>المجموعة:</b> ${studentAcademic?.groupName || "المجموعة المحددة"}\n<b>السكشن:</b> ${studentAcademic?.sectionName || "السكشن المحدد"}\n\n${scheduleDetails}\n\n<b>المقر والمكان بالتفصيل:</b>\n${venueDetails}\n\n<b>تعليمات هامة:</b>\n• يرجى إحضار بطاقة الرقم القومي الأصلية والكارنيه الجامعي.\n• فور قيام الإدارة بفتح باب حجز الأدوار لسكشنك، ستصلك رسالة فورية هنا للدخول وحجز رقم دورك في الطابور!`;
+      const confirmationText = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تم توثيق وربط حسابك بنجاح</b>\n\n<b>اسم الطالب:</b> ${student.fullName}\n<b>الرقم الأكاديمي:</b> ${student.academicNumber}\n<b>المجموعة:</b> ${studentAcademic?.groupName || "المجموعة المحددة"}\n<b>السكشن:</b> ${studentAcademic?.sectionName || "السكشن المحدد"} (قسم ${student.subSection || "A"})\n\n${scheduleDetails}\n\n<b>المقر والمكان بالتفصيل:</b>\n${venueDetails}\n\n<b>تعليمات هامة:</b>\n• يرجى إحضار بطاقة الرقم القومي الأصلية والكارنيه الجامعي.\n• فور قيام الإدارة بفتح باب حجز الأدوار لسكشنك، ستصلك رسالة فورية هنا للدخول وحجز رقم دورك في الطابور!`;
 
       await this.sendMessage(telegramUserId, confirmationText);
       return { handled: true, success: true, studentId: student.id };

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { sectionSchedules, sections, groups } from "@/db/schema";
-import { eq, asc, desc } from "drizzle-orm";
+import { eq, asc, desc, and, sql } from "drizzle-orm";
 import { requireRole } from "@/lib/security/auth";
 import { USER_ROLES } from "@/lib/constants/statuses";
 import { apiError, apiSuccess } from "@/lib/utils/response";
@@ -10,7 +10,12 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    const list = await db
+    const { searchParams } = new URL(req.url);
+    const groupId = searchParams.get("groupId");
+    const sectionId = searchParams.get("sectionId");
+    const subSection = searchParams.get("subSection");
+
+    let query = db
       .select({
         id: sectionSchedules.id,
         sectionId: sectionSchedules.sectionId,
@@ -21,13 +26,34 @@ export async function GET(req: NextRequest) {
         date: sectionSchedules.date,
         startTime: sectionSchedules.startTime,
         endTime: sectionSchedules.endTime,
+        subSection: sectionSchedules.subSection,
         notes: sectionSchedules.notes,
         createdAt: sectionSchedules.createdAt,
       })
       .from(sectionSchedules)
       .innerJoin(sections, eq(sectionSchedules.sectionId, sections.id))
       .innerJoin(groups, eq(sections.groupId, groups.id))
-      .orderBy(asc(sectionSchedules.date), asc(sectionSchedules.startTime));
+      .$dynamic();
+
+    const conditions = [];
+    if (groupId) {
+      conditions.push(eq(sections.groupId, groupId));
+    }
+    if (sectionId) {
+      conditions.push(eq(sectionSchedules.sectionId, sectionId));
+    }
+    if (subSection && subSection !== "ALL") {
+      conditions.push(
+        // Either exact subSection or ALL
+        sql`(${sectionSchedules.subSection} = ${subSection} OR ${sectionSchedules.subSection} = 'ALL')`
+      );
+    }
+
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions));
+    }
+
+    const list = await query.orderBy(asc(sectionSchedules.date), asc(sectionSchedules.startTime));
 
     return apiSuccess({ schedules: list });
   } catch (error: any) {
@@ -40,11 +66,13 @@ export async function POST(req: NextRequest) {
     await requireRole([USER_ROLES.SUPER_ADMIN]);
 
     const body = await req.json();
-    const { sectionId, date, startTime, endTime, notes } = body;
+    const { sectionId, date, startTime, endTime, subSection, notes } = body;
 
     if (!sectionId || !date || !startTime || !endTime) {
       return apiError("يرجى ملء جميع حقول الموعد المطلوبة (السكشن، التاريخ، وقت البدء والانتهاء)", 400);
     }
+
+    const validSubSection = ["ALL", "A", "B"].includes(subSection) ? subSection : "ALL";
 
     const [schedule] = await db
       .insert(sectionSchedules)
@@ -53,6 +81,7 @@ export async function POST(req: NextRequest) {
         date,
         startTime,
         endTime,
+        subSection: validSubSection,
         notes: notes || "مبنى كلية تكنولوجيا الصناعة والطاقة — الطابق الأرضي — معمل الحاسب الآلي وتكنولوجيا المعلومات (شباك بصمة الوجه رقم 1)",
       })
       .returning();

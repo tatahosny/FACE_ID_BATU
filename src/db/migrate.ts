@@ -117,6 +117,7 @@ export async function runMigrations() {
         date DATE NOT NULL,
         start_time TIME NOT NULL,
         end_time TIME NOT NULL,
+        sub_section VARCHAR(10) NOT NULL DEFAULT 'ALL',
         notes TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
