@@ -278,7 +278,7 @@ export class TelegramService {
         return { handled: true, statusSent: true };
       }
 
-      // Count students ahead
+      // Count students ahead across all sections in unified queue
       const [aheadCount] = await db
         .select({
           count: sql<number>`count(*)::int`,
@@ -286,8 +286,7 @@ export class TelegramService {
         .from(bookings)
         .where(
           and(
-            eq(bookings.bookingWindowId, activeBooking.booking.bookingWindowId),
-            eq(bookings.status, "WAITING"),
+            sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
             sql`${bookings.queueNumber} < ${activeBooking.booking.queueNumber}`
           )
         );

@@ -5,9 +5,14 @@ import * as dotenv from "dotenv";
 
 dotenv.config();
 
-const connectionString =
+const rawConn =
   process.env.DATABASE_URL ||
-  "postgresql://neondb_owner:npg_PwWrK2l4iyZu@ep-rapid-heart-b5kd9qu2-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+  "postgresql://neondb_owner:npg_PwWrK2l4iyZu@ep-rapid-heart-b5kd9qu2-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require";
+const connectionString = rawConn
+  .replace("&channel_binding=require", "")
+  .replace("channel_binding=require&", "")
+  .replace("?channel_binding=require", "?")
+  .replace("channel_binding=require", "");
 
 declare global {
   // eslint-disable-next-line no-var

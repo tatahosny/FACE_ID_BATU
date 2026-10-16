@@ -40,12 +40,25 @@ export async function GET(req: NextRequest) {
 
     const items = await query;
 
-    // Calculate booked counts
-    const formatted = items.map((w) => ({
-      ...w,
-      bookedCount: Math.max(0, w.nextQueueNumber - 1),
-      remainingCapacity: Math.max(0, w.capacity - (w.nextQueueNumber - 1)),
-    }));
+    // Calculate actual booked counts per window
+    const counts = await db
+      .select({
+        windowId: bookings.bookingWindowId,
+        count: sql<number>`cast(count(*) as integer)`,
+      })
+      .from(bookings)
+      .groupBy(bookings.bookingWindowId);
+
+    const countsMap = new Map(counts.map((c) => [c.windowId, c.count]));
+
+    const formatted = items.map((w) => {
+      const bookedCount = countsMap.get(w.id) || 0;
+      return {
+        ...w,
+        bookedCount,
+        remainingCapacity: Math.max(0, w.capacity - bookedCount),
+      };
+    });
 
     return apiSuccess({ windows: formatted });
   } catch (error: any) {

@@ -187,7 +187,6 @@ export class BookingService {
             .from(bookings)
             .where(
               and(
-                eq(bookings.bookingWindowId, window.id),
                 sql`${bookings.status} IN ('WAITING', 'CALLED')`,
                 lt(bookings.queueNumber, existingBooking.queueNumber)
               )
@@ -226,16 +225,30 @@ export class BookingService {
 
       // 6. Queue capacity: Open queueing - every student receives a unique sequential queue number
 
-      // 7. Allocate queue number atomically
-      const assignedQueueNumber = window.nextQueueNumber;
+      // 7. Allocate queue number atomically across ALL sections:
+      // Lock table booking_windows in EXCLUSIVE MODE to prevent concurrent duplicate numbers across transactions
+      await tx.execute(sql`LOCK TABLE booking_windows IN EXCLUSIVE MODE;`);
 
+      const [maxBooking] = await tx
+        .select({ maxQueue: sql<number>`COALESCE(MAX(${bookings.queueNumber}), 0)` })
+        .from(bookings);
+
+      const [maxWindow] = await tx
+        .select({ maxNextQueue: sql<number>`COALESCE(MAX(${bookingWindows.nextQueueNumber}), 1)` })
+        .from(bookingWindows);
+
+      const assignedQueueNumber = Math.max(
+        Number(maxBooking?.maxQueue || 0) + 1,
+        Number(maxWindow?.maxNextQueue || 1)
+      );
+
+      // Keep all booking windows in sync so all sections share the exact same next queue counter
       await tx
         .update(bookingWindows)
         .set({
           nextQueueNumber: assignedQueueNumber + 1,
           updatedAt: new Date(),
-        })
-        .where(eq(bookingWindows.id, window.id));
+        });
 
       // 8. Insert booking record
       const [createdBooking] = await tx
@@ -255,7 +268,6 @@ export class BookingService {
           .from(bookings)
           .where(
             and(
-              eq(bookings.bookingWindowId, window.id),
               sql`${bookings.status} IN ('WAITING', 'CALLED')`,
               ne(bookings.id, createdBooking.id)
             )
@@ -373,7 +385,6 @@ export class BookingService {
       .from(bookings)
       .where(
         and(
-          eq(bookings.bookingWindowId, latestBooking.booking.bookingWindowId),
           sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
           sql`${bookings.queueNumber} < ${latestBooking.booking.queueNumber}`
         )
@@ -461,7 +472,6 @@ export class BookingService {
             .from(bookings)
             .where(
               and(
-                eq(bookings.bookingWindowId, booking.bookingWindowId),
                 sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
                 lt(bookings.queueNumber, booking.queueNumber)
               )
@@ -537,7 +547,6 @@ export class BookingService {
       .from(bookings)
       .where(
         and(
-          eq(bookings.bookingWindowId, booking.bookingWindowId),
           sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
           lt(bookings.queueNumber, booking.queueNumber)
         )
@@ -592,16 +601,19 @@ export class BookingService {
       const { booking, window, student } = bookingData;
 
       // Safe new queue number: Push back behind at least 10 or current window next
-      const newQueueNumber = Math.max(window.nextQueueNumber, booking.queueNumber + 10);
+      const [maxQueueResult] = await tx
+        .select({ maxQueue: sql<number>`COALESCE(MAX(${bookings.queueNumber}), 0)` })
+        .from(bookings);
+      const currentGlobalMax = Math.max(window.nextQueueNumber, Number(maxQueueResult?.maxQueue || 0));
+      const newQueueNumber = Math.max(currentGlobalMax, booking.queueNumber + 10);
 
-      // Update window nextQueueNumber to guarantee uniqueness
+      // Update all booking windows nextQueueNumber to guarantee global uniqueness
       await tx
         .update(bookingWindows)
         .set({
           nextQueueNumber: newQueueNumber + 1,
           updatedAt: new Date(),
-        })
-        .where(eq(bookingWindows.id, window.id));
+        });
 
       // Update booking
       const [updated] = await tx
@@ -943,9 +955,9 @@ export class BookingService {
    * Broadcast updated queue position to all remaining waiting students in a booking window
    * when a preceding student is accepted/completed/moved.
    */
-  static async notifyQueueProgress(bookingWindowId: string) {
+  static async notifyQueueProgress(bookingWindowId?: string) {
     try {
-      // 1. Fetch all active bookings in this window in queue order
+      // 1. Fetch all active bookings in unified queue order across all sections
       const activeBookings = await db
         .select({
           bookingId: bookings.id,
@@ -958,10 +970,7 @@ export class BookingService {
         .from(bookings)
         .innerJoin(students, eq(bookings.studentId, students.id))
         .where(
-          and(
-            eq(bookings.bookingWindowId, bookingWindowId),
-            sql`${bookings.status} IN ('WAITING', 'CALLED')`
-          )
+          sql`${bookings.status} IN ('WAITING', 'CALLED')`
         )
         .orderBy(bookings.queueNumber);
 

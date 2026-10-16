@@ -14,38 +14,30 @@ export class NotificationService {
    * Evaluate queue positions for active windows and automatically enqueue proximity notifications (10 ahead, 5 ahead)
    */
   static async checkAndQueueProximityNotifications(bookingWindowId?: string) {
-    // 1. Identify windows to check
-    const conditions = [eq(bookingWindows.status, BOOKING_WINDOW_STATUSES.OPEN)];
+    // 1. Fetch all waiting students across all open windows in unified queue order
+    const conditions = [
+      eq(bookingWindows.status, BOOKING_WINDOW_STATUSES.OPEN),
+      eq(bookings.status, BOOKING_STATUSES.WAITING),
+    ];
     if (bookingWindowId) {
-      conditions.push(eq(bookingWindows.id, bookingWindowId));
+      conditions.push(eq(bookings.bookingWindowId, bookingWindowId));
     }
 
-    const activeWindows = await db
-      .select({ id: bookingWindows.id })
-      .from(bookingWindows)
-      .where(and(...conditions));
+    const waitingBookings = await db
+      .select({
+        bookingId: bookings.id,
+        queueNumber: bookings.queueNumber,
+        studentId: students.id,
+        fullName: students.fullName,
+        telegramUserId: students.telegramUserId,
+      })
+      .from(bookings)
+      .innerJoin(students, eq(bookings.studentId, students.id))
+      .innerJoin(bookingWindows, eq(bookings.bookingWindowId, bookingWindows.id))
+      .where(and(...conditions))
+      .orderBy(asc(bookings.queueNumber));
 
     let queuedCount = 0;
-
-    for (const win of activeWindows) {
-      // 2. Fetch all waiting students in this window in queue order
-      const waitingBookings = await db
-        .select({
-          bookingId: bookings.id,
-          queueNumber: bookings.queueNumber,
-          studentId: students.id,
-          fullName: students.fullName,
-          telegramUserId: students.telegramUserId,
-        })
-        .from(bookings)
-        .innerJoin(students, eq(bookings.studentId, students.id))
-        .where(
-          and(
-            eq(bookings.bookingWindowId, win.id),
-            eq(bookings.status, BOOKING_STATUSES.WAITING)
-          )
-        )
-        .orderBy(asc(bookings.queueNumber));
 
       // 3. For each waiting student, calculate the exact number of waiting students ahead
       for (let i = 0; i < waitingBookings.length; i++) {
@@ -107,7 +99,6 @@ export class NotificationService {
           }
         }
       }
-    }
 
     return { queuedCount };
   }
