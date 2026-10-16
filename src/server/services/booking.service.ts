@@ -173,9 +173,8 @@ export class BookingService {
         .from(bookings)
         .where(
           and(
-            eq(bookings.bookingWindowId, window.id),
             eq(bookings.studentId, student.id),
-            ne(bookings.status, BOOKING_STATUSES.CANCELLED)
+            sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`
           )
         );
 

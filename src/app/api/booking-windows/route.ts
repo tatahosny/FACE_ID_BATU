@@ -76,6 +76,19 @@ export async function POST(req: NextRequest) {
       return apiError(parsed.error.errors[0].message, 400);
     }
 
+    const [maxBooking] = await db
+      .select({ maxQueue: sql<number>`COALESCE(MAX(${bookings.queueNumber}), 0)` })
+      .from(bookings);
+
+    const [maxWindow] = await db
+      .select({ maxNext: sql<number>`COALESCE(MAX(${bookingWindows.nextQueueNumber}), 1)` })
+      .from(bookingWindows);
+
+    const currentGlobalNext = Math.max(
+      Number(maxBooking?.maxQueue || 0) + 1,
+      Number(maxWindow?.maxNext || 1)
+    );
+
     const [created] = await db
       .insert(bookingWindows)
       .values({
@@ -86,6 +99,7 @@ export async function POST(req: NextRequest) {
         capacity: parsed.data.capacity,
         subSection: parsed.data.subSection || "ALL",
         status: parsed.data.status,
+        nextQueueNumber: currentGlobalNext,
         createdBy: session.userId,
       })
       .returning();
