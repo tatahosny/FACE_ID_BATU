@@ -85,6 +85,49 @@ export default function AdminQueuesPage() {
     }
   };
 
+  const [resetLoading, setResetLoading] = useState(false);
+
+  const handleResetAllTickets = async () => {
+    if (
+      !confirm(
+        "تحذير هام (نهاية اليوم):\nهل أنت متأكد من رغبتك في تصفير أرقام التذاكر لتبدأ من أول 1 لجميع سكاشن المنظومة بالكامل؟\nسيتم مسح سجلات طابور الانتظار الحالي وإعادة تعيين عداد التذاكر ليبدأ من 001 لجميع السكاشن غداً."
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setResetLoading(true);
+      setFeedback(null);
+      const res = await fetch("/api/admin/queues", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reset-all-tickets" }),
+      });
+
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setFeedback({
+          message: json.message || "تم تصفير أرقام التذاكر لتبدأ من 001 بنجاح لجميع سكاشن النظام بالكامل!",
+          type: "success",
+        });
+        await fetchQueues();
+      } else {
+        setFeedback({
+          message: json.error || "فشل إعادة تعيين التذاكر",
+          type: "error",
+        });
+      }
+    } catch (err: any) {
+      setFeedback({
+        message: err.message || "حدث خطأ غير متوقع أثناء تصفير التذاكر",
+        type: "error",
+      });
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -104,14 +147,27 @@ export default function AdminQueuesPage() {
           </p>
         </div>
 
-        <button
-          onClick={fetchQueues}
-          disabled={loading}
-          className="self-start md:self-auto px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold border border-slate-700 shadow-md transition flex items-center gap-2"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-          <span>تحديث الشاشة</span>
-        </button>
+        <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
+          {/* End-of-day Queue Reset Button */}
+          <button
+            onClick={handleResetAllTickets}
+            disabled={resetLoading}
+            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-700 to-indigo-700 hover:from-purple-600 hover:to-indigo-600 text-white text-xs font-bold shadow-lg shadow-purple-700/30 border border-purple-500/40 transition flex items-center gap-2 disabled:opacity-50"
+            title="إعادة تعيين أرقام التذاكر لتبدأ من رقم 1 لجميع سكاشن النظام في نهاية اليوم"
+          >
+            <RotateCcw className={`w-3.5 h-3.5 text-purple-200 ${resetLoading ? "animate-spin" : ""}`} />
+            <span>{resetLoading ? "جاري تصفير التذاكر..." : "تصفير التذاكر لـ 1 (نهاية اليوم)"}</span>
+          </button>
+
+          <button
+            onClick={fetchQueues}
+            disabled={loading}
+            className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold border border-slate-700 shadow-md transition flex items-center gap-2"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            <span>تحديث الشاشة</span>
+          </button>
+        </div>
       </div>
 
       {/* Feedback Alert */}

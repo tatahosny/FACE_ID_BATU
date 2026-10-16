@@ -17,6 +17,8 @@ export async function GET(req: NextRequest) {
     const subSection = searchParams.get("subSection") || undefined;
     const activationStatus = searchParams.get("activationStatus") || undefined;
     const search = searchParams.get("search") || undefined;
+    const staffId = searchParams.get("staffId") || undefined;
+    const activationDate = searchParams.get("activationDate") || undefined;
     const page = parseInt(searchParams.get("page") || "1", 10);
     const limit = parseInt(searchParams.get("limit") || "20", 10);
 
@@ -25,6 +27,8 @@ export async function GET(req: NextRequest) {
       sectionId,
       subSection,
       activationStatus,
+      staffId,
+      activationDate,
       search,
       page,
       limit,

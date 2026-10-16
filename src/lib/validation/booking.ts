@@ -42,6 +42,7 @@ export const updateBookingWindowStatusSchema = z.object({
     BOOKING_WINDOW_STATUSES.PAUSED,
     BOOKING_WINDOW_STATUSES.CLOSED,
   ]).optional(),
+  subSection: z.enum(["ALL", "A", "B"]).optional(),
   action: z.enum(["UPDATE_STATUS", "RESET_TICKETS"]).default("UPDATE_STATUS"),
 });
 

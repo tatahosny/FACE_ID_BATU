@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await requireRole([USER_ROLES.SUPER_ADMIN]);
+    await requireRole([USER_ROLES.SUPER_ADMIN, USER_ROLES.STAFF]);
 
     const staffUsers = await db
       .select({

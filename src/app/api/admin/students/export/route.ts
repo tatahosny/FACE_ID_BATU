@@ -16,6 +16,8 @@ export async function GET(req: NextRequest) {
     const sectionId = searchParams.get("sectionId") || undefined;
     const subSection = searchParams.get("subSection") || undefined;
     const activationStatus = searchParams.get("activationStatus") || undefined;
+    const staffId = searchParams.get("staffId") || undefined;
+    const activationDate = searchParams.get("activationDate") || undefined;
     const search = searchParams.get("search") || undefined;
 
     const buffer = await StudentService.exportStudentsToExcel({
@@ -23,6 +25,8 @@ export async function GET(req: NextRequest) {
       sectionId,
       subSection,
       activationStatus,
+      staffId,
+      activationDate,
       search,
     });
 

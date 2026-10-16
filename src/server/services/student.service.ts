@@ -280,6 +280,8 @@ export class StudentService {
     sectionId?: string;
     subSection?: string; // 'A' | 'B' | 'ALL' | ''
     activationStatus?: string; // 'ACTIVATED' | 'NOT_ACTIVATED' | ''
+    staffId?: string;
+    activationDate?: string; // 'YYYY-MM-DD'
     search?: string;
     page?: number;
     limit?: number;
@@ -316,6 +318,18 @@ export class StudentService {
     } else if (params.activationStatus === "NOT_ACTIVATED") {
       conditions.push(
         sql`NOT EXISTS (SELECT 1 FROM ${fingerprintActivations} WHERE ${fingerprintActivations.studentId} = ${students.id} AND ${fingerprintActivations.status} = 'ACTIVATED')`
+      );
+    }
+
+    if (params.staffId) {
+      conditions.push(
+        sql`EXISTS (SELECT 1 FROM ${fingerprintActivations} WHERE ${fingerprintActivations.studentId} = ${students.id} AND ${fingerprintActivations.status} = 'ACTIVATED' AND ${fingerprintActivations.activatedBy} = ${params.staffId})`
+      );
+    }
+
+    if (params.activationDate) {
+      conditions.push(
+        sql`EXISTS (SELECT 1 FROM ${fingerprintActivations} WHERE ${fingerprintActivations.studentId} = ${students.id} AND ${fingerprintActivations.status} = 'ACTIVATED' AND to_char(${fingerprintActivations.activatedAt} AT TIME ZONE 'Africa/Cairo', 'YYYY-MM-DD') = ${params.activationDate})`
       );
     }
 
@@ -413,24 +427,67 @@ export class StudentService {
       .from(students)
       .where(whereClause);
 
+    // Global counts across the repository
+    const [totalRegResult] = await db
+      .select({ count: sql<number>`cast(count(*) as integer)` })
+      .from(students);
+    const totalRegistered = totalRegResult?.count || 0;
+
+    const [totalActResult] = await db
+      .select({ count: sql<number>`cast(count(DISTINCT ${fingerprintActivations.studentId}) as integer)` })
+      .from(fingerprintActivations)
+      .where(eq(fingerprintActivations.status, "ACTIVATED"));
+    const totalActivated = totalActResult?.count || 0;
+
+    const totalNotActivated = Math.max(0, totalRegistered - totalActivated);
+
+    // Calculate count specifically for the selected staff member and/or date
+    let filteredStaffDateCount: number | null = null;
+    if (params.staffId || params.activationDate) {
+      const actFilterConditions = [eq(fingerprintActivations.status, "ACTIVATED")];
+      if (params.staffId) {
+        actFilterConditions.push(eq(fingerprintActivations.activatedBy, params.staffId));
+      }
+      if (params.activationDate) {
+        actFilterConditions.push(
+          sql`to_char(${fingerprintActivations.activatedAt} AT TIME ZONE 'Africa/Cairo', 'YYYY-MM-DD') = ${params.activationDate}`
+        );
+      }
+      const [filterCountResult] = await db
+        .select({ count: sql<number>`cast(count(DISTINCT ${fingerprintActivations.studentId}) as integer)` })
+        .from(fingerprintActivations)
+        .where(and(...actFilterConditions));
+      filteredStaffDateCount = filterCountResult?.count || 0;
+    }
+
     return {
       items,
       total: count,
       page,
       limit,
       totalPages: Math.ceil(count / limit),
+      stats: {
+        totalRegistered,
+        totalActivated,
+        totalNotActivated,
+        filteredStaffDateCount,
+      },
     };
   }
 
   /**
-   * Export complete Student Directory to an Excel sheet (.xlsx) with Arabic headings,
-   * decrypted National IDs, Section & Sub-Section (قسم A/B), and activation metadata.
+   * Export complete Student Directory to a well-formatted Excel workbook (.xlsx)
+   * Containing 2 distinct sheets:
+   * Sheet 1: "كشف الأسماء بالكامل" (Complete student repository with filters)
+   * Sheet 2: "المفعل عندهم البصمة" (Only students with activated face ID / fingerprint)
    */
   static async exportStudentsToExcel(params: {
     groupId?: string;
     sectionId?: string;
     subSection?: string;
     activationStatus?: string;
+    staffId?: string;
+    activationDate?: string;
     search?: string;
   } = {}) {
     const conditions = [];
@@ -461,6 +518,18 @@ export class StudentService {
     } else if (params.activationStatus === "NOT_ACTIVATED") {
       conditions.push(
         sql`NOT EXISTS (SELECT 1 FROM ${fingerprintActivations} WHERE ${fingerprintActivations.studentId} = ${students.id} AND ${fingerprintActivations.status} = 'ACTIVATED')`
+      );
+    }
+
+    if (params.staffId) {
+      conditions.push(
+        sql`EXISTS (SELECT 1 FROM ${fingerprintActivations} WHERE ${fingerprintActivations.studentId} = ${students.id} AND ${fingerprintActivations.status} = 'ACTIVATED' AND ${fingerprintActivations.activatedBy} = ${params.staffId})`
+      );
+    }
+
+    if (params.activationDate) {
+      conditions.push(
+        sql`EXISTS (SELECT 1 FROM ${fingerprintActivations} WHERE ${fingerprintActivations.studentId} = ${students.id} AND ${fingerprintActivations.status} = 'ACTIVATED' AND to_char(${fingerprintActivations.activatedAt} AT TIME ZONE 'Africa/Cairo', 'YYYY-MM-DD') = ${params.activationDate})`
       );
     }
 
@@ -514,8 +583,8 @@ export class StudentService {
       });
     }
 
-    // Build Excel Row Data
-    const rows = rawStudents.map((s, index) => {
+    // Build Sheet 1: Full Repository Rows
+    const rowsAll = rawStudents.map((s, index) => {
       let nationalId = "غير متوفر";
       try {
         nationalId = decryptNationalId(s.nationalIdEncrypted);
@@ -528,45 +597,86 @@ export class StudentService {
 
       return {
         "م": index + 1,
-        "الاسم بالكامل": s.fullName,
+        "اسم الطالب بالكامل": s.fullName,
         "الرقم القومي": nationalId,
         "الرقم الأكاديمي": s.academicNumber,
         "المجموعة الدراسية": s.groupName,
         "السكشن": s.sectionName,
         "القسم الفرعي": subSectionLabel,
-        "حالة ربط التيليجرام": s.telegramUserId ? "مرتبط" : "غير مرتبط",
-        "معرف التيليجرام": s.telegramUsername ? `@${s.telegramUsername}` : s.telegramUserId ? String(s.telegramUserId) : "—",
         "حالة بصمة الوجه": activation ? "تمت البصمة وتفعيل الوجه" : "قيد الانتظار (لم تبصم بعد)",
         "تاريخ ووقت توثيق البصمة": activation?.activatedAt ? formatCairoDateTime(activation.activatedAt) : "—",
         "الموظف المعتمد للبصمة": activation?.staffName || "—",
+        "حالة ربط التيليجرام": s.telegramUserId ? "مرتبط" : "غير مرتبط",
+        "معرف التيليجرام": s.telegramUsername ? `@${s.telegramUsername}` : s.telegramUserId ? String(s.telegramUserId) : "—",
         "تاريخ تسجيل الطالب بالمنظومة": formatCairoDateTime(s.createdAt),
       };
     });
 
-    const worksheet = XLSX.utils.json_to_sheet(rows);
+    // Build Sheet 2: Only Activated Students Rows
+    const activatedStudents = rawStudents.filter((s) => activationsMap.has(s.id));
+    const rowsActivated = activatedStudents.map((s, index) => {
+      let nationalId = "غير متوفر";
+      try {
+        nationalId = decryptNationalId(s.nationalIdEncrypted);
+      } catch {
+        nationalId = "خطأ في فك التشفير";
+      }
 
-    // Right-to-Left Arabic display in Excel
-    worksheet["!views"] = [{ RTL: true }];
+      const activation = activationsMap.get(s.id)!;
+      const subSectionLabel = s.subSection === "B" ? "قسم B" : "قسم A";
 
-    // Auto-fit column widths
-    worksheet["!cols"] = [
+      return {
+        "م": index + 1,
+        "اسم الطالب بالكامل": s.fullName,
+        "الرقم القومي": nationalId,
+        "الرقم الأكاديمي": s.academicNumber,
+        "المجموعة الدراسية": s.groupName,
+        "السكشن": s.sectionName,
+        "القسم الفرعي": subSectionLabel,
+        "حالة الاعتماد": "معتمد ومفعل رسمياً",
+        "تاريخ وتوقيت تفعيل البصمة": formatCairoDateTime(activation.activatedAt),
+        "الموظف المعتمد للبصمة": activation.staffName,
+        "حساب التيليجرام": s.telegramUsername ? `@${s.telegramUsername}` : s.telegramUserId ? String(s.telegramUserId) : "—",
+      };
+    });
+
+    const worksheetAll = XLSX.utils.json_to_sheet(rowsAll);
+    worksheetAll["!views"] = [{ RTL: true }];
+    worksheetAll["!cols"] = [
       { wch: 6 },  // م
-      { wch: 32 }, // الاسم بالكامل
-      { wch: 18 }, // الرقم القومي
-      { wch: 16 }, // الرقم الأكاديمي
+      { wch: 34 }, // اسم الطالب بالكامل
+      { wch: 20 }, // الرقم القومي
+      { wch: 18 }, // الرقم الأكاديمي
       { wch: 18 }, // المجموعة الدراسية
       { wch: 14 }, // السكشن
       { wch: 14 }, // القسم الفرعي
+      { wch: 28 }, // حالة بصمة الوجه
+      { wch: 26 }, // تاريخ ووقت توثيق البصمة
+      { wch: 24 }, // الموظف المعتمد للبصمة
       { wch: 18 }, // حالة ربط التيليجرام
-      { wch: 20 }, // معرف التيليجرام
-      { wch: 26 }, // حالة بصمة الوجه
-      { wch: 24 }, // تاريخ ووقت توثيق البصمة
-      { wch: 22 }, // الموظف المعتمد للبصمة
-      { wch: 24 }, // تاريخ تسجيل الطالب بالمنظومة
+      { wch: 22 }, // معرف التيليجرام
+      { wch: 26 }, // تاريخ تسجيل الطالب بالمنظومة
+    ];
+
+    const worksheetActivated = XLSX.utils.json_to_sheet(rowsActivated);
+    worksheetActivated["!views"] = [{ RTL: true }];
+    worksheetActivated["!cols"] = [
+      { wch: 6 },  // م
+      { wch: 34 }, // اسم الطالب بالكامل
+      { wch: 20 }, // الرقم القومي
+      { wch: 18 }, // الرقم الأكاديمي
+      { wch: 18 }, // المجموعة الدراسية
+      { wch: 14 }, // السكشن
+      { wch: 14 }, // القسم الفرعي
+      { wch: 22 }, // حالة الاعتماد
+      { wch: 28 }, // تاريخ وتوقيت تفعيل البصمة
+      { wch: 24 }, // الموظف المعتمد للبصمة
+      { wch: 22 }, // حساب التيليجرام
     ];
 
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "دليل الطلاب");
+    XLSX.utils.book_append_sheet(workbook, worksheetAll, "كشف الأسماء بالكامل");
+    XLSX.utils.book_append_sheet(workbook, worksheetActivated, "المفعل عندهم البصمة");
 
     return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
   }

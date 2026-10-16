@@ -49,6 +49,11 @@ export default function AdminBookingWindowsPage() {
       const json = await res.json();
       if (json.success && json.data.windows) {
         setWindows(json.data.windows);
+        const subMap: Record<string, "ALL" | "A" | "B"> = {};
+        json.data.windows.forEach((w: any) => {
+          subMap[w.id] = (w.subSection as "ALL" | "A" | "B") || "ALL";
+        });
+        setTargetSubSections((prev) => ({ ...subMap, ...prev }));
       }
     } catch (err) {
       console.error(err);
@@ -100,23 +105,31 @@ export default function AdminBookingWindowsPage() {
     }
   };
 
-  // Status change per single window
-  const handleStatusChange = async (windowId: string, newStatus: string) => {
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [targetSubSections, setTargetSubSections] = useState<Record<string, "ALL" | "A" | "B">>({});
+
+  // Status change per single window with specific subSection selection
+  const handleStatusChange = async (
+    windowId: string,
+    newStatus: string,
+    subSection?: "ALL" | "A" | "B"
+  ) => {
     try {
+      setActionLoading(windowId);
+      const chosenSubSection = subSection || targetSubSections[windowId] || "ALL";
+
       const res = await fetch(`/api/booking-windows/${windowId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({
+          status: newStatus,
+          subSection: chosenSubSection,
+        }),
       });
       const json = await res.json();
       if (json.success) {
         setMessage({
-          text:
-            newStatus === "OPEN"
-              ? "تم فتح فترة الحجز بنجاح وبث رسالة تيليجرام لجميع طلاب السكشن المسجلين!"
-              : newStatus === "PAUSED" || newStatus === "CLOSED"
-              ? "تم إيقاف فترة الحجز وبث تنبيه فوري عبر التيليجرام لجميع طلاب السكشن لحين إشعار آخر!"
-              : `تم تحديث حالة الفترة إلى ${newStatus}`,
+          text: json.message || "تم تحديث فترة وضوابط الحجز بنجاح",
           type: "success",
         });
         fetchWindows();
@@ -125,57 +138,27 @@ export default function AdminBookingWindowsPage() {
       }
     } catch (err: any) {
       setMessage({ text: err.message, type: "error" });
+    } finally {
+      setActionLoading(null);
     }
   };
 
-  // Reset tickets counter back to 1 for a single window
-  const handleResetTickets = async (windowId: string, sectionTitle: string) => {
+  // Bulk Operations Handler (Open, Pause, Close)
+  const handleBulkAction = async (action: "OPEN" | "PAUSED" | "CLOSED") => {
+    if (selectedIds.length === 0) return;
+
+    const actionName =
+      action === "OPEN"
+        ? "فتح الحجز وإشعار الطلاب"
+        : action === "PAUSED"
+        ? "الإيقاف المؤقت"
+        : "الإغلاق";
     if (
       !confirm(
-        `هل أنت متأكد من رغبتك في إعادة تعيين أرقام التذاكر لتبدأ من أول 1 لـ "${sectionTitle}"؟\nسيتم تصفير أرقام الطابور بالكامل لتبدأ التذاكر الجديدة من 001.`
+        `هل أنت متأكد من تنفيذ عملية (${actionName}) لـ ${selectedIds.length} فترة حجز محددة؟`
       )
     ) {
       return;
-    }
-
-    try {
-      const res = await fetch(`/api/booking-windows/${windowId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "RESET_TICKETS" }),
-      });
-      const json = await res.json();
-      if (json.success) {
-        setMessage({
-          text: `تمت إعادة تعيين أرقام التذاكر لـ "${sectionTitle}" بنجاح لتبدأ من 001!`,
-          type: "success",
-        });
-        fetchWindows();
-      } else {
-        setMessage({ text: json.error || "فشل إعادة تعيين التذاكر", type: "error" });
-      }
-    } catch (err: any) {
-      setMessage({ text: err.message || "حدث خطأ غير متوقع", type: "error" });
-    }
-  };
-
-  // Bulk Operations Handler
-  const handleBulkAction = async (action: "OPEN" | "PAUSED" | "CLOSED" | "RESET_TICKETS") => {
-    if (selectedIds.length === 0) return;
-
-    if (action === "RESET_TICKETS") {
-      if (
-        !confirm(
-          `تحذير: هل أنت متأكد من رغبتك في إعادة تعيين أرقام التذاكر لتبدأ من أول 1 لجميع الفترات المحددة (${selectedIds.length} فترات)؟\nسيتم تصفير أرقام الطوابير بالكامل لتبدأ الحجوزات الجديدة من 001.`
-        )
-      ) {
-        return;
-      }
-    } else {
-      const actionName = action === "OPEN" ? "فتح الحجز وإشعار الطلاب" : action === "PAUSED" ? "الإيقاف المؤقت" : "الإغلاق";
-      if (!confirm(`هل أنت متأكد من تنفيذ عملية (${actionName}) لـ ${selectedIds.length} فترة حجز محددة؟`)) {
-        return;
-      }
     }
 
     try {
@@ -264,7 +247,7 @@ export default function AdminBookingWindowsPage() {
             إدارة فترات وضوابط الحجز لكل سكشن
           </h1>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            التحكم في مواعيد فتح وإيقاف الحجز لكل سكشن وقسم فرعي (A / B)، وإعادة تعيين التذاكر لتبدأ من 1، مع ميزة التحديد المجمع والبث التلقائي عبر التيليجرام.
+            التحكم في مواعيد فتح وإيقاف الحجز لكل سكشن وتحديد القسم المسموح له بالحجز (قسم A أو B أو معاً)، مع إرسال إشعار فوري عبر التيليجرام للطلاب عند الفتح. (تصفير أرقام التذاكر لنهاية اليوم متاح بشاشة الطابور الحي).
           </p>
         </div>
         <button
@@ -350,17 +333,6 @@ export default function AdminBookingWindowsPage() {
               <span>إغلاق مجمّع</span>
             </button>
 
-            {/* Bulk RESET TICKETS back to 1 */}
-            <button
-              onClick={() => handleBulkAction("RESET_TICKETS")}
-              disabled={bulkActionLoading}
-              className="px-3.5 py-2 rounded-xl bg-purple-600/30 hover:bg-purple-600/40 text-purple-200 border border-purple-500/40 text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-purple-600/20 disabled:opacity-50"
-              title="تصفير أرقام التذاكر لتبدأ من 001 لجميع الفترات المحددة"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-purple-300" />
-              <span>إعادة التذاكر لـ 1 (مجمّع)</span>
-            </button>
-
             {/* Clear Selection */}
             <button
               onClick={() => setSelectedIds([])}
@@ -408,11 +380,11 @@ export default function AdminBookingWindowsPage() {
                     </button>
                   </th>
                   <th className="py-4 px-4">المجموعة / السكشن</th>
-                  <th className="py-4 px-4">القسم المستهدف</th>
+                  <th className="py-4 px-4">تحديد القسم المسموح له بالحجز</th>
                   <th className="py-4 px-4">رقم التذكرة القادمة</th>
                   <th className="py-4 px-4">إجمالي المحجوز</th>
                   <th className="py-4 px-4">الحالة</th>
-                  <th className="py-4 px-4 text-center">التحكم الفوري والبث والتذاكر</th>
+                  <th className="py-4 px-4 text-center">التحكم الفوري وبث التيليجرام</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80">
@@ -446,21 +418,67 @@ export default function AdminBookingWindowsPage() {
                         <div className="text-xs text-slate-400">{w.groupName}</div>
                       </td>
 
-                      {/* Targeted Sub-Section */}
+                      {/* Targeted Sub-Section Selection */}
                       <td className="py-4 px-4">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border ${
-                            w.subSection === "B"
-                              ? "bg-purple-950/60 text-purple-300 border-purple-800/60"
-                              : w.subSection === "A"
-                              ? "bg-blue-950/60 text-blue-300 border-blue-800/60"
-                              : "bg-slate-800 text-slate-300 border-slate-700"
-                          }`}
-                        >
-                          {w.subSection === "ALL" || !w.subSection
-                            ? "القسمان (A و B معاً)"
-                            : `قسم ${w.subSection} فقط`}
-                        </span>
+                        <div className="space-y-1.5">
+                          <div className="inline-flex items-center gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-700/60 shadow-inner">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setTargetSubSections((prev) => ({ ...prev, [w.id]: "A" }))
+                              }
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                                (targetSubSections[w.id] || w.subSection) === "A"
+                                  ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 ring-1 ring-blue-400"
+                                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                              }`}
+                              title="السماح لطلاب قسم A فقط بالحجز"
+                            >
+                              <span>قسم A</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setTargetSubSections((prev) => ({ ...prev, [w.id]: "B" }))
+                              }
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                                (targetSubSections[w.id] || w.subSection) === "B"
+                                  ? "bg-purple-600 text-white shadow-md shadow-purple-600/30 ring-1 ring-purple-400"
+                                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                              }`}
+                              title="السماح لطلاب قسم B فقط بالحجز"
+                            >
+                              <span>قسم B</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setTargetSubSections((prev) => ({ ...prev, [w.id]: "ALL" }))
+                              }
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                                (targetSubSections[w.id] || w.subSection) === "ALL"
+                                  ? "bg-teal-600 text-white shadow-md shadow-teal-600/30 ring-1 ring-teal-400"
+                                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                              }`}
+                              title="السماح لقسمي A و B معاً بالحجز"
+                            >
+                              <span>A + B معاً</span>
+                            </button>
+                          </div>
+
+                          <div className="text-[11px] text-slate-400 flex items-center gap-1">
+                            <span>المسموح حالياً:</span>
+                            <span className="font-bold text-slate-200">
+                              {w.subSection === "A"
+                                ? "قسم A فقط"
+                                : w.subSection === "B"
+                                ? "قسم B فقط"
+                                : "القسمين معاً (A و B)"}
+                            </span>
+                          </div>
+                        </div>
                       </td>
 
                       {/* Next Queue Ticket */}
@@ -521,55 +539,90 @@ export default function AdminBookingWindowsPage() {
                       {/* Action Buttons */}
                       <td className="py-4 px-4">
                         <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                          {/* Reset Tickets to 1 Button */}
-                          <button
-                            onClick={() =>
-                              handleResetTickets(
-                                w.id,
-                                `${w.sectionName} (${w.subSection === "ALL" ? "A و B" : `قسم ${w.subSection}`})`
-                              )
-                            }
-                            className="px-2.5 py-1.5 rounded-xl bg-purple-950/40 hover:bg-purple-900/60 text-purple-300 border border-purple-700/40 text-xs font-bold transition flex items-center gap-1 shadow-sm"
-                            title="إعادة تعيين أرقام التذاكر لتبدأ من أول 1"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5 text-purple-400" />
-                            <span>تصفير لـ 1</span>
-                          </button>
-
                           {/* Open & Broadcast */}
-                          {w.status !== "OPEN" && (
+                          {w.status !== "OPEN" ? (
                             <button
-                              onClick={() => handleStatusChange(w.id, "OPEN")}
-                              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold transition flex items-center gap-1 shadow-md shadow-emerald-600/30"
-                              title="فتح الحجز وإرسال إشعار فوري لطلاب هذا السكشن/القسم على التيليجرام"
+                              onClick={() =>
+                                handleStatusChange(
+                                  w.id,
+                                  "OPEN",
+                                  targetSubSections[w.id] || w.subSection
+                                )
+                              }
+                              disabled={actionLoading === w.id}
+                              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-emerald-600/30 disabled:opacity-50"
+                              title={`فتح الحجز وإرسال إشعار فوري لطلاب ${
+                                (targetSubSections[w.id] || w.subSection) === "A"
+                                  ? "قسم A"
+                                  : (targetSubSections[w.id] || w.subSection) === "B"
+                                  ? "قسم B"
+                                  : "قسمي A و B"
+                              } على التيليجرام`}
                             >
                               <Volume2 className="w-3.5 h-3.5" />
-                              <span>فتح وإشعار</span>
+                              <span>
+                                {actionLoading === w.id
+                                  ? "جاري الفتح والبث..."
+                                  : `فتح الحجز وبث (${
+                                      (targetSubSections[w.id] || w.subSection) === "A"
+                                        ? "قسم A"
+                                        : (targetSubSections[w.id] || w.subSection) === "B"
+                                        ? "قسم B"
+                                        : "A و B"
+                                    })`}
+                              </span>
                             </button>
-                          )}
+                          ) : (
+                            <>
+                              {/* If user picked a different subSection while already open, allow updating and rebroadcasting */}
+                              {(targetSubSections[w.id] || w.subSection) !== w.subSection && (
+                                <button
+                                  onClick={() =>
+                                    handleStatusChange(
+                                      w.id,
+                                      "OPEN",
+                                      targetSubSections[w.id]
+                                    )
+                                  }
+                                  disabled={actionLoading === w.id}
+                                  className="px-3 py-1.5 rounded-xl bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/40 text-xs font-bold transition flex items-center gap-1"
+                                  title="تحديث القسم المستهدف وبث إشعار للقسم المختار"
+                                >
+                                  <Volume2 className="w-3.5 h-3.5 text-blue-400" />
+                                  <span>
+                                    تحديث لـ (
+                                    {targetSubSections[w.id] === "A"
+                                      ? "قسم A"
+                                      : targetSubSections[w.id] === "B"
+                                      ? "قسم B"
+                                      : "A و B"}
+                                    )
+                                  </span>
+                                </button>
+                              )}
 
-                          {/* Pause */}
-                          {w.status === "OPEN" && (
-                            <button
-                              onClick={() => handleStatusChange(w.id, "PAUSED")}
-                              className="px-3 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-xs font-semibold transition flex items-center gap-1"
-                              title="إيقاف الحجز مؤقتاً وبث تنبيه للطلاب"
-                            >
-                              <Pause className="w-3.5 h-3.5" />
-                              <span>إيقاف وبث</span>
-                            </button>
-                          )}
+                              {/* Pause */}
+                              <button
+                                onClick={() => handleStatusChange(w.id, "PAUSED")}
+                                disabled={actionLoading === w.id}
+                                className="px-3 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-xs font-semibold transition flex items-center gap-1 disabled:opacity-50"
+                                title="إيقاف الحجز مؤقتاً وبث تنبيه للطلاب"
+                              >
+                                <Pause className="w-3.5 h-3.5" />
+                                <span>إيقاف وبث</span>
+                              </button>
 
-                          {/* Close */}
-                          {w.status !== "CLOSED" && (
-                            <button
-                              onClick={() => handleStatusChange(w.id, "CLOSED")}
-                              className="px-3 py-1.5 rounded-xl bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 text-xs font-semibold transition flex items-center gap-1"
-                              title="إغلاق الحجز نهائياً وبث تنبيه للطلاب"
-                            >
-                              <XCircle className="w-3.5 h-3.5" />
-                              <span>إغلاق الفترة</span>
-                            </button>
+                              {/* Close */}
+                              <button
+                                onClick={() => handleStatusChange(w.id, "CLOSED")}
+                                disabled={actionLoading === w.id}
+                                className="px-3 py-1.5 rounded-xl bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 text-xs font-semibold transition flex items-center gap-1 disabled:opacity-50"
+                                title="إغلاق الحجز نهائياً وبث تنبيه للطلاب"
+                              >
+                                <XCircle className="w-3.5 h-3.5" />
+                                <span>إغلاق الفترة</span>
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>

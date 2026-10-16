@@ -54,18 +54,23 @@ export async function PATCH(
       return apiError("حالة فترة الحجز مطلوبة", 400);
     }
 
+    const updateFields: Record<string, any> = {
+      status: parsed.data.status,
+      updatedAt: new Date(),
+    };
+
+    if (parsed.data.subSection) {
+      updateFields.subSection = parsed.data.subSection;
+    }
+
+    if (parsed.data.status === "OPEN") {
+      updateFields.startsAt = new Date(Date.now() - 60000);
+      updateFields.endsAt = new Date(Date.now() + 86400000 * 7);
+    }
+
     const [updated] = await db
       .update(bookingWindows)
-      .set({
-        status: parsed.data.status,
-        ...(parsed.data.status === "OPEN"
-          ? {
-              startsAt: new Date(Date.now() - 60000),
-              endsAt: new Date(Date.now() + 86400000 * 7),
-            }
-          : {}),
-        updatedAt: new Date(),
-      })
+      .set(updateFields)
       .where(eq(bookingWindows.id, windowId))
       .returning();
 
@@ -103,40 +108,49 @@ export async function PATCH(
       .where(and(...studentConditions));
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "https://face-id-batu-hvk9.vercel.app";
-    const subSectionText = updated.subSection && updated.subSection !== "ALL" ? ` (قسم ${updated.subSection})` : "";
+    const subSectionText =
+      updated.subSection === "A"
+        ? " (قسم A فقط)"
+        : updated.subSection === "B"
+        ? " (قسم B فقط)"
+        : " (قسمي A و B)";
+
+    let sentTelegramCount = 0;
 
     // 1. If opened, broadcast Telegram opening notification
     if (parsed.data.status === "OPEN") {
-      sectionStudents.forEach((st) => {
-        if (!st.telegramUserId) return;
-        const openMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تم فتح حجز دور البصمة للسكشن الخاص بكم الآن!</b>\n\n<b>السكشن:</b> ${sec?.sectionName || "السكشن الأكاديمي"}${subSectionText} (${sec?.groupName || "المجموعة"})\n<b>عزيزي الطالب:</b> ${st.fullName}\n\n<b>يمكنك الآن الدخول إلى المنصة وحجز رقم دورك فوراً:</b>\n<a href="${appUrl}/booking">${appUrl}/booking</a>\n\nيرجى الدخول فوراً واختيار رقم دورك والتواجد بالموعد المحدد.`;
+      const results = await Promise.allSettled(
+        sectionStudents.map(async (st) => {
+          if (!st.telegramUserId) return;
+          const openMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تم فتح حجز دور البصمة للسكشن الخاص بكم الآن!</b>\n\n<b>السكشن:</b> ${sec?.sectionName || "السكشن الأكاديمي"}${subSectionText} (${sec?.groupName || "المجموعة"})\n<b>عزيزي الطالب:</b> ${st.fullName}\n\n<b>يمكنك الآن الدخول إلى المنصة وحجز رقم دورك فوراً:</b>\n<a href="${appUrl}/booking">${appUrl}/booking</a>\n\nيرجى الدخول فوراً واختيار رقم دورك والتواجد بالموعد المحدد.`;
 
-        TelegramService.sendMessage(Number(st.telegramUserId), openMsg).catch((err) => {
-          console.error(`Failed to send window open alert to student ${st.id}:`, err.message);
-        });
-      });
+          return TelegramService.sendMessage(Number(st.telegramUserId), openMsg);
+        })
+      );
+      sentTelegramCount = results.filter((r) => r.status === "fulfilled").length;
     }
 
     // 2. If paused or stopped, broadcast Telegram pause notice to students
     if (parsed.data.status === "PAUSED" || parsed.data.status === "CLOSED") {
-      sectionStudents.forEach((st) => {
-        if (!st.telegramUserId) return;
-        const pauseMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه إيقاف حجز دور البصمة:</b>\n\nأعزائنا طلاب <b>${sec?.sectionName || "السكشن الأكاديمي"}${subSectionText}</b> (${sec?.groupName || "المجموعة"})،\nنحيطكم علماً بأنه قد <b>تم إيقاف حجز دور البصمة لسكشنكم مؤقتاً لحين إشعار آخر بالفتح</b>.\n\nستصلكم رسالة فورية عبر التيليجرام فور استئناف وفتح الحجز لسكشنكم مرة أخرى.`;
+      const results = await Promise.allSettled(
+        sectionStudents.map(async (st) => {
+          if (!st.telegramUserId) return;
+          const pauseMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه إيقاف حجز دور البصمة:</b>\n\nأعزائنا طلاب <b>${sec?.sectionName || "السكشن الأكاديمي"}${subSectionText}</b> (${sec?.groupName || "المجموعة"})،\nنحيطكم علماً بأنه قد <b>تم إيقاف حجز دور البصمة لسكشنكم مؤقتاً لحين إشعار آخر بالفتح</b>.\n\nستصلكم رسالة فورية عبر التيليجرام فور استئناف وفتح الحجز لسكشنكم مرة أخرى.`;
 
-        TelegramService.sendMessage(Number(st.telegramUserId), pauseMsg).catch((err) => {
-          console.error(`Failed to send window pause alert to student ${st.id}:`, err.message);
-        });
-      });
+          return TelegramService.sendMessage(Number(st.telegramUserId), pauseMsg);
+        })
+      );
+      sentTelegramCount = results.filter((r) => r.status === "fulfilled").length;
     }
 
     let successMsg = "تم تحديث حالة فترة الحجز بنجاح";
     if (parsed.data.status === "OPEN") {
-      successMsg = `تم فتح فترة الحجز بنجاح وإرسال إشعار فوري لطلاب ${sec?.sectionName || "السكشن"}${subSectionText} على التيليجرام`;
+      successMsg = `تم فتح فترة الحجز بنجاح لـ ${sec?.sectionName || "السكشن"}${subSectionText} وإرسال إشعار فوري لـ ${sentTelegramCount} طالب مسجل على التيليجرام`;
     } else if (parsed.data.status === "PAUSED" || parsed.data.status === "CLOSED") {
       successMsg = `تم إيقاف حجز ${sec?.sectionName || "السكشن"}${subSectionText} بنجاح وإشعار الطلاب بالإيقاف`;
     }
 
-    return apiSuccess({ window: updated }, successMsg);
+    return apiSuccess({ window: updated, notifiedCount: sentTelegramCount }, successMsg);
   } catch (error: any) {
     if (error.message === "UNAUTHORIZED" || error.message === "FORBIDDEN") {
       return apiError("غير مصرح: هذه العملية متاحة لمدير النظام فقط", 403);

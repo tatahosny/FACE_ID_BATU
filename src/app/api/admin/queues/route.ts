@@ -1,4 +1,6 @@
 import { NextRequest } from "next/server";
+import { db } from "@/db";
+import { bookings, bookingWindows } from "@/db/schema";
 import { BookingService } from "@/server/services/booking.service";
 import { StaffService } from "@/server/services/staff.service";
 import { NotificationService } from "@/server/services/notification.service";
@@ -85,6 +87,25 @@ export async function POST(req: NextRequest) {
           res.telegramSent
             ? "تم تفعيل بصمة الوجه للطالب بنجاح وإرسال رسالة التهنئة والاعتماد على التيليجرام"
             : "تم تفعيل بصمة الوجه للطالب بنجاح!"
+        );
+      }
+
+      case "reset-all-tickets": {
+        await requireRole([USER_ROLES.SUPER_ADMIN]);
+        await db.transaction(async (tx) => {
+          // 1. Delete all bookings to clear queue completely
+          await tx.delete(bookings);
+
+          // 2. Reset nextQueueNumber back to 1 for all booking windows across the entire system
+          await tx.update(bookingWindows).set({
+            nextQueueNumber: 1,
+            updatedAt: new Date(),
+          });
+        });
+
+        return apiSuccess(
+          null,
+          "تمت إعادة تعيين أرقام التذاكر لتبدأ من 001 بنجاح لجميع سكاشن النظام بالكامل، وأصبح الطابور فارغاً وجاهزاً للبدء من جديد."
         );
       }
 

@@ -48,13 +48,32 @@ export default function AdminStudentsPage() {
   const [selectedSection, setSelectedSection] = useState("");
   const [selectedSubSection, setSelectedSubSection] = useState("");
   const [activationFilter, setActivationFilter] = useState("");
+  const [selectedStaff, setSelectedStaff] = useState("");
+  const [selectedDate, setSelectedDate] = useState("");
   const [search, setSearch] = useState("");
+
+  const [staffList, setStaffList] = useState<any[]>([]);
+  const [stats, setStats] = useState<{
+    totalRegistered: number;
+    totalActivated: number;
+    totalNotActivated: number;
+    filteredStaffDateCount: number | null;
+  }>({
+    totalRegistered: 0,
+    totalActivated: 0,
+    totalNotActivated: 0,
+    filteredStaffDateCount: null,
+  });
 
   // Load groups on mount
   useEffect(() => {
     fetch("/api/groups")
       .then((r) => r.json())
       .then((j) => j.success && setGroups(j.data.groups || []));
+
+    fetch("/api/admin/staff")
+      .then((r) => r.json())
+      .then((j) => j.success && setStaffList(j.data?.staff || []));
   }, []);
 
   // Load sections when group changes
@@ -80,6 +99,8 @@ export default function AdminStudentsPage() {
       if (selectedSection) params.set("sectionId", selectedSection);
       if (selectedSubSection) params.set("subSection", selectedSubSection);
       if (activationFilter) params.set("activationStatus", activationFilter);
+      if (selectedStaff) params.set("staffId", selectedStaff);
+      if (selectedDate) params.set("activationDate", selectedDate);
       if (search) params.set("search", search);
 
       const res = await fetch(`/api/students?${params.toString()}`);
@@ -95,6 +116,9 @@ export default function AdminStudentsPage() {
       if (json.success && json.data?.items) {
         setStudents(json.data.items);
         setTotal(json.data.total);
+        if (json.data.stats) {
+          setStats(json.data.stats);
+        }
       } else {
         setStudents([]);
         setTotal(0);
@@ -115,6 +139,8 @@ export default function AdminStudentsPage() {
       if (selectedSection) params.set("sectionId", selectedSection);
       if (selectedSubSection) params.set("subSection", selectedSubSection);
       if (activationFilter) params.set("activationStatus", activationFilter);
+      if (selectedStaff) params.set("staffId", selectedStaff);
+      if (selectedDate) params.set("activationDate", selectedDate);
       if (search) params.set("search", search);
 
       const res = await fetch(`/api/admin/students/export?${params.toString()}`);
@@ -130,7 +156,7 @@ export default function AdminStudentsPage() {
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-      setFeedback({ message: "تم تصدير كشف الطلاب بنجاح بصيغة Excel!", type: "success" });
+      setFeedback({ message: "تم تصدير كشف الطلاب بنجاح بصيغة Excel مع فصل المفعلين بشيت مستقل!", type: "success" });
     } catch (err: any) {
       setFeedback({ message: err.message || "حدث خطأ أثناء تصدير شيت الإكسيل", type: "error" });
     } finally {
@@ -140,7 +166,7 @@ export default function AdminStudentsPage() {
 
   useEffect(() => {
     fetchStudents();
-  }, [page, selectedGroup, selectedSection, selectedSubSection, activationFilter]);
+  }, [page, selectedGroup, selectedSection, selectedSubSection, activationFilter, selectedStaff, selectedDate]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -409,12 +435,107 @@ export default function AdminStudentsPage() {
         </div>
       )}
 
+      {/* Statistics Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Total Registered */}
+        <div className="bg-gradient-to-br from-blue-950/40 via-slate-900 to-slate-900 border border-blue-500/30 rounded-2xl p-4 shadow-xl backdrop-blur-xl relative overflow-hidden group">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400">إجمالي الطلاب المسجلين</span>
+            <div className="w-8 h-8 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400">
+              <Users className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 text-2xl font-black text-white font-mono">
+            {stats.totalRegistered.toLocaleString()}
+          </div>
+          <div className="mt-1 text-[11px] text-blue-400 font-medium">
+            طالب مقيد بالمنظومة المركزية
+          </div>
+        </div>
+
+        {/* Total Biometrics Activated */}
+        <div className="bg-gradient-to-br from-emerald-950/40 via-slate-900 to-slate-900 border border-emerald-500/30 rounded-2xl p-4 shadow-xl backdrop-blur-xl relative overflow-hidden group">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400">البصمة مفعلة (تم التوثيق)</span>
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 text-2xl font-black text-emerald-400 font-mono">
+            {stats.totalActivated.toLocaleString()}
+          </div>
+          <div className="mt-1 text-[11px] text-emerald-400/80 font-medium">
+            طالب تم تفعيل بصمة الوجه لهم بنجاح
+          </div>
+        </div>
+
+        {/* Total Not Activated */}
+        <div className="bg-gradient-to-br from-amber-950/40 via-slate-900 to-slate-900 border border-amber-500/30 rounded-2xl p-4 shadow-xl backdrop-blur-xl relative overflow-hidden group">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400">غير المفعلين (قيد الانتظار)</span>
+            <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+              <Clock className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 text-2xl font-black text-amber-400 font-mono">
+            {stats.totalNotActivated.toLocaleString()}
+          </div>
+          <div className="mt-1 text-[11px] text-amber-400/80 font-medium">
+            طالب بانتظار توثيق وتفعيل البصمة
+          </div>
+        </div>
+
+        {/* Filter-specific Counter (Staff and/or Date) */}
+        <div
+          className={`border rounded-2xl p-4 shadow-xl backdrop-blur-xl relative overflow-hidden transition ${
+            selectedStaff || selectedDate
+              ? "bg-gradient-to-br from-purple-950/50 via-slate-900 to-slate-900 border-purple-500/40 ring-1 ring-purple-500/30"
+              : "bg-slate-900/60 border-slate-800"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400">
+              {selectedStaff && selectedDate
+                ? "تفعيل الموظف بالتاريخ المختار"
+                : selectedStaff
+                ? "إجمالي تفعيل الموظف المختار"
+                : selectedDate
+                ? "إجمالي التفعيل بالتاريخ المختار"
+                : "تخصيص الفرز (موظف / تاريخ)"}
+            </span>
+            <div
+              className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                selectedStaff || selectedDate
+                  ? "bg-purple-500/20 border border-purple-500/40 text-purple-300"
+                  : "bg-slate-800 border border-slate-700 text-slate-500"
+              }`}
+            >
+              <UserCheck className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 text-2xl font-black font-mono text-purple-300">
+            {selectedStaff || selectedDate
+              ? (stats.filteredStaffDateCount ?? 0).toLocaleString()
+              : "—"}
+          </div>
+          <div className="mt-1 text-[11px] text-purple-300/80 font-medium truncate">
+            {selectedStaff || selectedDate
+              ? `${
+                  selectedStaff
+                    ? staffList.find((s) => s.id === selectedStaff)?.fullName || "الموظف"
+                    : "كل الموظفين"
+                } ${selectedDate ? `• يوم ${selectedDate}` : ""}`
+              : "اختر موظفاً أو تاريخاً من الفلتر"}
+          </div>
+        </div>
+      </div>
+
       {/* Filters Bar */}
       <div className="bg-slate-900/90 rounded-2xl border border-slate-800 shadow-xl p-4 sm:p-5 space-y-4 backdrop-blur-xl">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
           {/* Group Filter */}
           <div>
-            <label className="block text-xs font-bold text-slate-300 mb-1">تصفية بالمجموعة:</label>
+            <label className="block text-xs font-bold text-slate-300 mb-1">المجموعة:</label>
             <select
               value={selectedGroup}
               onChange={(e) => {
@@ -434,7 +555,7 @@ export default function AdminStudentsPage() {
 
           {/* Section Filter */}
           <div>
-            <label className="block text-xs font-bold text-slate-300 mb-1">تصفية بالسكشن:</label>
+            <label className="block text-xs font-bold text-slate-300 mb-1">السكشن:</label>
             <select
               value={selectedSection}
               onChange={(e) => {
@@ -455,7 +576,7 @@ export default function AdminStudentsPage() {
 
           {/* Sub-Section Filter */}
           <div>
-            <label className="block text-xs font-bold text-slate-300 mb-1">القسم الفرعي للسكشن:</label>
+            <label className="block text-xs font-bold text-slate-300 mb-1">القسم الفرعي:</label>
             <select
               value={selectedSubSection}
               onChange={(e) => {
@@ -487,30 +608,85 @@ export default function AdminStudentsPage() {
             </select>
           </div>
 
+          {/* Staff Member Filter */}
+          <div>
+            <label className="block text-xs font-bold text-slate-300 mb-1">الموظف المعتمد للبصمة:</label>
+            <select
+              value={selectedStaff}
+              onChange={(e) => {
+                setSelectedStaff(e.target.value);
+                setPage(1);
+              }}
+              className="w-full px-3 py-2 rounded-xl border border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-950 text-white"
+            >
+              <option value="">جميع الموظفين (الكل)</option>
+              {staffList.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.fullName} ({s.role === "SUPER_ADMIN" ? "مدير" : "موظف"})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Activation Date Filter */}
+          <div>
+            <label className="block text-xs font-bold text-slate-300 mb-1">تاريخ توثيق البصمة:</label>
+            <div className="relative">
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => {
+                  setSelectedDate(e.target.value);
+                  setPage(1);
+                }}
+                className="w-full px-3 py-2 rounded-xl border border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-950 text-white"
+              />
+              {selectedDate && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedDate("");
+                    setPage(1);
+                  }}
+                  className="absolute left-2 top-2 text-slate-400 hover:text-white"
+                  title="مسح التاريخ"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* Search Input */}
           <div>
             <label className="block text-xs font-bold text-slate-300 mb-1">بحث سريع:</label>
-            <form onSubmit={handleSearchSubmit} className="flex gap-2">
+            <form onSubmit={handleSearchSubmit} className="flex gap-1.5">
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="اسم أو رقم أكاديمي..."
+                placeholder="اسم أو رقم..."
                 className="w-full px-3 py-2 rounded-xl border border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white placeholder-slate-500"
               />
               <button
                 type="submit"
                 className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 flex items-center gap-1"
+                title="تنفيذ البحث"
               >
                 <Search className="w-3.5 h-3.5" />
-                <span>بحث</span>
               </button>
             </form>
           </div>
         </div>
 
         {/* Clear Filters Helper */}
-        {(selectedGroup || selectedSection || selectedSubSection || activationFilter || search) && (
+        {(selectedGroup ||
+          selectedSection ||
+          selectedSubSection ||
+          activationFilter ||
+          selectedStaff ||
+          selectedDate ||
+          search) && (
           <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
             <span className="text-slate-400">الفلاتر النشطة تطبق على القائمة حالياً.</span>
             <button
@@ -519,6 +695,8 @@ export default function AdminStudentsPage() {
                 setSelectedSection("");
                 setSelectedSubSection("");
                 setActivationFilter("");
+                setSelectedStaff("");
+                setSelectedDate("");
                 setSearch("");
                 setPage(1);
               }}
