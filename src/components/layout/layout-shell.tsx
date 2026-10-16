@@ -42,8 +42,8 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
               حجز الدور والمتابعة
             </Link>
             <span>•</span>
-            <Link href="/profile" className="hover:text-blue-400 transition text-slate-400">
-              الملف الشخصي (تغيير كلمة المرور)
+            <Link href="/settings" className="hover:text-blue-400 transition text-slate-400">
+              إعدادات الحساب (تعديل كلمة المرور)
             </Link>
             <span>•</span>
             <a

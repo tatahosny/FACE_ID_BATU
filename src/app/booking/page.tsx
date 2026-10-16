@@ -16,6 +16,8 @@ import {
   MapPin,
   RefreshCw,
   ExternalLink,
+  KeyRound,
+  Settings,
 } from "lucide-react";
 
 export default function BookingPage() {
@@ -130,6 +132,25 @@ export default function BookingPage() {
       <div className="absolute bottom-1/4 -left-20 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
 
       <div className="max-w-2xl w-full space-y-8 relative z-10">
+        {/* Top Quick Navigation */}
+        <div className="flex items-center justify-between pb-1">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 hover:text-white transition px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-800"
+          >
+            <ArrowRight className="w-3.5 h-3.5" />
+            <span>الرئيسية</span>
+          </Link>
+
+          <Link
+            href="/settings"
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-cyan-300 hover:text-white transition px-3.5 py-1.5 rounded-xl bg-cyan-950/40 border border-cyan-800/40 hover:bg-cyan-900/40 shadow-sm"
+          >
+            <KeyRound className="w-3.5 h-3.5 text-cyan-400" />
+            <span>إعدادات الحساب وكلمة المرور</span>
+          </Link>
+        </div>
+
         {/* Header Title */}
         <div className="text-center space-y-3">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs font-mono">
@@ -150,9 +171,8 @@ export default function BookingPage() {
         <div className="bg-slate-900/90 rounded-3xl border border-slate-800 p-6 sm:p-8 shadow-2xl backdrop-blur-xl space-y-6">
           <form onSubmit={handleLookup} className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-slate-300 mb-2 flex items-center justify-between">
-                <span>الرقم الأكاديمي للطالب:</span>
-                <span className="text-[11px] text-slate-400 font-normal">مثال: 2421204</span>
+              <label className="block text-xs font-bold text-slate-300 mb-2">
+                الرقم الأكاديمي للطالب:
               </label>
 
               <div className="relative">

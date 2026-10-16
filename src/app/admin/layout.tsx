@@ -26,6 +26,7 @@ import {
   Zap,
   LogIn,
   AlertTriangle,
+  KeyRound,
 } from "lucide-react";
 
 export default function AdminLayout({
@@ -88,7 +89,12 @@ export default function AdminLayout({
 
   const isSuperAdmin = sessionUser?.role === "SUPER_ADMIN";
   const isStaff = sessionUser?.role === "STAFF";
-  const staffAllowedHrefs = new Set(["/admin", "/admin/queues", "/admin/students"]);
+  const staffAllowedHrefs = new Set([
+    "/admin",
+    "/admin/queues",
+    "/admin/students",
+    "/admin/account-settings",
+  ]);
 
   // Route protection guard: redirect STAFF from restricted pages
   useEffect(() => {
@@ -129,6 +135,7 @@ export default function AdminLayout({
     {
       title: "الأمان وإدارة المنظومة",
       items: [
+        { label: "إعدادات الحساب وكلمة المرور", href: "/admin/account-settings", icon: KeyRound, highlight: true },
         { label: "طاقم عمل وموظفي البصمة", href: "/admin/staff", icon: Users },
         { label: "سجل التدقيق الأمني (Audit)", href: "/admin/audit-logs", icon: ShieldCheck },
         { label: "إعدادات النظام العامة", href: "/admin/settings", icon: Settings },
@@ -252,13 +259,13 @@ export default function AdminLayout({
             {sessionUser ? (
               <>
                 <Link
-                  href="/profile"
+                  href="/admin/account-settings"
                   className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm text-white shadow-md border hover:scale-105 transition ${
                     isStaff
                       ? "bg-gradient-to-tr from-cyan-700 to-blue-800 border-cyan-500/40"
                       : "bg-gradient-to-tr from-blue-700 to-indigo-800 border-blue-500/40"
                   }`}
-                  title="الملف الشخصي وإعدادات الحساب وتغيير كلمة المرور"
+                  title="إعدادات الحساب وتغيير كلمة المرور"
                 >
                   {isStaff ? "ST" : "SA"}
                 </Link>
