@@ -251,13 +251,17 @@ export default function AdminLayout({
           <div className="flex items-center gap-3 pl-1 border-r border-slate-800 pr-3">
             {sessionUser ? (
               <>
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm text-white shadow-md border ${
-                  isStaff
-                    ? "bg-gradient-to-tr from-cyan-700 to-blue-800 border-cyan-500/40"
-                    : "bg-gradient-to-tr from-blue-700 to-indigo-800 border-blue-500/40"
-                }`}>
+                <Link
+                  href="/profile"
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm text-white shadow-md border hover:scale-105 transition ${
+                    isStaff
+                      ? "bg-gradient-to-tr from-cyan-700 to-blue-800 border-cyan-500/40"
+                      : "bg-gradient-to-tr from-blue-700 to-indigo-800 border-blue-500/40"
+                  }`}
+                  title="الملف الشخصي وإعدادات الحساب وتغيير كلمة المرور"
+                >
                   {isStaff ? "ST" : "SA"}
-                </div>
+                </Link>
                 <button
                   onClick={handleLogout}
                   className="p-2 rounded-xl text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition text-xs font-bold flex items-center gap-1.5"

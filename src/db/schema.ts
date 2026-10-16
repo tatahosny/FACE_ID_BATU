@@ -52,6 +52,8 @@ export const users = pgTable("users", {
   role: varchar("role", { length: 20 }).default("STUDENT").notNull(), // 'SUPER_ADMIN' | 'STAFF' | 'STUDENT'
   fullName: varchar("full_name", { length: 255 }).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
+  bannedUntil: timestamp("banned_until", { withTimezone: true }),
+  banReason: text("ban_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -77,6 +79,9 @@ export const students = pgTable(
     telegramUsername: varchar("telegram_username", { length: 100 }),
     telegramLinkedAt: timestamp("telegram_linked_at", { withTimezone: true }),
     isActive: boolean("is_active").default(true).notNull(),
+    bannedUntil: timestamp("banned_until", { withTimezone: true }),
+    banReason: text("ban_reason"),
+    passwordHash: text("password_hash"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

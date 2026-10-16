@@ -5,13 +5,14 @@ import { eq, or } from "drizzle-orm";
 import { comparePassword, createSessionToken, AUTH_COOKIE_NAME } from "@/lib/security/auth";
 import { computeNationalIdHash } from "@/lib/security/crypto";
 import { checkRateLimit } from "@/lib/security/rate-limit";
+import { formatCairoDateTime } from "@/lib/utils/datetime";
 import { apiError, apiSuccess } from "@/lib/utils/response";
 import { z } from "zod";
 
 const loginSchema = z.object({
   // Can be email (for staff/admin) or academicNumber (for student)
   identifier: z.string().trim().min(3, "يرجى إدخال البريد الإلكتروني أو الرقم الأكاديمي"),
-  // Password for staff/admin OR nationalId for student
+  // Password for staff/admin OR nationalId/password for student
   secret: z.string().trim().min(6, "يرجى إدخال كلمة المرور أو الرقم القومي"),
 });
 
@@ -46,7 +47,11 @@ export async function POST(req: NextRequest) {
         return apiError("بيانات الدخول غير صحيحة", 401);
       }
       if (!adminUser.isActive) {
-        return apiError("هذا الحساب معطل حالياً، يرجى مراجعة إدارة الكلية", 403);
+        return apiError("هذا الحساب مغلق / معطل حالياً من قِبل مسؤول النظام العام", 403);
+      }
+      if (adminUser.bannedUntil && new Date(adminUser.bannedUntil) > new Date()) {
+        const reasonPart = adminUser.banReason ? ` - سبب الحظر: ${adminUser.banReason}` : "";
+        return apiError(`تم حظر هذا الحساب مؤقتاً حتى ${formatCairoDateTime(adminUser.bannedUntil)}${reasonPart}`, 403);
       }
 
       const token = await createSessionToken({
@@ -86,13 +91,25 @@ export async function POST(req: NextRequest) {
       .where(eq(students.academicNumber, identifier.trim()));
 
     if (student) {
-      // Validate National ID using zero-knowledge HMAC hash
-      const secretHash = computeNationalIdHash(secret);
-      if (student.nationalIdHash !== secretHash) {
+      // Validate custom password if set, otherwise validate National ID using HMAC hash
+      let isStudentMatch = false;
+      if (student.passwordHash) {
+        isStudentMatch = await comparePassword(secret, student.passwordHash);
+      }
+      if (!isStudentMatch) {
+        const secretHash = computeNationalIdHash(secret);
+        isStudentMatch = student.nationalIdHash === secretHash;
+      }
+
+      if (!isStudentMatch) {
         return apiError("بيانات الدخول غير صحيحة", 401);
       }
       if (!student.isActive) {
-        return apiError("حساب الطالب معطل، يرجى مراجعة إدارة الكلية", 403);
+        return apiError("حساب الطالب مغلق / معطل حالياً، يرجى مراجعة إدارة الكلية", 403);
+      }
+      if (student.bannedUntil && new Date(student.bannedUntil) > new Date()) {
+        const reasonPart = student.banReason ? ` - سبب الحظر: ${student.banReason}` : "";
+        return apiError(`تم حظر حسابك مؤقتاً حتى ${formatCairoDateTime(student.bannedUntil)}${reasonPart}`, 403);
       }
 
       const token = await createSessionToken({
