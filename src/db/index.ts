@@ -24,18 +24,18 @@ let pool: Pool;
 if (process.env.NODE_ENV === "production") {
   pool = new Pool({
     connectionString,
-    max: 20,
+    max: 30,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000,
+    connectionTimeoutMillis: 15000,
     ssl: { rejectUnauthorized: false },
   });
 } else {
   if (!global._pgPool) {
     global._pgPool = new Pool({
       connectionString,
-      max: 10,
+      max: 20,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
+      connectionTimeoutMillis: 15000,
       ssl: { rejectUnauthorized: false },
     });
   }

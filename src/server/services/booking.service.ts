@@ -21,19 +21,28 @@ import { decryptNationalId } from "@/lib/security/crypto";
  * and ensure zero collisions under heavy load.
  */
 class BookingQueueLock {
-  private queue: Promise<any> = Promise.resolve();
+  private queue: Promise<void> = Promise.resolve();
 
   async acquire<T>(fn: () => Promise<T>): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      this.queue = this.queue.then(async () => {
+    let resolveRes!: (val: T) => void;
+    let rejectRes!: (err: any) => void;
+    const promise = new Promise<T>((resolve, reject) => {
+      resolveRes = resolve;
+      rejectRes = reject;
+    });
+
+    this.queue = this.queue
+      .catch(() => {})
+      .then(async () => {
         try {
           const result = await fn();
-          resolve(result);
+          resolveRes(result);
         } catch (err) {
-          reject(err);
+          rejectRes(err);
         }
       });
-    });
+
+    return promise;
   }
 }
 
@@ -138,7 +147,8 @@ export class BookingService {
    * Acquires row lock on the booking window to prevent race conditions and duplicate queue numbers.
    */
   static async createBooking(studentId: string, bookingWindowId: string, idempotencyKey?: string) {
-    return await bookingQueueLock.acquire(async () => {
+    let pendingTelegramNotification: { chatId: number; message: string } | null = null;
+    const result = await bookingQueueLock.acquire(async () => {
       return await db.transaction(async (tx) => {
         // 1. Fetch student
         const [student] = await tx
@@ -235,11 +245,10 @@ export class BookingService {
 <b>المقر:</b> الواحة — مبنى الشؤون (شباك بصمة الوجه)
 ستصلك رسالة تنبيهية فور المناداة على دورك.`;
 
-            try {
-              await TelegramService.sendMessage(Number(student.telegramUserId), reminderMsg);
-            } catch (err: any) {
-              console.error("[BookingService] Failed to send existing booking reminder:", err.message);
-            }
+            pendingTelegramNotification = {
+              chatId: Number(student.telegramUserId),
+              message: reminderMsg,
+            };
           }
 
           return {
@@ -247,30 +256,33 @@ export class BookingService {
             formattedQueueNumber: formatQueueNumber(existingBooking.queueNumber),
             desk: existingBooking.desk || "T",
             isExisting: true,
+            pendingTelegramNotification,
           };
         }
 
         // 6. Queue capacity: Open queueing - every student receives a unique sequential queue number
 
-        // 7. Lock booking_windows table in EXCLUSIVE MODE to serialize atomic queue allocation across concurrent requests
-        await tx.execute(sql`LOCK TABLE booking_windows IN EXCLUSIVE MODE;`);
+        // 7. Atomic desk allocation & independent next queue number calculation in a single fast query
+        const deskQueryRes = await tx.execute(sql<{
+          last_desk: string | null;
+          max_t: string | number;
+          max_d: string | number;
+        }>`
+          SELECT 
+            (SELECT desk FROM bookings ORDER BY created_at DESC LIMIT 1) AS last_desk,
+            (SELECT COALESCE(MAX(queue_number), 0) FROM bookings WHERE desk = 'T') AS max_t,
+            (SELECT COALESCE(MAX(queue_number), 0) FROM bookings WHERE desk = 'D') AS max_d
+        `);
 
-        // Determine desk assignment alternating between T and D based on last created booking: "واحد T وواحد D كدة وكدة"
-        const [lastBooking] = await tx
-          .select({ desk: bookings.desk })
-          .from(bookings)
-          .orderBy(desc(bookings.createdAt))
-          .limit(1);
+        const deskStats = (deskQueryRes.rows?.[0] || {}) as {
+          last_desk?: string | null;
+          max_t?: string | number;
+          max_d?: string | number;
+        };
 
-        const assignedDesk: "T" | "D" = lastBooking?.desk === "T" ? "D" : "T";
-
-        // Separate independent numbering per desk: "شباك D طابوره 1 و2 و3.. وشباك T برضو 1 و2 و3"
-        const [maxDeskBooking] = await tx
-          .select({ maxQueue: sql<number>`COALESCE(MAX(${bookings.queueNumber}), 0)` })
-          .from(bookings)
-          .where(eq(bookings.desk, assignedDesk));
-
-        const assignedQueueNumber = Number(maxDeskBooking?.maxQueue || 0) + 1;
+        const assignedDesk: "T" | "D" = deskStats.last_desk === "T" ? "D" : "T";
+        const maxQueueForDesk = assignedDesk === "T" ? Number(deskStats.max_t || 0) : Number(deskStats.max_d || 0);
+        const assignedQueueNumber = maxQueueForDesk + 1;
 
         // Keep booking windows updatedAt synced
         await tx
@@ -358,12 +370,11 @@ export class BookingService {
             idempotencyKey: outboxKey,
           });
 
-          // Send instant message directly to student via Telegram API (awaited)
-          try {
-            await TelegramService.sendMessage(Number(student.telegramUserId), telegramText);
-          } catch (err: any) {
-            console.error("[BookingService] Failed to send instant Telegram message:", err.message);
-          }
+          // Queue telegram message for background dispatch outside transaction
+          pendingTelegramNotification = {
+            chatId: Number(student.telegramUserId),
+            message: telegramText,
+          };
         }
 
         // 10. Audit log
@@ -384,9 +395,27 @@ export class BookingService {
           formattedQueueNumber: formatQueueNumber(assignedQueueNumber),
           desk: assignedDesk,
           isExisting: false,
+          pendingTelegramNotification,
         };
       });
     });
+
+    // Send instant message directly to student via Telegram API outside the database transaction
+    if (result.pendingTelegramNotification) {
+      TelegramService.sendMessage(
+        result.pendingTelegramNotification.chatId,
+        result.pendingTelegramNotification.message
+      ).catch((err: any) => {
+        console.error("[BookingService] Failed to send instant Telegram message:", err?.message || err);
+      });
+    }
+
+    return {
+      booking: result.booking,
+      formattedQueueNumber: result.formattedQueueNumber,
+      desk: result.desk,
+      isExisting: result.isExisting,
+    };
   }
 
   /**

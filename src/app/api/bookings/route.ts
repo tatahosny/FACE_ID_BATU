@@ -15,8 +15,9 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   try {
     const ip = req.headers.get("x-forwarded-for") || "local";
-    const rateLimit = checkRateLimit(`booking:${ip}`, 30, 60 * 1000);
-    if (!rateLimit.success) {
+    // Allow up to 300 requests/minute per IP to comfortably handle shared college Wi-Fi / NAT
+    const ipRateLimit = checkRateLimit(`booking_ip:${ip}`, 300, 60 * 1000);
+    if (!ipRateLimit.success) {
       return apiError("يرجى الانتظار قليلاً قبل تقديم طلب حجز آخر", 429, "RATE_LIMIT");
     }
 
@@ -24,6 +25,18 @@ export async function POST(req: NextRequest) {
     const parsed = createBookingSchema.safeParse(body);
     if (!parsed.success) {
       return apiError(parsed.error.errors[0].message, 400);
+    }
+
+    // Rate limit per individual student (5 attempts per minute) to prevent duplicate clicks/spam
+    if (parsed.data.academicNumber) {
+      const studentRateLimit = checkRateLimit(
+        `booking_student:${parsed.data.academicNumber.trim()}`,
+        5,
+        60 * 1000
+      );
+      if (!studentRateLimit.success) {
+        return apiError("تم استلام طلبك بالفعل، يرجى الانتظار بضع ثوانٍ.", 429, "RATE_LIMIT");
+      }
     }
 
     let studentId: string | null = null;
