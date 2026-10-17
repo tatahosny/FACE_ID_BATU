@@ -40,13 +40,15 @@ export class NotificationService {
 
     let queuedCount = 0;
 
-      // 3. For each waiting student, calculate the exact number of waiting students ahead
-      for (let i = 0; i < waitingBookings.length; i++) {
-        const item = waitingBookings[i];
+    // 3. For each waiting student per desk, calculate the exact number of waiting students ahead in their desk
+    const desks = ["T", "D"] as const;
+    for (const deskName of desks) {
+      const deskWaiting = waitingBookings.filter((b) => (b.desk || "T") === deskName);
+      for (let i = 0; i < deskWaiting.length; i++) {
+        const item = deskWaiting[i];
         if (!item.telegramUserId) continue; // Not linked
 
-        const studentsAhead = i; // Array is ordered by queueNumber, so index i is exactly count ahead
-        const deskName = item.desk || "T";
+        const studentsAhead = i; // Array is ordered by queueNumber per desk, so index i is count ahead in this desk
 
         if (studentsAhead === 10) {
           const idempotencyKey = `proximity_10_${item.bookingId}`;
@@ -104,6 +106,7 @@ export class NotificationService {
           }
         }
       }
+    }
 
     return { queuedCount };
   }

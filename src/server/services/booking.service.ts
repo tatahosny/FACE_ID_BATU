@@ -205,11 +205,13 @@ export class BookingService {
         if (existingBooking) {
           // Also deliver current queue status to student via Telegram
           if (student.telegramUserId) {
+            const deskName = existingBooking.desk || "T";
             const [aheadResult] = await tx
               .select({ count: sql<number>`count(*)` })
               .from(bookings)
               .where(
                 and(
+                  eq(bookings.desk, deskName),
                   sql`${bookings.status} IN ('WAITING', 'CALLED')`,
                   lt(bookings.queueNumber, existingBooking.queueNumber)
                 )
@@ -218,7 +220,6 @@ export class BookingService {
             const currentTurn = peopleAhead + 1;
             const formattedNum = formatQueueNumber(existingBooking.queueNumber);
             const formattedTurn = formatQueueNumber(currentTurn);
-            const deskName = existingBooking.desk || "T";
 
             const reminderMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
@@ -251,41 +252,34 @@ export class BookingService {
 
         // 6. Queue capacity: Open queueing - every student receives a unique sequential queue number
 
-        // 7. Allocate queue number atomically across ALL sections:
-        // Lock table booking_windows in EXCLUSIVE MODE to prevent concurrent duplicate numbers across transactions
+        // 7. Lock booking_windows table in EXCLUSIVE MODE to serialize atomic queue allocation across concurrent requests
         await tx.execute(sql`LOCK TABLE booking_windows IN EXCLUSIVE MODE;`);
 
-        const [maxBooking] = await tx
-          .select({ maxQueue: sql<number>`COALESCE(MAX(${bookings.queueNumber}), 0)` })
-          .from(bookings);
-
-        const [maxWindow] = await tx
-          .select({ maxNextQueue: sql<number>`COALESCE(MAX(${bookingWindows.nextQueueNumber}), 1)` })
-          .from(bookingWindows);
-
-        const assignedQueueNumber = Math.max(
-          Number(maxBooking?.maxQueue || 0) + 1,
-          Number(maxWindow?.maxNextQueue || 1)
-        );
-
-        // Determine desk assignment alternating between T and D: "واحد T وواحد D كدة وكدة"
+        // Determine desk assignment alternating between T and D based on last created booking: "واحد T وواحد D كدة وكدة"
         const [lastBooking] = await tx
           .select({ desk: bookings.desk })
           .from(bookings)
-          .orderBy(desc(bookings.queueNumber))
+          .orderBy(desc(bookings.createdAt))
           .limit(1);
 
         const assignedDesk: "T" | "D" = lastBooking?.desk === "T" ? "D" : "T";
 
-        // Keep all booking windows in sync so all sections share the exact same next queue counter
+        // Separate independent numbering per desk: "شباك D طابوره 1 و2 و3.. وشباك T برضو 1 و2 و3"
+        const [maxDeskBooking] = await tx
+          .select({ maxQueue: sql<number>`COALESCE(MAX(${bookings.queueNumber}), 0)` })
+          .from(bookings)
+          .where(eq(bookings.desk, assignedDesk));
+
+        const assignedQueueNumber = Number(maxDeskBooking?.maxQueue || 0) + 1;
+
+        // Keep booking windows updatedAt synced
         await tx
           .update(bookingWindows)
           .set({
-            nextQueueNumber: assignedQueueNumber + 1,
             updatedAt: new Date(),
           });
 
-        // 8. Insert booking record
+        // 8. Insert booking record with independent desk queue number and ticket number
         const [createdBooking] = await tx
           .insert(bookings)
           .values({
@@ -305,6 +299,7 @@ export class BookingService {
             .from(bookings)
             .where(
               and(
+                eq(bookings.desk, assignedDesk),
                 sql`${bookings.status} IN ('WAITING', 'CALLED')`,
                 ne(bookings.id, createdBooking.id)
               )
@@ -324,12 +319,12 @@ export class BookingService {
 <b>اسم الطالب:</b> ${student.fullName}
 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
 <b>الشباك المخصص:</b> <code>شباك ${assignedDesk}</code>
-<b>رقم دورك الحالي في الطابور:</b> <code>#${formattedTurn}</code> (تذكرة حجز رقم: <code>#${formattedNum}</code>)
-<b>حالة الطابور:</b> ${peopleAhead === 0 ? "أنت أول شخص في الطابور الآن!" : `باقي أمامك ${peopleAhead} أشخاص فقط في الانتظار`}
+<b>رقم دورك في طابور شباك ${assignedDesk}:</b> <code>#${formattedTurn}</code> (تذكرة حجز رقم: <code>#${formattedNum}</code>)
+<b>حالة الطابور:</b> ${peopleAhead === 0 ? `أنت أول شخص في طابور شباك ${assignedDesk} الآن!` : `باقي أمامك ${peopleAhead} أشخاص في طابور شباك ${assignedDesk}`}
 
 <b>تنبيه عاجل:</b>
-أنت من <b>أول 10 طلاب</b> في الطابور!
-<b>يرجى التوجه فوراً الآن إلى الواحة — مبنى الشؤون والانتظار أمام شباك ${assignedDesk} لعمل بصمة الوجه.</b>`
+أنت من <b>أول 10 طلاب</b> في طابور شباك ${assignedDesk}!
+<b>يرجى التوجه فوراً الآن إلى شباك ${assignedDesk} (الواحة — مبنى الشؤون) لعمل بصمة الوجه.</b>`
             : `<b>جامعة برج العرب التكنولوجية (BATU)</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
@@ -338,11 +333,11 @@ export class BookingService {
 <b>اسم الطالب:</b> ${student.fullName}
 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
 <b>الشباك المخصص:</b> <code>شباك ${assignedDesk}</code>
-<b>رقم دورك الحالي في الطابور:</b> <code>#${formattedTurn}</code> (تذكرة حجز رقم: <code>#${formattedNum}</code>)
-<b>فاضلك كام واحد:</b> باقي أمامك <b>${peopleAhead}</b> أشخاص في الانتظار.
+<b>رقم دورك في طابور شباك ${assignedDesk}:</b> <code>#${formattedTurn}</code> (تذكرة حجز رقم: <code>#${formattedNum}</code>)
+<b>فاضلك كام واحد:</b> باقي أمامك <b>${peopleAhead}</b> أشخاص في طابور شباك ${assignedDesk}.
 
 <b>المقر:</b> الواحة — مبنى الشؤون (شباك ${assignedDesk})
-<b>ستصلك رسالة تنبيهية فور اقتراب دورك للاستعداد والتوجه إلى شباك ${assignedDesk} بمبنى الشؤون (الواحة).</b>`;
+<b>ستصلك رسالة تنبيهية فور وصول المتبقي على دورك إلى 10 أشخاص للاستعداد والتوجه إلى شباك ${assignedDesk}.</b>`;
 
           const outboxKey = `booking_confirm_${createdBooking.id}`;
           await tx.insert(notificationOutbox).values({
@@ -422,12 +417,13 @@ export class BookingService {
       return null;
     }
 
-    // Accurately calculate waiting students ahead (WAITING, CALLED, IN_PROGRESS with smaller queue number)
+    // Accurately calculate waiting students ahead within the student's assigned desk
     const [{ studentsAhead }] = await db
       .select({ studentsAhead: sql<number>`cast(count(*) as integer)` })
       .from(bookings)
       .where(
         and(
+          eq(bookings.desk, latestBooking.booking.desk),
           sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
           sql`${bookings.queueNumber} < ${latestBooking.booking.queueNumber}`
         )
@@ -517,12 +513,13 @@ export class BookingService {
             .from(bookings)
             .where(
               and(
+                eq(bookings.desk, booking.desk),
                 sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
                 lt(bookings.queueNumber, booking.queueNumber)
               )
             );
           const currentTurn = Number(aheadCount?.count || 0) + 1;
-          const displayQueueNumber = `رقم #${formatQueueNumber(currentTurn)} (تذكرة حجز رقم ${formatQueueNumber(booking.queueNumber)})`;
+          const displayQueueNumber = `رقم #${formatQueueNumber(currentTurn)} لشباك ${booking.desk || "T"} (تذكرة حجز رقم ${formatQueueNumber(booking.queueNumber)})`;
 
           await tx
             .insert(notificationOutbox)
@@ -591,12 +588,13 @@ export class BookingService {
 
     const { booking, student } = bookingData;
 
-    // Calculate dynamic moving turn position in queue
+    // Calculate dynamic moving turn position in desk queue
     const [aheadCount] = await db
       .select({ count: sql<number>`count(*)` })
       .from(bookings)
       .where(
         and(
+          eq(bookings.desk, booking.desk),
           sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
           lt(bookings.queueNumber, booking.queueNumber)
         )
@@ -655,17 +653,23 @@ export class BookingService {
       const { booking, window, student } = bookingData;
       const originalTicketNumber = booking.ticketNumber || booking.queueNumber;
 
-      // 2. Fetch all currently active bookings in the queue ordered by queueNumber
+      // 2. Fetch all currently active bookings in the queue for the SAME DESK ordered by queueNumber
       const activeBookings = await tx
         .select({
           id: bookings.id,
           queueNumber: bookings.queueNumber,
           ticketNumber: bookings.ticketNumber,
+          desk: bookings.desk,
           status: bookings.status,
           studentId: bookings.studentId,
         })
         .from(bookings)
-        .where(sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`)
+        .where(
+          and(
+            eq(bookings.desk, booking.desk),
+            sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`
+          )
+        )
         .orderBy(bookings.queueNumber)
         .for("update");
 
@@ -965,7 +969,35 @@ ${
       });
     }
 
-    // Format items with decrypted National ID, activation info, and dynamic live turn in line
+    // Calculate liveTurn per desk
+    const activeWaiting = await db
+      .select({
+        id: bookings.id,
+        desk: bookings.desk,
+        queueNumber: bookings.queueNumber,
+      })
+      .from(bookings)
+      .where(sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`)
+      .orderBy(bookings.queueNumber);
+
+    const deskTurns = {
+      T: new Map<string, number>(),
+      D: new Map<string, number>(),
+    };
+    let countT = 0;
+    let countD = 0;
+    activeWaiting.forEach((b) => {
+      const d = (b.desk === "D" ? "D" : "T") as "T" | "D";
+      if (d === "T") {
+        countT++;
+        deskTurns.T.set(b.id, countT);
+      } else {
+        countD++;
+        deskTurns.D.set(b.id, countD);
+      }
+    });
+
+    // Format items with decrypted National ID, activation info, and dynamic live turn per desk
     const items = rawBookings.map((b, index) => {
       let nationalId = "غير متوفر";
       try {
@@ -975,7 +1007,8 @@ ${
       }
 
       const activation = activationsMap.get(b.studentId);
-      const liveTurn = offset + index + 1;
+      const deskKey = (b.desk === "D" ? "D" : "T") as "T" | "D";
+      const liveTurn = deskTurns[deskKey].get(b.id) || b.queueNumber;
       const ticketNum = b.ticketNumber || b.queueNumber;
 
       return {
@@ -1059,6 +1092,7 @@ ${
       .from(bookings)
       .where(
         and(
+          eq(bookings.desk, activeBooking.desk),
           sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
           lt(bookings.queueNumber, activeBooking.queueNumber)
         )
@@ -1094,70 +1128,70 @@ ${
    */
   static async notifyQueueProgress(bookingWindowId?: string) {
     try {
-      // 1. Fetch all active bookings in unified queue order across all sections
-      const activeBookings = await db
-        .select({
-          bookingId: bookings.id,
-          queueNumber: bookings.queueNumber,
-          ticketNumber: bookings.ticketNumber,
-          desk: bookings.desk,
-          status: bookings.status,
-          studentId: students.id,
-          fullName: students.fullName,
-          telegramUserId: students.telegramUserId,
-        })
-        .from(bookings)
-        .innerJoin(students, eq(bookings.studentId, students.id))
-        .where(
-          sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`
-        )
-        .orderBy(bookings.queueNumber);
+      for (const desk of ["T", "D"] as const) {
+        const activeBookings = await db
+          .select({
+            bookingId: bookings.id,
+            queueNumber: bookings.queueNumber,
+            ticketNumber: bookings.ticketNumber,
+            desk: bookings.desk,
+            status: bookings.status,
+            studentId: students.id,
+            fullName: students.fullName,
+            telegramUserId: students.telegramUserId,
+          })
+          .from(bookings)
+          .innerJoin(students, eq(bookings.studentId, students.id))
+          .where(
+            and(
+              eq(bookings.desk, desk),
+              sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`
+            )
+          )
+          .orderBy(bookings.queueNumber);
 
-      if (!activeBookings.length) return;
+        if (!activeBookings.length) continue;
 
-      // 2. Iterate each waiting student and send their new turn position
-      for (let i = 0; i < activeBookings.length; i++) {
-        const item = activeBookings[i];
-        // Only notify students who are still WAITING (if someone is already CALLED, they already received call message)
-        if (item.status !== "WAITING" || !item.telegramUserId) continue;
+        for (let i = 0; i < activeBookings.length; i++) {
+          const item = activeBookings[i];
+          if (item.status !== "WAITING" || !item.telegramUserId) continue;
 
-        const aheadCount = i;
-        const currentTurn = aheadCount + 1;
-        const formattedTurn = formatQueueNumber(currentTurn);
-        const ticketNum = item.ticketNumber || item.queueNumber;
-        const formattedNum = formatQueueNumber(ticketNum);
-        const deskName = item.desk || "T";
+          const aheadCount = i;
+          const currentTurn = aheadCount + 1;
+          const formattedTurn = formatQueueNumber(currentTurn);
+          const ticketNum = item.ticketNumber || item.queueNumber;
+          const formattedNum = formatQueueNumber(ticketNum);
 
-        let aheadText = "";
-        if (aheadCount === 0) {
-          aheadText = `🚀 <b>أنت التالي في الطابور مباشرة الآن!</b>\nيرجى الوقوف أمام شباك ${deskName} بمبنى الشؤون فوراً.`;
-        } else if (aheadCount === 1) {
-          aheadText = `⏳ <b>لقد أصبح أمامك شخص واحد فقط (1) في الانتظار!</b>\nيرجى التواجد أمام شباك ${deskName} والاستعداد.`;
-        } else if (aheadCount === 2) {
-          aheadText = `⏳ <b>لقد أصبح أمامك شخصان فقط (2) في الانتظار!</b>\nيرجى الاستعداد والاقتراب من شباك ${deskName}.`;
-        } else {
-          aheadText = `⏳ <b>لقد أصبح أمامك ${aheadCount} أشخاص في الانتظار.</b>`;
-        }
+          let aheadText = "";
+          if (aheadCount === 0) {
+            aheadText = `🚀 <b>أنت التالي في طابور شباك ${desk} مباشرة الآن!</b>\nيرجى الوقوف أمام شباك ${desk} بمبنى الشؤون فوراً.`;
+          } else if (aheadCount === 1) {
+            aheadText = `⏳ <b>لقد أصبح أمامك شخص واحد فقط (1) في طابور شباك ${desk}!</b>\nيرجى التواجد أمام شباك ${desk} والاستعداد.`;
+          } else if (aheadCount === 2) {
+            aheadText = `⏳ <b>لقد أصبح أمامك شخصان فقط (2) في طابور شباك ${desk}!</b>\nيرجى الاستعداد والاقتراب من شباك ${desk}.`;
+          } else {
+            aheadText = `⏳ <b>لقد أصبح أمامك ${aheadCount} أشخاص في طابور شباك ${desk}.</b>`;
+          }
 
-        const progressMsg = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
+          const progressMsg = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
-📢 <b>تحديث حركة وتقدم الطابور:</b>
+📢 <b>تحديث حركة وتقدم طابور شباك ${desk}:</b>
 عزيزي الطالب: <b>${item.fullName}</b>
-<b>الشباك المخصص:</b> <code>شباك ${deskName}</code>
-<b>دورك الحالي في الطابور الآن:</b> <code>#${formattedTurn}</code>
+<b>الشباك المخصص:</b> <code>شباك ${desk}</code>
+<b>دورك الحالي في طابور شباك ${desk}:</b> <code>#${formattedTurn}</code>
 <b>رقم التذكرة الثابت:</b> <code>#${formattedNum}</code>
 
 ${aheadText}
 
-📍 <b>المقر:</b> الواحة — مبنى الشؤون (شباك ${deskName})`;
+📍 <b>المقر:</b> الواحة — مبنى الشؤون (شباك ${desk})`;
 
-        // Send via Telegram with small throttle to respect Telegram API
-        try {
-          await TelegramService.sendMessage(Number(item.telegramUserId), progressMsg);
-          await new Promise((resolve) => setTimeout(resolve, 80));
-        } catch (err: any) {
-          console.error(`[QueueProgress] Failed to notify student ${item.studentId}:`, err?.message || err);
+          try {
+            await TelegramService.sendMessage(Number(item.telegramUserId), progressMsg);
+            await new Promise((resolve) => setTimeout(resolve, 80));
+          } catch (err: any) {
+            console.error(`[QueueProgress] Failed to notify student ${item.studentId}:`, err?.message || err);
+          }
         }
       }
     } catch (err: any) {

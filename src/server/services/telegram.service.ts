@@ -287,7 +287,9 @@ export class TelegramService {
         return { handled: true, statusSent: true };
       }
 
-      // Count students ahead across all sections in unified queue
+      const deskName = activeBooking.booking.desk || "T";
+
+      // Count students ahead in this specific desk
       const [aheadCount] = await db
         .select({
           count: sql<number>`count(*)::int`,
@@ -296,6 +298,7 @@ export class TelegramService {
         .where(
           and(
             sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
+            eq(bookings.desk, deskName),
             sql`${bookings.queueNumber} < ${activeBooking.booking.queueNumber}`
           )
         );
@@ -305,7 +308,6 @@ export class TelegramService {
       const formattedCurrentTurn = String(currentTurn).padStart(3, "0");
       const rawTicket = activeBooking.booking.ticketNumber || activeBooking.booking.queueNumber;
       const formattedTicketNum = String(rawTicket).padStart(3, "0");
-      const deskName = activeBooking.booking.desk || "T";
       const isFirstTen = currentTurn <= 10;
 
       const statusMsg = isFirstTen
