@@ -5,7 +5,8 @@ import { BookingService } from "@/server/services/booking.service";
 import { StaffService } from "@/server/services/staff.service";
 import { NotificationService } from "@/server/services/notification.service";
 import { requireRole } from "@/lib/security/auth";
-import { USER_ROLES } from "@/lib/constants/statuses";
+import { eq, and } from "drizzle-orm";
+import { BOOKING_STATUSES, USER_ROLES } from "@/lib/constants/statuses";
 import { apiError, apiSuccess } from "@/lib/utils/response";
 
 export const dynamic = "force-dynamic";
@@ -45,13 +46,55 @@ export async function POST(req: NextRequest) {
     const session = await requireRole([USER_ROLES.SUPER_ADMIN, USER_ROLES.STAFF]);
 
     const body = await req.json();
-    const { action, bookingId, studentId, notes } = body;
+    const { action, bookingId, studentId, notes, desk } = body;
 
     if (!action) {
       return apiError("الإجراء المطلوب غير محدد", 400);
     }
 
     switch (action) {
+      case "call": {
+        if (!bookingId) return apiError("معرف الحجز مطلوب", 400);
+        const updated = await BookingService.transitionStatus(
+          bookingId,
+          BOOKING_STATUSES.CALLED,
+          session.userId,
+          notes || "تم النداء من شاشة إدارة الشباك"
+        );
+        BookingService.notifyQueueProgress().catch(console.error);
+        NotificationService.checkAndQueueProximityNotifications(updated.bookingWindowId).catch(console.error);
+        return apiSuccess({ booking: updated }, "تم نداء الطالب بنجاح وإرسال إشعار فوري على التيليجرام");
+      }
+
+      case "call-next": {
+        const deskParam = desk as "T" | "D" | undefined;
+        const conditions = [eq(bookings.status, BOOKING_STATUSES.WAITING)];
+        if (deskParam) {
+          conditions.push(eq(bookings.desk, deskParam));
+        }
+
+        const [nextBooking] = await db
+          .select({ id: bookings.id })
+          .from(bookings)
+          .where(and(...conditions))
+          .orderBy(bookings.queueNumber)
+          .limit(1);
+
+        if (!nextBooking) {
+          return apiError(`لا يوجد طلاب في قائمة الانتظار حالياً لشباك ${deskParam || "المحدد"}`, 404);
+        }
+
+        const updated = await BookingService.transitionStatus(
+          nextBooking.id,
+          BOOKING_STATUSES.CALLED,
+          session.userId,
+          `تم نداء التالي آلياً لشباك ${deskParam || ""}`
+        );
+        BookingService.notifyQueueProgress().catch(console.error);
+        NotificationService.checkAndQueueProximityNotifications(updated.bookingWindowId).catch(console.error);
+        return apiSuccess({ booking: updated }, `تم نداء الطالب التالي لشباك ${deskParam || ""} بنجاح!`);
+      }
+
       case "repeat-alert": {
         if (!bookingId) return apiError("معرف الحجز مطلوب", 400);
         const res = await BookingService.repeatAlert(bookingId);

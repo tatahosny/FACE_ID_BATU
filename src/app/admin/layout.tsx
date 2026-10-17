@@ -91,6 +91,8 @@ export default function AdminLayout({
   const isStaff = sessionUser?.role === "STAFF";
   const staffAllowedHrefs = new Set([
     "/admin",
+    "/admin/desk-t",
+    "/admin/desk-d",
     "/admin/queues",
     "/admin/students",
     "/admin/account-settings",
@@ -108,10 +110,12 @@ export default function AdminLayout({
 
   const navSections = [
     {
-      title: "غرفة العمليات المباشرة",
+      title: "غرفة العمليات والشبابيك",
       items: [
         { label: "لوحة القيادة والمؤشرات", href: "/admin", icon: LayoutDashboard },
-        { label: "مراقبة وإدارة الطابور الحي", href: "/admin/queues", icon: Ticket, highlight: true },
+        { label: "شباك T (طابور العمليات)", href: "/admin/desk-t", icon: Ticket, highlight: true },
+        { label: "شباك D (طابور العمليات)", href: "/admin/desk-d", icon: Ticket, highlight: true },
+        { label: "مراقبة كل الأدوار (T + D)", href: "/admin/queues", icon: Ticket },
         { label: "دليل الطلاب وسجل حالة البصمة", href: "/admin/students", icon: GraduationCap, highlight: true },
         { label: "فترات وضوابط الحجز", href: "/admin/booking-windows", icon: Clock },
       ],
@@ -241,18 +245,44 @@ export default function AdminLayout({
           </div>
 
           {/* Quick Shortcuts */}
-          <div className="hidden sm:flex items-center gap-2">
+          <div className="hidden sm:flex items-center gap-1.5">
+            <Link
+              href="/admin/desk-t"
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-black transition flex items-center gap-1 border shadow-sm ${
+                pathname === "/admin/desk-t"
+                  ? "bg-cyan-500 text-slate-950 border-cyan-400 shadow-cyan-500/20"
+                  : "bg-cyan-950/40 text-cyan-300 hover:bg-cyan-900/40 border-cyan-500/30"
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+              <span>شباك T</span>
+            </Link>
+            <Link
+              href="/admin/desk-d"
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-black transition flex items-center gap-1 border shadow-sm ${
+                pathname === "/admin/desk-d"
+                  ? "bg-purple-600 text-white border-purple-400 shadow-purple-600/20"
+                  : "bg-purple-950/40 text-purple-300 hover:bg-purple-900/40 border-purple-500/30"
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+              <span>شباك D</span>
+            </Link>
             <Link
               href="/admin/queues"
-              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-600/20 text-blue-300 hover:bg-blue-600/30 border border-blue-500/30 transition flex items-center gap-1.5"
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 border ${
+                pathname === "/admin/queues"
+                  ? "bg-blue-600 text-white border-blue-400"
+                  : "bg-slate-900/80 text-slate-300 hover:text-white border-slate-800"
+              }`}
             >
               <Ticket className="w-3.5 h-3.5" />
-              <span>الطابور الحي</span>
+              <span>كل الأدوار</span>
             </Link>
             <Link
               href="/"
               target="_blank"
-              className="px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-800 transition flex items-center gap-1.5"
+              className="px-2.5 py-1.5 rounded-xl text-xs font-medium bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800 transition flex items-center gap-1"
             >
               <ExternalLink className="w-3.5 h-3.5" />
               <span className="hidden md:inline">بوابة الطلاب</span>
