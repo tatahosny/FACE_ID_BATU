@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { bookingWindows, groups, sections, bookings } from "@/db/schema";
-import { eq, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc } from "drizzle-orm";
 import { requireRole } from "@/lib/security/auth";
 import { USER_ROLES } from "@/lib/constants/statuses";
 import { createBookingWindowSchema } from "@/lib/validation/booking";
@@ -76,6 +76,37 @@ export async function POST(req: NextRequest) {
       return apiError(parsed.error.errors[0].message, 400);
     }
 
+    const subSec = parsed.data.subSection || "ALL";
+
+    // Prevent creating duplicate windows for the exact same section and subsection
+    const [existingWindow] = await db
+      .select({ id: bookingWindows.id })
+      .from(bookingWindows)
+      .where(
+        and(
+          eq(bookingWindows.sectionId, parsed.data.sectionId),
+          eq(bookingWindows.subSection, subSec)
+        )
+      )
+      .limit(1);
+
+    if (existingWindow) {
+      const [updated] = await db
+        .update(bookingWindows)
+        .set({
+          groupId: parsed.data.groupId,
+          startsAt: new Date(parsed.data.startsAt),
+          endsAt: new Date(parsed.data.endsAt),
+          capacity: parsed.data.capacity,
+          status: parsed.data.status,
+          updatedAt: new Date(),
+        })
+        .where(eq(bookingWindows.id, existingWindow.id))
+        .returning();
+
+      return apiSuccess({ window: updated }, "تم تحديث فترة الحجز الحالية للسكشن بنجاح", 200);
+    }
+
     const [maxBooking] = await db
       .select({ maxQueue: sql<number>`COALESCE(MAX(${bookings.queueNumber}), 0)` })
       .from(bookings);
@@ -97,7 +128,7 @@ export async function POST(req: NextRequest) {
         startsAt: new Date(parsed.data.startsAt),
         endsAt: new Date(parsed.data.endsAt),
         capacity: parsed.data.capacity,
-        subSection: parsed.data.subSection || "ALL",
+        subSection: subSec,
         status: parsed.data.status,
         nextQueueNumber: currentGlobalNext,
         createdBy: session.userId,

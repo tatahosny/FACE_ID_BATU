@@ -69,6 +69,9 @@ export async function POST(req: NextRequest) {
     // Fetch window section and student details for asynchronous Telegram broadcasting
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "https://face-id-batu-hvk9.vercel.app";
 
+    // Deduplicate students so each student receives exactly 1 notification during bulk operations
+    const sentTelegramUsers = new Set<string>();
+
     for (const win of updatedList) {
       try {
         const [sec] = await db
@@ -103,6 +106,10 @@ export async function POST(req: NextRequest) {
         if (action === "OPEN") {
           secStudents.forEach((st) => {
             if (!st.telegramUserId) return;
+            const tgKey = String(st.telegramUserId);
+            if (sentTelegramUsers.has(tgKey)) return;
+            sentTelegramUsers.add(tgKey);
+
             const openMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تم فتح حجز دور البصمة للسكشن الخاص بكم الآن!</b>\n\n<b>السكشن:</b> ${sec?.sectionName || "السكشن الأكاديمي"}${subSectionText} (${sec?.groupName || "المجموعة"})\n<b>عزيزي الطالب:</b> ${st.fullName}\n\n<b>يمكنك الآن الدخول إلى المنصة وحجز رقم دورك فوراً:</b>\n<a href="${appUrl}/booking">${appUrl}/booking</a>\n\nيرجى الدخول فوراً واختيار رقم دورك والتواجد بالموعد المحدد.`;
 
             TelegramService.sendMessage(Number(st.telegramUserId), openMsg).catch((err) => {
@@ -112,6 +119,10 @@ export async function POST(req: NextRequest) {
         } else if (action === "PAUSED" || action === "CLOSED") {
           secStudents.forEach((st) => {
             if (!st.telegramUserId) return;
+            const tgKey = String(st.telegramUserId);
+            if (sentTelegramUsers.has(tgKey)) return;
+            sentTelegramUsers.add(tgKey);
+
             const pauseMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه إيقاف حجز دور البصمة:</b>\n\nأعزائنا طلاب <b>${sec?.sectionName || "السكشن الأكاديمي"}${subSectionText}</b> (${sec?.groupName || "المجموعة"})،\nنحيطكم علماً بأنه قد <b>تم إيقاف حجز دور البصمة لسكشنكم مؤقتاً لحين إشعار آخر بالفتح</b>.\n\nستصلكم رسالة فورية عبر التيليجرام فور استئناف وفتح الحجز لسكشنكم مرة أخرى.`;
 
             TelegramService.sendMessage(Number(st.telegramUserId), pauseMsg).catch((err) => {
