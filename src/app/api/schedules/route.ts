@@ -95,6 +95,45 @@ export async function POST(req: NextRequest) {
   }
 }
 
+export async function PUT(req: NextRequest) {
+  try {
+    await requireRole([USER_ROLES.SUPER_ADMIN]);
+
+    const body = await req.json();
+    const { id, sectionId, date, startTime, endTime, subSection, notes } = body;
+
+    if (!id || !sectionId || !date || !startTime || !endTime) {
+      return apiError("يرجى ملء جميع حقول الموعد المطلوبة (المعرف، السكشن، التاريخ، وقت البدء والانتهاء)", 400);
+    }
+
+    const validSubSection = ["ALL", "A", "B"].includes(subSection) ? subSection : "ALL";
+
+    const [updated] = await db
+      .update(sectionSchedules)
+      .set({
+        sectionId,
+        date,
+        startTime,
+        endTime,
+        subSection: validSubSection,
+        notes: notes || "مبنى كلية تكنولوجيا الصناعة والطاقة — الطابق الأرضي — معمل الحاسب الآلي وتكنولوجيا المعلومات (شباك بصمة الوجه رقم 1)",
+      })
+      .where(eq(sectionSchedules.id, id))
+      .returning();
+
+    if (!updated) {
+      return apiError("الموعد المطلوب تعديله غير موجود", 404);
+    }
+
+    return apiSuccess(updated, "تم تحديث الموعد في الجدول بنجاح");
+  } catch (error: any) {
+    if (error.message === "UNAUTHORIZED" || error.message === "FORBIDDEN") {
+      return apiError("غير مصرح: هذه العملية خاصة بالسوبر أدمن فقط", 403);
+    }
+    return apiError(error.message || "فشل تحديث الموعد", 500);
+  }
+}
+
 export async function DELETE(req: NextRequest) {
   try {
     await requireRole([USER_ROLES.SUPER_ADMIN]);

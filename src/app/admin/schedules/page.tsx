@@ -13,7 +13,9 @@ import {
   AlertTriangle,
   X,
   FileSpreadsheet,
+  Edit3,
 } from "lucide-react";
+import { getArabicDayName } from "@/lib/utils/datetime";
 
 export default function AdminSchedulesPage() {
   const [schedules, setSchedules] = useState<any[]>([]);
@@ -23,6 +25,7 @@ export default function AdminSchedulesPage() {
 
   // Form State
   const [showModal, setShowModal] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState<any | null>(null);
   const [formGroupId, setFormGroupId] = useState("");
   const [formSectionId, setFormSectionId] = useState("");
   const [formSubSection, setFormSubSection] = useState<"ALL" | "A" | "B">("ALL");
@@ -83,23 +86,65 @@ export default function AdminSchedulesPage() {
       .then((j) => j.success && setSections(j.data.sections || []));
   }, [formGroupId]);
 
-  const handleCreateSchedule = async (e: React.FormEvent) => {
+  const handleOpenCreateModal = () => {
+    setEditingSchedule(null);
+    setFormGroupId("");
+    setFormSectionId("");
+    setFormSubSection("ALL");
+    setFormDate("");
+    setFormStartTime("09:00");
+    setFormEndTime("13:00");
+    setFormVenue(venuePresets[0]);
+    setShowModal(true);
+  };
+
+  const handleOpenEditModal = async (sc: any) => {
+    setEditingSchedule(sc);
+    setFormGroupId(sc.groupId || "");
+    setFormSubSection(sc.subSection || "ALL");
+    setFormDate(sc.date || "");
+    setFormStartTime(sc.startTime || "09:00");
+    setFormEndTime(sc.endTime || "13:00");
+    setFormVenue(sc.notes || venuePresets[0]);
+
+    if (sc.groupId) {
+      try {
+        const res = await fetch(`/api/sections?groupId=${sc.groupId}`);
+        const j = await res.json();
+        if (j.success && j.data.sections) {
+          setSections(j.data.sections);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    setFormSectionId(sc.sectionId || "");
+    setShowModal(true);
+  };
+
+  const handleSaveSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     setFeedback(null);
 
     try {
-      const res = await fetch("/api/schedules", {
-        method: "POST",
+      const isEdit = Boolean(editingSchedule);
+      const url = "/api/schedules";
+      const method = isEdit ? "PUT" : "POST";
+      const bodyPayload = {
+        ...(isEdit ? { id: editingSchedule.id } : {}),
+        sectionId: formSectionId,
+        subSection: formSubSection,
+        date: formDate,
+        startTime: formStartTime,
+        endTime: formEndTime,
+        notes: formVenue.trim(),
+      };
+
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sectionId: formSectionId,
-          subSection: formSubSection,
-          date: formDate,
-          startTime: formStartTime,
-          endTime: formEndTime,
-          notes: formVenue.trim(),
-        }),
+        body: JSON.stringify(bodyPayload),
       });
 
       const json = await res.json();
@@ -108,11 +153,14 @@ export default function AdminSchedulesPage() {
         return;
       }
 
-      setFeedback({ message: "تمت إضافة الموعد ومقر البصمة إلى الجدول الرسمي بنجاح!", type: "success" });
+      setFeedback({
+        message: isEdit
+          ? "تم تحديث وتعديل الموعد في الجدول الرسمي بنجاح!"
+          : "تمت إضافة الموعد ومقر البصمة إلى الجدول الرسمي بنجاح!",
+        type: "success",
+      });
       setShowModal(false);
-      setFormSectionId("");
-      setFormSubSection("ALL");
-      setFormDate("");
+      setEditingSchedule(null);
       await fetchSchedules();
     } catch (err: any) {
       setFeedback({ message: err.message || "حدث خطأ غير متوقع", type: "error" });
@@ -170,7 +218,7 @@ export default function AdminSchedulesPage() {
 
         <div className="flex flex-wrap gap-2.5">
           <button
-            onClick={() => setShowModal(true)}
+            onClick={handleOpenCreateModal}
             className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-blue-600/30 transition flex items-center gap-2"
           >
             <Plus className="w-4 h-4" />
@@ -340,30 +388,36 @@ export default function AdminSchedulesPage() {
           </div>
         ) : (
           <div className="overflow-x-auto custom-scrollbar print:overflow-visible">
-            <table className="w-full text-right border-collapse border border-slate-700 print:border-2 print:border-black text-xs sm:text-sm min-w-[720px] print:min-w-0">
+            <table className="w-full text-right border-collapse border border-slate-700 print:border-2 print:border-black text-xs sm:text-sm min-w-[760px] print:min-w-0">
               <thead>
-                <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-300 text-xs font-black print:bg-slate-100 print:text-black print:border-b-2 print:border-black">
-                  <th className="p-3 border border-slate-800 print:border print:border-black text-center w-10">
+                <tr className="bg-[#0b101d] border-b-2 border-slate-700 text-slate-200 text-xs font-black print:bg-slate-100 print:text-black print:border-b-2 print:border-black">
+                  <th className="p-3 border border-slate-700 print:border print:border-black text-center w-12 bg-slate-900/90 print:bg-slate-100">
                     م
                   </th>
-                  <th className="p-3 border border-slate-800 print:border print:border-black">المجموعة</th>
-                  <th className="p-3 border border-slate-800 print:border print:border-black">السكشن</th>
-                  <th className="p-3 border border-slate-800 print:border print:border-black text-center">
+                  <th className="p-3 border border-slate-700 print:border print:border-black bg-slate-900/90 print:bg-slate-100">
+                    المجموعة
+                  </th>
+                  <th className="p-3 border border-slate-700 print:border print:border-black bg-slate-900/90 print:bg-slate-100">
+                    السكشن
+                  </th>
+                  <th className="p-3 border border-slate-700 print:border print:border-black text-center bg-slate-900/90 print:bg-slate-100">
                     القسم (A / B)
                   </th>
-                  <th className="p-3 border border-slate-800 print:border print:border-black text-center">
+                  <th className="p-3 border border-slate-700 print:border print:border-black text-center bg-slate-900/90 print:bg-slate-100">
                     اليوم والتاريخ
                   </th>
-                  <th className="p-3 border border-slate-800 print:border print:border-black text-center">
+                  <th className="p-3 border border-slate-700 print:border print:border-black text-center bg-slate-900/90 print:bg-slate-100">
                     فترة الحضور
                   </th>
-                  <th className="p-3 border border-slate-800 print:border print:border-black">
+                  <th className="p-3 border border-slate-700 print:border print:border-black bg-slate-900/90 print:bg-slate-100">
                     المقر وقاعة البصمة بالتفصيل
                   </th>
-                  <th className="p-3 border border-slate-800 print:hidden text-center">إجراءات</th>
+                  <th className="p-3 border border-slate-700 print:hidden text-center bg-slate-900/90">
+                    إجراءات
+                  </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/80 text-xs sm:text-sm">
+              <tbody className="divide-y divide-slate-700/80 text-xs sm:text-sm">
                 {schedules
                   .filter((sc) => {
                     if (filterGroupId !== "ALL" && sc.groupId !== filterGroupId) return false;
@@ -374,18 +428,18 @@ export default function AdminSchedulesPage() {
                   .map((sc, idx) => (
                     <tr
                       key={sc.id}
-                      className="hover:bg-slate-800/40 border-b border-slate-800/60 transition print:bg-white print:border print:border-black print:text-black"
+                      className="hover:bg-blue-950/20 even:bg-slate-900/40 odd:bg-[#070b14]/60 border-b border-slate-700/80 transition print:bg-white print:border print:border-black print:text-black"
                     >
-                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-bold font-mono print:text-black">
+                      <td className="p-3 border border-slate-700 print:border print:border-black text-center font-bold font-mono print:text-black bg-slate-950/40 print:bg-transparent">
                         {idx + 1}
                       </td>
-                      <td className="p-3 border border-slate-800/80 print:border print:border-black font-bold text-white print:text-black">
+                      <td className="p-3 border border-slate-700 print:border print:border-black font-bold text-white print:text-black">
                         {sc.groupName}
                       </td>
-                      <td className="p-3 border border-slate-800/80 print:border print:border-black font-black text-blue-400 font-mono print:text-black">
+                      <td className="p-3 border border-slate-700 print:border print:border-black font-black text-blue-400 font-mono print:text-black">
                         {sc.sectionName} ({sc.sectionCode})
                       </td>
-                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-center">
+                      <td className="p-3 border border-slate-700 print:border print:border-black text-center">
                         {sc.subSection === "A" ? (
                           <span className="inline-block px-2.5 py-1 rounded-full text-xs font-black bg-blue-500/10 text-blue-400 border border-blue-500/30 print:border print:border-blue-900 print:bg-blue-50 print:text-blue-950 font-bold">
                             قسم A فقط
@@ -400,24 +454,41 @@ export default function AdminSchedulesPage() {
                           </span>
                         )}
                       </td>
-                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-bold text-slate-200 print:text-black">
-                        {sc.date}
+                      <td className="p-3 border border-slate-700 print:border print:border-black text-center">
+                        <div className="inline-flex flex-col items-center justify-center">
+                          <span className="font-black text-amber-400 print:text-black text-sm">
+                            {getArabicDayName(sc.date) || "—"}
+                          </span>
+                          <span className="text-[11px] font-mono text-slate-300 print:text-slate-800 mt-0.5" dir="ltr">
+                            {sc.date}
+                          </span>
+                        </div>
                       </td>
-                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-mono font-bold text-slate-200 print:text-black">
+                      <td className="p-3 border border-slate-700 print:border print:border-black text-center font-mono font-bold text-slate-200 print:text-black">
                         من {sc.startTime} إلى {sc.endTime}
                       </td>
-                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-xs text-slate-300 font-medium print:text-black">
+                      <td className="p-3 border border-slate-700 print:border print:border-black text-xs text-slate-300 font-medium print:text-black">
                         {sc.notes || "معمل الحاسب الآلي الرئيسي (الدور الأرضي)"}
                       </td>
-                      <td className="p-3 border border-slate-800/80 print:hidden text-center">
-                        <button
-                          onClick={() => handleDeleteSchedule(sc.id)}
-                          className="p-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-300 text-xs font-bold transition border border-red-500/30 inline-flex items-center gap-1"
-                          title="حذف الموعد"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>حذف</span>
-                        </button>
+                      <td className="p-3 border border-slate-700 print:hidden text-center">
+                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                          <button
+                            onClick={() => handleOpenEditModal(sc)}
+                            className="p-1.5 px-2.5 rounded-lg bg-blue-950/50 hover:bg-blue-900/70 text-blue-300 hover:text-white text-xs font-bold transition border border-blue-500/40 inline-flex items-center gap-1 shadow-sm"
+                            title="تعديل الموعد ومقر البصمة"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>تعديل</span>
+                          </button>
+                          <button
+                            onClick={() => handleDeleteSchedule(sc.id)}
+                            className="p-1.5 px-2.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-300 hover:text-red-100 text-xs font-bold transition border border-red-500/30 inline-flex items-center gap-1 shadow-sm"
+                            title="حذف الموعد"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>حذف</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -427,14 +498,14 @@ export default function AdminSchedulesPage() {
         )}
       </div>
 
-      {/* Add Schedule Modal */}
+      {/* Add / Edit Schedule Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-3.5 sm:p-4">
           <div className="bg-slate-900 rounded-2xl sm:rounded-3xl p-4 sm:p-8 max-w-lg w-full max-h-[92vh] overflow-y-auto custom-scrollbar space-y-4 sm:space-y-5 animate-scale-up shadow-2xl border border-slate-800 text-white">
             <div className="flex justify-between items-center pb-3 border-b border-slate-800">
               <h3 className="font-extrabold text-lg text-white flex items-center gap-2">
                 <Calendar className="w-5 h-5 text-blue-400" />
-                <span>إضافة موعد وتحديد المقر لسكشن</span>
+                <span>{editingSchedule ? "تعديل موعد ومقر السكشن" : "إضافة موعد وتحديد المقر لسكشن"}</span>
               </h3>
               <button
                 onClick={() => setShowModal(false)}
@@ -444,7 +515,7 @@ export default function AdminSchedulesPage() {
               </button>
             </div>
 
-            <form onSubmit={handleCreateSchedule} className="space-y-4">
+            <form onSubmit={handleSaveSchedule} className="space-y-4">
               {/* Group */}
               <div>
                 <label className="block text-xs font-bold text-slate-300 mb-1">المجموعة:</label>
@@ -537,6 +608,14 @@ export default function AdminSchedulesPage() {
                   onChange={(e) => setFormDate(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-700 text-xs bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                {formDate && (
+                  <div className="mt-1.5 text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                    <span>اليوم بالجدول:</span>
+                    <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/30 font-black">
+                      {getArabicDayName(formDate)}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Times */}
@@ -608,7 +687,7 @@ export default function AdminSchedulesPage() {
                   disabled={submitting}
                   className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:bg-blue-900 text-white font-bold text-xs shadow-md shadow-blue-600/30 transition flex items-center justify-center gap-2"
                 >
-                  {submitting ? "جاري الحفظ..." : "حفظ الموعد بالجدول"}
+                  {submitting ? "جاري الحفظ..." : editingSchedule ? "حفظ التعديلات" : "حفظ الموعد بالجدول"}
                 </button>
                 <button
                   type="button"

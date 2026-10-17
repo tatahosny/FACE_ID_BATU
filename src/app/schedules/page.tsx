@@ -20,6 +20,7 @@ import {
   Send,
   Sparkles,
 } from "lucide-react";
+import { getArabicDayName } from "@/lib/utils/datetime";
 
 export default function PublicSchedulesPage() {
   const [schedules, setSchedules] = useState<any[]>([]);
@@ -370,8 +371,15 @@ export default function PublicSchedulesPage() {
                           </span>
                         )}
                       </td>
-                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-bold text-slate-200 print:text-black">
-                        {sc.date}
+                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-center">
+                        <div className="inline-flex flex-col items-center justify-center">
+                          <span className="font-black text-amber-400 print:text-black text-sm">
+                            {getArabicDayName(sc.date) || "—"}
+                          </span>
+                          <span className="text-[11px] font-mono text-slate-300 print:text-slate-800 mt-0.5" dir="ltr">
+                            {sc.date}
+                          </span>
+                        </div>
                       </td>
                       <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-mono font-bold text-slate-200 print:text-black">
                         من {sc.startTime} إلى {sc.endTime}

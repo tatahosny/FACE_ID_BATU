@@ -51,3 +51,46 @@ export function isCurrentlyOpen(startsAt: Date | string, endsAt: Date | string):
   const end = new Date(endsAt);
   return now >= start && now <= end;
 }
+
+/**
+ * Returns the Arabic day of the week for a given date (e.g. "الأحد", "الإثنين", "الثلاثاء", etc.)
+ */
+export function getArabicDayName(dateInput: Date | string | number): string {
+  if (!dateInput) return "";
+  let d: Date;
+  if (typeof dateInput === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
+    const [y, m, day] = dateInput.split("-").map(Number);
+    d = new Date(y, m - 1, day, 12, 0, 0);
+  } else {
+    d = new Date(dateInput);
+  }
+  if (isNaN(d.getTime())) return "";
+
+  return new Intl.DateTimeFormat("ar-EG", {
+    timeZone: CAIRO_TIMEZONE,
+    weekday: "long",
+  }).format(d);
+}
+
+/**
+ * Returns formatted Arabic date with day name (e.g. "الأحد، 18 أكتوبر 2026")
+ */
+export function formatArabicDateWithDay(dateInput: Date | string | number): string {
+  if (!dateInput) return "";
+  let d: Date;
+  if (typeof dateInput === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
+    const [y, m, day] = dateInput.split("-").map(Number);
+    d = new Date(y, m - 1, day, 12, 0, 0);
+  } else {
+    d = new Date(dateInput);
+  }
+  if (isNaN(d.getTime())) return String(dateInput);
+
+  return new Intl.DateTimeFormat("ar-EG", {
+    timeZone: CAIRO_TIMEZONE,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(d);
+}
