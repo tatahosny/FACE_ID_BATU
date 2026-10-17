@@ -293,11 +293,9 @@ export default function AdminQueuesPage() {
                         <span className="inline-flex items-center justify-center font-mono font-black text-base px-3 py-1 rounded-xl bg-slate-950 text-amber-400 border border-amber-500/30 shadow-sm" title="الدور الفعلي المتحرك في الطابور">
                           #{item.formattedLiveTurn || item.formattedQueueNumber}
                         </span>
-                        {item.formattedLiveTurn && item.formattedLiveTurn !== item.formattedQueueNumber && (
-                          <span className="text-[10px] text-slate-400 font-mono">
-                            تذكرة: #{item.formattedQueueNumber}
-                          </span>
-                        )}
+                        <span className="text-[11px] text-slate-300 font-mono font-bold bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/80" title="رقم التذكرة الثابت عند الحجز">
+                          تذكرة: #{item.formattedTicketNumber || item.formattedQueueNumber}
+                        </span>
                       </div>
                     </td>
 

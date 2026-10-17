@@ -97,7 +97,8 @@ export async function GET(req: NextRequest) {
     let formattedCurrentTurn: string | null = null;
 
     if (existingBooking) {
-      formattedTicketNumber = formatQueueNumber(existingBooking.queueNumber);
+      const ticketNum = existingBooking.ticketNumber || existingBooking.queueNumber;
+      formattedTicketNumber = formatQueueNumber(ticketNum);
       // Count active students ahead in the same window
       const [aheadCount] = await db
         .select({ count: sql<number>`count(*)` })
@@ -167,7 +168,7 @@ export async function GET(req: NextRequest) {
       existingBooking: existingBooking
         ? {
             id: existingBooking.id,
-            ticketNumber: existingBooking.queueNumber,
+            ticketNumber: existingBooking.ticketNumber || existingBooking.queueNumber,
             formattedTicketNumber,
             // Dynamic moving turn: advances forward when earlier students finish (e.g. 12 -> 10 -> 1)
             queueNumber: currentTurn,

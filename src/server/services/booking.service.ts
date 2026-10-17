@@ -256,6 +256,7 @@ export class BookingService {
           bookingWindowId: window.id,
           studentId: student.id,
           queueNumber: assignedQueueNumber,
+          ticketNumber: assignedQueueNumber,
           status: BOOKING_STATUSES.WAITING,
         })
         .returning();
@@ -393,13 +394,14 @@ export class BookingService {
     // Dynamic moving turn: advances forward when earlier students finish (e.g. 12 -> 10 -> 1)
     const currentTurn = aheadCount + 1;
     const formattedCurrentTurn = formatQueueNumber(currentTurn);
-    const formattedTicketNumber = formatQueueNumber(latestBooking.booking.queueNumber);
+    const rawTicket = latestBooking.booking.ticketNumber || latestBooking.booking.queueNumber;
+    const formattedTicketNumber = formatQueueNumber(rawTicket);
 
     return {
       bookingId: latestBooking.booking.id,
-      ticketNumber: latestBooking.booking.queueNumber,
+      ticketNumber: rawTicket,
       formattedTicketNumber,
-      initialQueueNumber: latestBooking.booking.queueNumber,
+      initialQueueNumber: rawTicket,
       currentTurn,
       formattedCurrentTurn,
       // Provide currentTurn as primary queueNumber so all consumers display the dynamic moving position
@@ -564,7 +566,8 @@ export class BookingService {
 
     // Send Telegram alert
     if (student.telegramUserId) {
-      const alertMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>نداء عاجل ومكرر!</b>\nعزيزي الطالب <b>${student.fullName}</b>،\nحان دورك الآن رسمياً في الطابور برقم: <code>#${formatQueueNumber(currentTurn)}</code> (تذكرة حجز رقم: <code>${formatQueueNumber(booking.queueNumber)}</code>)\n\n<b>يرجى التوجه فوراً لشباك التسجيل لعمل بصمة الوجه قبل فوات الدور!</b>`;
+      const ticketNum = booking.ticketNumber || booking.queueNumber;
+      const alertMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>نداء عاجل ومكرر!</b>\nعزيزي الطالب <b>${student.fullName}</b>،\nحان دورك الآن رسمياً في الطابور برقم: <code>#${formatQueueNumber(currentTurn)}</code> (تذكرة حجز رقم: <code>#${formatQueueNumber(ticketNum)}</code>)\n\n<b>يرجى التوجه فوراً لشباك التسجيل لعمل بصمة الوجه قبل فوات الدور!</b>`;
 
       try {
         await TelegramService.sendMessage(Number(student.telegramUserId), alertMsg);
@@ -577,10 +580,12 @@ export class BookingService {
   }
 
   /**
-   * Push back a student by 10 positions if they didn't show up when called.
+   * Push back a student by 10 positions in the queue without changing their permanent ticket number.
+   * If there are fewer than 10 students behind them, pushes them to the end of the line.
    */
   static async pushBackTenPositions(bookingId: string) {
     const result = await db.transaction(async (tx) => {
+      // 1. Fetch target booking
       const [bookingData] = await tx
         .select({
           booking: bookings,
@@ -598,51 +603,115 @@ export class BookingService {
       }
 
       const { booking, window, student } = bookingData;
+      const originalTicketNumber = booking.ticketNumber || booking.queueNumber;
 
-      // Safe new queue number: Push back behind at least 10 or current window next
-      const [maxQueueResult] = await tx
-        .select({ maxQueue: sql<number>`COALESCE(MAX(${bookings.queueNumber}), 0)` })
-        .from(bookings);
-      const currentGlobalMax = Math.max(window.nextQueueNumber, Number(maxQueueResult?.maxQueue || 0));
-      const newQueueNumber = Math.max(currentGlobalMax, booking.queueNumber + 10);
+      // 2. Fetch all currently active bookings in the queue ordered by queueNumber
+      const activeBookings = await tx
+        .select({
+          id: bookings.id,
+          queueNumber: bookings.queueNumber,
+          ticketNumber: bookings.ticketNumber,
+          status: bookings.status,
+          studentId: bookings.studentId,
+        })
+        .from(bookings)
+        .where(sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`)
+        .orderBy(bookings.queueNumber)
+        .for("update");
 
-      // Update all booking windows nextQueueNumber to guarantee global uniqueness
-      await tx
-        .update(bookingWindows)
-        .set({
-          nextQueueNumber: newQueueNumber + 1,
-          updatedAt: new Date(),
+      const currentIndex = activeBookings.findIndex((b) => b.id === bookingId);
+      if (currentIndex === -1) {
+        throw new Error("الحجز غير موجود في الطابور النشط حالياً");
+      }
+
+      // Students waiting behind the target student
+      const studentsBehind = activeBookings.slice(currentIndex + 1);
+      const countToShift = Math.min(10, studentsBehind.length);
+
+      let newTurn: number;
+      let newQueueNumber: number = booking.queueNumber;
+
+      if (countToShift === 0) {
+        // No students behind him, he is already at the very end of the line
+        newTurn = currentIndex + 1;
+        await tx
+          .update(bookings)
+          .set({
+            status: "WAITING",
+            calledAt: null,
+            notes: `تم تأخير الدور لعدم الحضور عند النداء (الطالب بالفعل في نهاية الطابور)`,
+            updatedAt: new Date(),
+          })
+          .where(eq(bookings.id, bookingId));
+      } else {
+        // Students involved in rotation: target student followed by next countToShift students
+        const affected = [activeBookings[currentIndex], ...studentsBehind.slice(0, countToShift)];
+        const queueNumbers = affected.map((b) => b.queueNumber);
+
+        // Assign queue numbers:
+        // The students behind target student move forward by 1 place:
+        // affected[1] gets queueNumbers[0]
+        // affected[2] gets queueNumbers[1]
+        // ...
+        // affected[countToShift] gets queueNumbers[countToShift - 1]
+        // target student gets queueNumbers[countToShift]
+        newQueueNumber = queueNumbers[countToShift];
+        newTurn = currentIndex + countToShift + 1;
+
+        // Perform atomic update using CASE statement to avoid any unique constraint conflicts
+        const idCases = affected.map((item, idx) => {
+          const assignedQ = idx === 0 ? queueNumbers[countToShift] : queueNumbers[idx - 1];
+          return sql`WHEN ${bookings.id} = ${item.id} THEN ${assignedQ}`;
         });
 
-      // Update booking
-      const [updated] = await tx
-        .update(bookings)
-        .set({
-          queueNumber: newQueueNumber,
-          status: "WAITING",
-          calledAt: null,
-          notes: `تم تأخير الدور 10 أدوار لعدم الحضور عند النداء الأول (كان ${booking.queueNumber})`,
-          updatedAt: new Date(),
-        })
-        .where(eq(bookings.id, bookingId))
-        .returning();
+        const targetNotes = `تم تأخير الدور 10 أدوار لعدم الحضور عند النداء (تذكرة #${originalTicketNumber}، أصبح دوره #${formatQueueNumber(newTurn)})`;
 
-      // Send Telegram notification with exact requested alert phrasing
+        await tx.execute(sql`
+          UPDATE bookings
+          SET
+            queue_number = CASE
+              ${sql.join(idCases, sql` `)}
+              ELSE queue_number
+            END,
+            status = CASE
+              WHEN id = ${bookingId} THEN 'WAITING'
+              ELSE status
+            END,
+            called_at = CASE
+              WHEN id = ${bookingId} THEN NULL
+              ELSE called_at
+            END,
+            notes = CASE
+              WHEN id = ${bookingId} THEN ${targetNotes}
+              ELSE notes
+            END,
+            updated_at = NOW()
+          WHERE id IN (${sql.join(affected.map((b) => sql`${b.id}`), sql`, `)})
+        `);
+      }
+
+      // 3. Send Telegram notification with fixed ticket number + new turn in queue + remaining ahead
       let telegramSent = false;
       if (student.telegramUserId) {
+        const studentsAhead = newTurn - 1;
         const delayMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
-<b>تم تاجيل دورك 10 ادوار بسبب عدم وجودك</b>
+<b>تم تأجيل دورك في الطابور بسبب عدم التواجد عند النداء</b>
 
 عزيزي الطالب: <b>${student.fullName}</b>
-نظراً لعدم حضورك عند المناداة على دورك أمام شباك التسجيل:
+<b>رقم التذكرة الثابت:</b> <code>#${formatQueueNumber(originalTicketNumber)}</code>
+<b>دورك الحالي في الطابور الآن:</b> <code>#${formatQueueNumber(newTurn)}</code>
+<b>المتبقي قبلك في الانتظار:</b> ${studentsAhead === 0 ? "أنت التالي الآن!" : `${studentsAhead} طلاب`}
 
-<b>رقم دورك السابق:</b> <code>#${formatQueueNumber(booking.queueNumber)}</code>
-<b>رقم دورك الجديد هو:</b> <code>#${formatQueueNumber(newQueueNumber)}</code>
+${
+  countToShift < 10
+    ? `⚠️ نظراً لوجود ${studentsBehind.length} طلاب فقط في الطابور خلفك، تم وضع دورك في نهاية الطابور الحالي (رقم #${formatQueueNumber(newTurn)}).`
+    : `تم تأخيرك 10 أدوار للخلف، وسيحين دورك بعد مرور 10 طلاب.`
+}
 
-<b>المقر:</b> مبنى كلية تكنولوجيا الصناعة والطاقة — الطابق الأرضي — معمل الحاسب الآلي (شباك بصمة الوجه)
-يرجى التواجد أمام الشباك والاستعداد فور وصول رقمك الجديد.`;
+<b>المقر:</b> مبنى كلية تكنولوجيا الصناعة والطاقة — معمل الحاسب الآلي (شباك بصمة الوجه)
+يرجى التواجد أمام المعمل فور اقتراب رقم دورك.`;
 
         try {
           await TelegramService.sendMessage(Number(student.telegramUserId), delayMsg);
@@ -655,9 +724,14 @@ export class BookingService {
       return {
         success: true,
         bookingWindowId: booking.bookingWindowId,
+        ticketNumber: originalTicketNumber,
+        formattedTicketNumber: formatQueueNumber(originalTicketNumber),
+        newTurn,
+        formattedLiveTurn: formatQueueNumber(newTurn),
         previousQueueNumber: booking.queueNumber,
         newQueueNumber,
         formattedQueueNumber: formatQueueNumber(newQueueNumber),
+        studentsAhead: newTurn - 1,
         telegramSent,
       };
     });
@@ -780,6 +854,7 @@ export class BookingService {
       .select({
         id: bookings.id,
         queueNumber: bookings.queueNumber,
+        ticketNumber: bookings.ticketNumber,
         status: bookings.status,
         bookedAt: bookings.bookedAt,
         calledAt: bookings.calledAt,
@@ -843,11 +918,14 @@ export class BookingService {
 
       const activation = activationsMap.get(b.studentId);
       const liveTurn = offset + index + 1;
+      const ticketNum = b.ticketNumber || b.queueNumber;
 
       return {
         id: b.id,
         queueNumber: b.queueNumber,
         formattedQueueNumber: formatQueueNumber(b.queueNumber),
+        ticketNumber: ticketNum,
+        formattedTicketNumber: formatQueueNumber(ticketNum),
         liveTurn,
         formattedLiveTurn: formatQueueNumber(liveTurn),
         status: b.status,
@@ -930,7 +1008,8 @@ export class BookingService {
 
     const peopleAhead = Number(aheadResult?.count || 0);
     const currentTurn = peopleAhead + 1;
-    const formattedNum = formatQueueNumber(activeBooking.queueNumber);
+    const rawTicket = activeBooking.ticketNumber || activeBooking.queueNumber;
+    const formattedNum = formatQueueNumber(rawTicket);
     const formattedTurn = formatQueueNumber(currentTurn);
 
     const msg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
@@ -961,6 +1040,7 @@ export class BookingService {
         .select({
           bookingId: bookings.id,
           queueNumber: bookings.queueNumber,
+          ticketNumber: bookings.ticketNumber,
           status: bookings.status,
           studentId: students.id,
           fullName: students.fullName,
@@ -984,7 +1064,8 @@ export class BookingService {
         const aheadCount = i;
         const currentTurn = aheadCount + 1;
         const formattedTurn = formatQueueNumber(currentTurn);
-        const formattedNum = formatQueueNumber(item.queueNumber);
+        const ticketNum = item.ticketNumber || item.queueNumber;
+        const formattedNum = formatQueueNumber(ticketNum);
 
         const progressMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه

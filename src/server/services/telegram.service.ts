@@ -303,7 +303,8 @@ export class TelegramService {
       const countAhead = Number(aheadCount?.count || 0);
       const currentTurn = countAhead + 1;
       const formattedCurrentTurn = String(currentTurn).padStart(3, "0");
-      const formattedTicketNum = String(activeBooking.booking.queueNumber).padStart(3, "0");
+      const rawTicket = activeBooking.booking.ticketNumber || activeBooking.booking.queueNumber;
+      const formattedTicketNum = String(rawTicket).padStart(3, "0");
       const isFirstTen = currentTurn <= 10;
 
       const statusMsg = isFirstTen

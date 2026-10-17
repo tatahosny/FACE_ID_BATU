@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
         NotificationService.checkAndQueueProximityNotifications().catch(console.error);
         return apiSuccess(
           res,
-          `تم تأخير دور الطالب بمقدار 10 أدوار للخلف (رقمه الجديد: #${res.formattedQueueNumber}) وإشعاره على التيليجرام.`
+          `تم تأخير دور الطالب بمقدار 10 أدوار في الطابور (دوره الجديد: #${res.formattedLiveTurn} - تذكرة ثابتة: #${res.formattedTicketNumber}) وإشعاره على التيليجرام.`
         );
       }
 

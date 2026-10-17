@@ -152,6 +152,7 @@ export const bookings = pgTable(
       .notNull()
       .references(() => students.id, { onDelete: "restrict" }),
     queueNumber: integer("queue_number").notNull(),
+    ticketNumber: integer("ticket_number"),
     status: varchar("status", { length: 20 }).default("WAITING").notNull(), // 'WAITING' | 'CALLED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW'
     bookedAt: timestamp("booked_at", { withTimezone: true }).defaultNow().notNull(),
     calledAt: timestamp("called_at", { withTimezone: true }),
