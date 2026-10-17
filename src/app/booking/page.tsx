@@ -349,11 +349,28 @@ export default function BookingPage() {
               ) : lookupResult.existingBooking ? (
                 /* Case B: Student has an active confirmed booking */
                 <div className="bg-gradient-to-r from-blue-950/50 via-slate-900 to-indigo-950/50 border border-blue-500/40 rounded-2xl p-6 text-center space-y-4">
-                  <div className="space-y-1">
+                  <div className="space-y-2">
                     <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[10px] font-bold text-emerald-400 mb-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                       <span>طابور حي ومتحرك</span>
                     </div>
+
+                    {/* Desk Badge */}
+                    <div className="flex items-center justify-center gap-2">
+                      <span className="text-xs text-slate-300 font-medium">الشباك المخصص:</span>
+                      {lookupResult.existingBooking.desk === "D" ? (
+                        <span className="px-3.5 py-1 rounded-xl text-xs font-black bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm font-mono flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                          <span>شباك D</span>
+                        </span>
+                      ) : (
+                        <span className="px-3.5 py-1 rounded-xl text-xs font-black bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm font-mono flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                          <span>شباك T</span>
+                        </span>
+                      )}
+                    </div>
+
                     <span className="text-xs text-blue-300 font-bold uppercase tracking-wider block">
                       دورك الحالي في الطابور الآن
                     </span>
@@ -377,9 +394,9 @@ export default function BookingPage() {
                     </div>
                   </div>
 
-                  <div className="text-xs text-slate-400 flex items-center justify-center gap-2">
-                    <MapPin className="w-4 h-4 text-blue-400" />
-                    <span>مبنى كلية تكنولوجيا الصناعة والطاقة — معمل الحاسب الآلي (G)</span>
+                  <div className="text-xs text-slate-300 flex items-center justify-center gap-2">
+                    <MapPin className="w-4 h-4 text-emerald-400" />
+                    <span>الواحة — مبنى الشؤون (شباك بصمة الوجه)</span>
                   </div>
 
                   <div className="pt-2 border-t border-slate-800/80 flex flex-col items-center gap-2">

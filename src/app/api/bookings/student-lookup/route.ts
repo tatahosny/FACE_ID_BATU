@@ -175,6 +175,7 @@ export async function GET(req: NextRequest) {
             currentTurn,
             formattedCurrentTurn,
             status: existingBooking.status,
+            desk: existingBooking.desk || "T",
             peopleAhead,
             bookedAt: formatCairoDateTime(existingBooking.bookedAt),
           }

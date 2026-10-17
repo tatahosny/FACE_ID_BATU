@@ -16,6 +16,29 @@ import { formatQueueNumber } from "@/lib/utils/datetime";
 import { TelegramService } from "./telegram.service";
 import { decryptNationalId } from "@/lib/security/crypto";
 
+/**
+ * In-memory concurrency queue lock (FIFO Mutex) to serialize concurrent booking requests
+ * and ensure zero collisions under heavy load.
+ */
+class BookingQueueLock {
+  private queue: Promise<any> = Promise.resolve();
+
+  async acquire<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.queue = this.queue.then(async () => {
+        try {
+          const result = await fn();
+          resolve(result);
+        } catch (err) {
+          reject(err);
+        }
+      });
+    });
+  }
+}
+
+const bookingQueueLock = new BookingQueueLock();
+
 export class BookingService {
   /**
    * Check whether booking is open for a student's section and return availability.
@@ -115,71 +138,167 @@ export class BookingService {
    * Acquires row lock on the booking window to prevent race conditions and duplicate queue numbers.
    */
   static async createBooking(studentId: string, bookingWindowId: string, idempotencyKey?: string) {
-    return await db.transaction(async (tx) => {
-      // 1. Fetch student
-      const [student] = await tx
-        .select()
-        .from(students)
-        .where(eq(students.id, studentId));
+    return await bookingQueueLock.acquire(async () => {
+      return await db.transaction(async (tx) => {
+        // 1. Fetch student
+        const [student] = await tx
+          .select()
+          .from(students)
+          .where(eq(students.id, studentId));
 
-      if (!student) {
-        throw new Error("سجل الطالب غير موجود");
-      }
+        if (!student) {
+          throw new Error("سجل الطالب غير موجود");
+        }
 
-      // 2. Lock the booking window row for atomic queue allocation
-      const [window] = await tx
-        .select()
-        .from(bookingWindows)
-        .where(eq(bookingWindows.id, bookingWindowId))
-        .for("update");
+        // 2. Lock the booking window row for atomic queue allocation
+        const [window] = await tx
+          .select()
+          .from(bookingWindows)
+          .where(eq(bookingWindows.id, bookingWindowId))
+          .for("update");
 
-      if (!window) {
-        throw new Error("نافذة الحجز غير موجودة");
-      }
+        if (!window) {
+          throw new Error("نافذة الحجز غير موجودة");
+        }
 
-      // 3. Verify section match
-      if (window.sectionId !== student.sectionId) {
-        throw new Error(
-          "لا يمكن الحجز الآن، لأن الحجز لم يتم فتحه للسكشن الخاص بك. يرجى متابعة الإعلانات الرسمية."
+        // 3. Verify section match
+        if (window.sectionId !== student.sectionId) {
+          throw new Error(
+            "لا يمكن الحجز الآن، لأن الحجز لم يتم فتحه للسكشن الخاص بك. يرجى متابعة الإعلانات الرسمية."
+          );
+        }
+
+        // Verify subSection match (A or B)
+        if (
+          window.subSection &&
+          window.subSection !== "ALL" &&
+          window.subSection !== (student.subSection || "A")
+        ) {
+          throw new Error(
+            `فترة الحجز الحالية مخصصة لطلاب (قسم ${window.subSection}) فقط، وأنت مسجل في (قسم ${student.subSection || "A"}). يرجى انتظار موعد فتح الحجز لقسمك.`
+          );
+        }
+
+        // 4. Verify window status and time
+        const now = new Date();
+        if (
+          window.status !== BOOKING_WINDOW_STATUSES.OPEN ||
+          now < new Date(window.startsAt) ||
+          now > new Date(window.endsAt)
+        ) {
+          throw new Error(
+            "لم يتم تفعيل وقت البصمة للسكشن بتاعك. يرجى الانتظار، ستصلك رسالة تنبيهية على التيليجرام فور فتح الحجز لسكشنك."
+          );
+        }
+
+        // 5. Check existing active booking for this student in this window (idempotency check)
+        const [existingBooking] = await tx
+          .select()
+          .from(bookings)
+          .where(
+            and(
+              eq(bookings.studentId, student.id),
+              sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`
+            )
+          );
+
+        if (existingBooking) {
+          // Also deliver current queue status to student via Telegram
+          if (student.telegramUserId) {
+            const [aheadResult] = await tx
+              .select({ count: sql<number>`count(*)` })
+              .from(bookings)
+              .where(
+                and(
+                  sql`${bookings.status} IN ('WAITING', 'CALLED')`,
+                  lt(bookings.queueNumber, existingBooking.queueNumber)
+                )
+              );
+            const peopleAhead = Number(aheadResult?.count || 0);
+            const currentTurn = peopleAhead + 1;
+            const formattedNum = formatQueueNumber(existingBooking.queueNumber);
+            const formattedTurn = formatQueueNumber(currentTurn);
+            const deskName = existingBooking.desk || "T";
+
+            const reminderMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
+قسم تكنولوجيا المعلومات — نظام بصمة الوجه
+
+<b>تفاصيل حجز دورك الحالي:</b>
+
+<b>اسم الطالب:</b> ${student.fullName}
+<b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
+<b>الشباك المخصص:</b> <code>شباك ${deskName}</code>
+<b>رقم دورك الحالي في الطابور:</b> <code>#${formattedTurn}</code> (تذكرة حجز رقم: <code>#${formattedNum}</code>)
+<b>حالة الطابور:</b> ${peopleAhead === 0 ? "أنت أول شخص في الطابور الآن!" : `باقي أمامك ${peopleAhead} أشخاص فقط في الانتظار`}
+
+<b>المقر:</b> الواحة — مبنى الشؤون (شباك بصمة الوجه)
+ستصلك رسالة تنبيهية فور المناداة على دورك.`;
+
+            try {
+              await TelegramService.sendMessage(Number(student.telegramUserId), reminderMsg);
+            } catch (err: any) {
+              console.error("[BookingService] Failed to send existing booking reminder:", err.message);
+            }
+          }
+
+          return {
+            booking: existingBooking,
+            formattedQueueNumber: formatQueueNumber(existingBooking.queueNumber),
+            desk: existingBooking.desk || "T",
+            isExisting: true,
+          };
+        }
+
+        // 6. Queue capacity: Open queueing - every student receives a unique sequential queue number
+
+        // 7. Allocate queue number atomically across ALL sections:
+        // Lock table booking_windows in EXCLUSIVE MODE to prevent concurrent duplicate numbers across transactions
+        await tx.execute(sql`LOCK TABLE booking_windows IN EXCLUSIVE MODE;`);
+
+        const [maxBooking] = await tx
+          .select({ maxQueue: sql<number>`COALESCE(MAX(${bookings.queueNumber}), 0)` })
+          .from(bookings);
+
+        const [maxWindow] = await tx
+          .select({ maxNextQueue: sql<number>`COALESCE(MAX(${bookingWindows.nextQueueNumber}), 1)` })
+          .from(bookingWindows);
+
+        const assignedQueueNumber = Math.max(
+          Number(maxBooking?.maxQueue || 0) + 1,
+          Number(maxWindow?.maxNextQueue || 1)
         );
-      }
 
-      // Verify subSection match (A or B)
-      if (
-        window.subSection &&
-        window.subSection !== "ALL" &&
-        window.subSection !== (student.subSection || "A")
-      ) {
-        throw new Error(
-          `فترة الحجز الحالية مخصصة لطلاب (قسم ${window.subSection}) فقط، وأنت مسجل في (قسم ${student.subSection || "A"}). يرجى انتظار موعد فتح الحجز لقسمك.`
-        );
-      }
+        // Determine desk assignment alternating between T and D: "واحد T وواحد D كدة وكدة"
+        const [lastBooking] = await tx
+          .select({ desk: bookings.desk })
+          .from(bookings)
+          .orderBy(desc(bookings.queueNumber))
+          .limit(1);
 
-      // 4. Verify window status and time
-      const now = new Date();
-      if (
-        window.status !== BOOKING_WINDOW_STATUSES.OPEN ||
-        now < new Date(window.startsAt) ||
-        now > new Date(window.endsAt)
-      ) {
-        throw new Error(
-          "لم يتم تفعيل وقت البصمة للسكشن بتاعك. يرجى الانتظار، ستصلك رسالة تنبيهية على التيليجرام فور فتح الحجز لسكشنك."
-        );
-      }
+        const assignedDesk: "T" | "D" = lastBooking?.desk === "T" ? "D" : "T";
 
-      // 5. Check existing active booking for this student in this window (idempotency check)
-      const [existingBooking] = await tx
-        .select()
-        .from(bookings)
-        .where(
-          and(
-            eq(bookings.studentId, student.id),
-            sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`
-          )
-        );
+        // Keep all booking windows in sync so all sections share the exact same next queue counter
+        await tx
+          .update(bookingWindows)
+          .set({
+            nextQueueNumber: assignedQueueNumber + 1,
+            updatedAt: new Date(),
+          });
 
-      if (existingBooking) {
-        // Also deliver current queue status to student via Telegram
+        // 8. Insert booking record
+        const [createdBooking] = await tx
+          .insert(bookings)
+          .values({
+            bookingWindowId: window.id,
+            studentId: student.id,
+            queueNumber: assignedQueueNumber,
+            ticketNumber: assignedQueueNumber,
+            desk: assignedDesk,
+            status: BOOKING_STATUSES.WAITING,
+          })
+          .returning();
+
+        // 9. Send Telegram confirmation message immediately & log to outbox
         if (student.telegramUserId) {
           const [aheadResult] = await tx
             .select({ count: sql<number>`count(*)` })
@@ -187,167 +306,91 @@ export class BookingService {
             .where(
               and(
                 sql`${bookings.status} IN ('WAITING', 'CALLED')`,
-                lt(bookings.queueNumber, existingBooking.queueNumber)
+                ne(bookings.id, createdBooking.id)
               )
             );
           const peopleAhead = Number(aheadResult?.count || 0);
+          const isFirstTen = peopleAhead < 10;
           const currentTurn = peopleAhead + 1;
-          const formattedNum = formatQueueNumber(existingBooking.queueNumber);
+          const formattedNum = formatQueueNumber(assignedQueueNumber);
           const formattedTurn = formatQueueNumber(currentTurn);
 
-          const reminderMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
-قسم تكنولوجيا المعلومات — نظام بصمة الوجه
-
-<b>تفاصيل حجز دورك الحالي:</b>
-
-<b>اسم الطالب:</b> ${student.fullName}
-<b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
-<b>رقم دورك الحالي في الطابور:</b> <code>#${formattedTurn}</code> (تذكرة حجز رقم: <code>#${formattedNum}</code>)
-<b>حالة الطابور:</b> ${peopleAhead === 0 ? "أنت أول شخص في الطابور الآن!" : `باقي أمامك ${peopleAhead} أشخاص فقط في الانتظار`}
-
-<b>المقر:</b> مبنى كلية تكنولوجيا الصناعة والطاقة — معمل الحاسب الآلي (شباك بصمة الوجه)
-ستصلك رسالة تنبيهية فور المناداة على دورك.`;
-
-          try {
-            await TelegramService.sendMessage(Number(student.telegramUserId), reminderMsg);
-          } catch (err: any) {
-            console.error("[BookingService] Failed to send existing booking reminder:", err.message);
-          }
-        }
-
-        return {
-          booking: existingBooking,
-          formattedQueueNumber: formatQueueNumber(existingBooking.queueNumber),
-          isExisting: true,
-        };
-      }
-
-      // 6. Queue capacity: Open queueing - every student receives a unique sequential queue number
-
-      // 7. Allocate queue number atomically across ALL sections:
-      // Lock table booking_windows in EXCLUSIVE MODE to prevent concurrent duplicate numbers across transactions
-      await tx.execute(sql`LOCK TABLE booking_windows IN EXCLUSIVE MODE;`);
-
-      const [maxBooking] = await tx
-        .select({ maxQueue: sql<number>`COALESCE(MAX(${bookings.queueNumber}), 0)` })
-        .from(bookings);
-
-      const [maxWindow] = await tx
-        .select({ maxNextQueue: sql<number>`COALESCE(MAX(${bookingWindows.nextQueueNumber}), 1)` })
-        .from(bookingWindows);
-
-      const assignedQueueNumber = Math.max(
-        Number(maxBooking?.maxQueue || 0) + 1,
-        Number(maxWindow?.maxNextQueue || 1)
-      );
-
-      // Keep all booking windows in sync so all sections share the exact same next queue counter
-      await tx
-        .update(bookingWindows)
-        .set({
-          nextQueueNumber: assignedQueueNumber + 1,
-          updatedAt: new Date(),
-        });
-
-      // 8. Insert booking record
-      const [createdBooking] = await tx
-        .insert(bookings)
-        .values({
-          bookingWindowId: window.id,
-          studentId: student.id,
-          queueNumber: assignedQueueNumber,
-          ticketNumber: assignedQueueNumber,
-          status: BOOKING_STATUSES.WAITING,
-        })
-        .returning();
-
-      // 9. Send Telegram confirmation message immediately & log to outbox
-      if (student.telegramUserId) {
-        const [aheadResult] = await tx
-          .select({ count: sql<number>`count(*)` })
-          .from(bookings)
-          .where(
-            and(
-              sql`${bookings.status} IN ('WAITING', 'CALLED')`,
-              ne(bookings.id, createdBooking.id)
-            )
-          );
-        const peopleAhead = Number(aheadResult?.count || 0);
-        const isFirstTen = peopleAhead < 10;
-        const currentTurn = peopleAhead + 1;
-        const formattedNum = formatQueueNumber(assignedQueueNumber);
-        const formattedTurn = formatQueueNumber(currentTurn);
-
-        const telegramText = isFirstTen
-          ? `<b>جامعة برج العرب التكنولوجية (BATU)</b>
+          const telegramText = isFirstTen
+            ? `<b>جامعة برج العرب التكنولوجية (BATU)</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
 <b>تم تأكيد حجز دورك بنجاح!</b>
 
 <b>اسم الطالب:</b> ${student.fullName}
 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
+<b>الشباك المخصص:</b> <code>شباك ${assignedDesk}</code>
 <b>رقم دورك الحالي في الطابور:</b> <code>#${formattedTurn}</code> (تذكرة حجز رقم: <code>#${formattedNum}</code>)
 <b>حالة الطابور:</b> ${peopleAhead === 0 ? "أنت أول شخص في الطابور الآن!" : `باقي أمامك ${peopleAhead} أشخاص فقط في الانتظار`}
 
 <b>تنبيه عاجل:</b>
 أنت من <b>أول 10 طلاب</b> في الطابور!
-<b>يرجى التوجه فوراً الآن إلى شباك بصمة الوجه (معمل الحاسب الآلي — الطابق الأرضي).</b>`
-          : `<b>جامعة برج العرب التكنولوجية (BATU)</b>
+<b>يرجى التوجه فوراً الآن إلى الواحة — مبنى الشؤون والانتظار أمام شباك ${assignedDesk} لعمل بصمة الوجه.</b>`
+            : `<b>جامعة برج العرب التكنولوجية (BATU)</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
 <b>تم تأكيد حجز دورك بنجاح!</b>
 
 <b>اسم الطالب:</b> ${student.fullName}
 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
+<b>الشباك المخصص:</b> <code>شباك ${assignedDesk}</code>
 <b>رقم دورك الحالي في الطابور:</b> <code>#${formattedTurn}</code> (تذكرة حجز رقم: <code>#${formattedNum}</code>)
 <b>فاضلك كام واحد:</b> باقي أمامك <b>${peopleAhead}</b> أشخاص في الانتظار.
 
-<b>المقر:</b> مبنى كلية تكنولوجيا الصناعة والطاقة — معمل الحاسب الآلي
-<b>ستصلك رسالة تنبيهية فور وصول المتبقي على دورك إلى 10 أشخاص للاستعداد والحضور.</b>`;
+<b>المقر:</b> الواحة — مبنى الشؤون (شباك ${assignedDesk})
+<b>ستصلك رسالة تنبيهية فور اقتراب دورك للاستعداد والتوجه إلى شباك ${assignedDesk} بمبنى الشؤون (الواحة).</b>`;
 
-        const outboxKey = `booking_confirm_${createdBooking.id}`;
-        await tx.insert(notificationOutbox).values({
-          eventType: "BOOKING_CONFIRMATION",
-          recipientId: student.id,
-          telegramChatId: student.telegramUserId,
-          payload: {
-            studentName: student.fullName,
-            academicNumber: student.academicNumber,
-            queueNumber: formattedNum,
-            peopleAhead,
-            isFirstTen,
-            bookingId: createdBooking.id,
-            message: telegramText,
+          const outboxKey = `booking_confirm_${createdBooking.id}`;
+          await tx.insert(notificationOutbox).values({
+            eventType: "BOOKING_CONFIRMATION",
+            recipientId: student.id,
+            telegramChatId: student.telegramUserId,
+            payload: {
+              studentName: student.fullName,
+              academicNumber: student.academicNumber,
+              queueNumber: formattedNum,
+              desk: assignedDesk,
+              peopleAhead,
+              isFirstTen,
+              bookingId: createdBooking.id,
+              message: telegramText,
+            },
+            status: "DELIVERED",
+            idempotencyKey: outboxKey,
+          });
+
+          // Send instant message directly to student via Telegram API (awaited)
+          try {
+            await TelegramService.sendMessage(Number(student.telegramUserId), telegramText);
+          } catch (err: any) {
+            console.error("[BookingService] Failed to send instant Telegram message:", err.message);
+          }
+        }
+
+        // 10. Audit log
+        await tx.insert(auditLogs).values({
+          action: "BOOKING_CREATED",
+          entityType: "BOOKING",
+          entityId: createdBooking.id,
+          safeMetadata: {
+            studentId: student.id,
+            bookingWindowId: window.id,
+            queueNumber: assignedQueueNumber,
+            desk: assignedDesk,
           },
-          status: "DELIVERED",
-          idempotencyKey: outboxKey,
         });
 
-        // Send instant message directly to student via Telegram API (awaited)
-        try {
-          await TelegramService.sendMessage(Number(student.telegramUserId), telegramText);
-        } catch (err: any) {
-          console.error("[BookingService] Failed to send instant Telegram message:", err.message);
-        }
-      }
-
-      // 10. Audit log
-      await tx.insert(auditLogs).values({
-        action: "BOOKING_CREATED",
-        entityType: "BOOKING",
-        entityId: createdBooking.id,
-        safeMetadata: {
-          studentId: student.id,
-          bookingWindowId: window.id,
-          queueNumber: assignedQueueNumber,
-        },
+        return {
+          booking: createdBooking,
+          formattedQueueNumber: formatQueueNumber(assignedQueueNumber),
+          desk: assignedDesk,
+          isExisting: false,
+        };
       });
-
-      return {
-        booking: createdBooking,
-        formattedQueueNumber: formatQueueNumber(assignedQueueNumber),
-        isExisting: false,
-      };
     });
   }
 
@@ -413,6 +456,7 @@ export class BookingService {
       startedAt: latestBooking.booking.startedAt,
       completedAt: latestBooking.booking.completedAt,
       studentsAhead: aheadCount,
+      desk: latestBooking.booking.desk || "T",
       sectionName: latestBooking.section.name,
       studentName: latestBooking.student.fullName,
       academicNumber: latestBooking.student.academicNumber,
@@ -489,6 +533,7 @@ export class BookingService {
               payload: {
                 studentName: student.fullName,
                 queueNumber: displayQueueNumber,
+                desk: booking.desk || "T",
                 currentTurn: formatQueueNumber(currentTurn),
                 ticketNumber: formatQueueNumber(booking.queueNumber),
               },
@@ -571,7 +616,8 @@ export class BookingService {
     // Send Telegram alert
     if (student.telegramUserId) {
       const ticketNum = booking.ticketNumber || booking.queueNumber;
-      const alertMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>نداء عاجل ومكرر!</b>\nعزيزي الطالب <b>${student.fullName}</b>،\nحان دورك الآن رسمياً في الطابور برقم: <code>#${formatQueueNumber(currentTurn)}</code> (تذكرة حجز رقم: <code>#${formatQueueNumber(ticketNum)}</code>)\n\n<b>يرجى التوجه فوراً لشباك التسجيل لعمل بصمة الوجه قبل فوات الدور!</b>`;
+      const deskName = booking.desk || "T";
+      const alertMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>نداء عاجل ومكرر!</b>\nعزيزي الطالب <b>${student.fullName}</b>،\nحان دورك الآن رسمياً في الطابور برقم: <code>#${formatQueueNumber(currentTurn)}</code> (تذكرة حجز رقم: <code>#${formatQueueNumber(ticketNum)}</code>)\n<b>الشباك المخصص:</b> <code>شباك ${deskName}</code>\n\n<b>يرجى التوجه فوراً إلى الواحة — مبنى الشؤون (شباك ${deskName}) لعمل بصمة الوجه قبل فوات الدور!</b>`;
 
       try {
         await TelegramService.sendMessage(Number(student.telegramUserId), alertMsg);
@@ -698,6 +744,7 @@ export class BookingService {
       let telegramSent = false;
       if (student.telegramUserId) {
         const studentsAhead = newTurn - 1;
+        const deskName = booking.desk || "T";
         const delayMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
@@ -705,6 +752,7 @@ export class BookingService {
 
 عزيزي الطالب: <b>${student.fullName}</b>
 <b>رقم التذكرة الثابت:</b> <code>#${formatQueueNumber(originalTicketNumber)}</code>
+<b>الشباك المخصص:</b> <code>شباك ${deskName}</code>
 <b>دورك الحالي في الطابور الآن:</b> <code>#${formatQueueNumber(newTurn)}</code>
 <b>المتبقي قبلك في الانتظار:</b> ${studentsAhead === 0 ? "أنت التالي الآن!" : `${studentsAhead} طلاب`}
 
@@ -714,8 +762,8 @@ ${
     : `تم تأخيرك 10 أدوار للخلف، وسيحين دورك بعد مرور 10 طلاب.`
 }
 
-<b>المقر:</b> مبنى كلية تكنولوجيا الصناعة والطاقة — معمل الحاسب الآلي (شباك بصمة الوجه)
-يرجى التواجد أمام المعمل فور اقتراب رقم دورك.`;
+<b>المقر:</b> الواحة — مبنى الشؤون (شباك ${deskName})
+يرجى التواجد أمام شباك ${deskName} بمبنى الشؤون فور اقتراب رقم دورك.`;
 
         try {
           await TelegramService.sendMessage(Number(student.telegramUserId), delayMsg);
@@ -799,7 +847,7 @@ ${
 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
 
 نحيطكم علماً بأنه قد تم إلغاء حجز دورك رسمياً نظراً لعدم التواجد بعد تكرار النداء.
-يمكنك إعادة الحجز من المنصة عند فتح فترة حجز جديدة لسكشنك أو مراجعة إدارة شؤون الطلاب بالكلية.`;
+يمكنك إعادة الحجز من المنصة عند فتح فترة حجز جديدة لسكشنك أو مراجعة إدارة شؤون الطلاب (مبنى الشؤون — الواحة).`;
 
       try {
         await TelegramService.sendMessage(Number(student.telegramUserId), cancelMsg);
@@ -822,6 +870,7 @@ ${
   static async getDetailedQueueList(params: {
     status?: string;
     sectionId?: string;
+    desk?: string;
     search?: string;
     page?: number;
     limit?: number;
@@ -837,6 +886,10 @@ ${
       // Active queue roles: only students currently in line (WAITING, CALLED, IN_PROGRESS)
       // Once fingerprint is activated (COMPLETED), they are removed from the active queue!
       conditions.push(sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`);
+    }
+
+    if (params.desk && params.desk !== "ALL") {
+      conditions.push(eq(bookings.desk, params.desk));
     }
 
     if (params.sectionId) {
@@ -859,6 +912,7 @@ ${
         id: bookings.id,
         queueNumber: bookings.queueNumber,
         ticketNumber: bookings.ticketNumber,
+        desk: bookings.desk,
         status: bookings.status,
         bookedAt: bookings.bookedAt,
         calledAt: bookings.calledAt,
@@ -930,6 +984,7 @@ ${
         formattedQueueNumber: formatQueueNumber(b.queueNumber),
         ticketNumber: ticketNum,
         formattedTicketNumber: formatQueueNumber(ticketNum),
+        desk: b.desk || "T",
         liveTurn,
         formattedLiveTurn: formatQueueNumber(liveTurn),
         status: b.status,
@@ -1022,10 +1077,11 @@ ${
 
 <b>اسم الطالب:</b> ${student.fullName}
 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
+<b>الشباك المخصص:</b> <code>شباك ${activeBooking.desk || "T"}</code>
 <b>رقم دورك الحالي في الطابور:</b> <code>#${formattedTurn}</code> (تذكرة حجز رقم: <code>#${formattedNum}</code>)
 <b>حالة الطابور:</b> ${peopleAhead === 0 ? "أنت أول شخص في الطابور الآن!" : `باقي أمامك ${peopleAhead} أشخاص فقط في الانتظار`}
 
-<b>المقر:</b> مبنى كلية تكنولوجيا الصناعة والطاقة — معمل الحاسب الآلي (شباك بصمة الوجه)
+<b>المقر:</b> الواحة — مبنى الشؤون (شباك بصمة الوجه)
 ستصلك رسالة تنبيهية فور المناداة على دورك.`;
 
     await TelegramService.sendMessage(Number(student.telegramUserId), msg);
@@ -1044,6 +1100,7 @@ ${
           bookingId: bookings.id,
           queueNumber: bookings.queueNumber,
           ticketNumber: bookings.ticketNumber,
+          desk: bookings.desk,
           status: bookings.status,
           studentId: students.id,
           fullName: students.fullName,
@@ -1069,14 +1126,15 @@ ${
         const formattedTurn = formatQueueNumber(currentTurn);
         const ticketNum = item.ticketNumber || item.queueNumber;
         const formattedNum = formatQueueNumber(ticketNum);
+        const deskName = item.desk || "T";
 
         let aheadText = "";
         if (aheadCount === 0) {
-          aheadText = "🚀 <b>أنت التالي في الطابور مباشرة الآن!</b>\nيرجى الوقوف أمام شباك بصمة الوجه بالمعمل فوراً.";
+          aheadText = `🚀 <b>أنت التالي في الطابور مباشرة الآن!</b>\nيرجى الوقوف أمام شباك ${deskName} بمبنى الشؤون فوراً.`;
         } else if (aheadCount === 1) {
-          aheadText = "⏳ <b>لقد أصبح أمامك شخص واحد فقط (1) في الانتظار!</b>\nيرجى التواجد أمام المعمل والاستعداد.";
+          aheadText = `⏳ <b>لقد أصبح أمامك شخص واحد فقط (1) في الانتظار!</b>\nيرجى التواجد أمام شباك ${deskName} والاستعداد.`;
         } else if (aheadCount === 2) {
-          aheadText = "⏳ <b>لقد أصبح أمامك شخصان فقط (2) في الانتظار!</b>\nيرجى الاستعداد والاقتراب من المعمل.";
+          aheadText = `⏳ <b>لقد أصبح أمامك شخصان فقط (2) في الانتظار!</b>\nيرجى الاستعداد والاقتراب من شباك ${deskName}.`;
         } else {
           aheadText = `⏳ <b>لقد أصبح أمامك ${aheadCount} أشخاص في الانتظار.</b>`;
         }
@@ -1086,12 +1144,13 @@ ${
 
 📢 <b>تحديث حركة وتقدم الطابور:</b>
 عزيزي الطالب: <b>${item.fullName}</b>
+<b>الشباك المخصص:</b> <code>شباك ${deskName}</code>
 <b>دورك الحالي في الطابور الآن:</b> <code>#${formattedTurn}</code>
 <b>رقم التذكرة الثابت:</b> <code>#${formattedNum}</code>
 
 ${aheadText}
 
-📍 <b>المقر:</b> مبنى كلية تكنولوجيا الصناعة والطاقة — معمل الحاسب الآلي (شباك بصمة الوجه)`;
+📍 <b>المقر:</b> الواحة — مبنى الشؤون (شباك ${deskName})`;
 
         // Send via Telegram with small throttle to respect Telegram API
         try {

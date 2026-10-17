@@ -16,6 +16,7 @@ import {
   Send,
   Radio,
   Sparkles,
+  MapPin,
 } from "lucide-react";
 
 function BookingStatusContent() {
@@ -252,16 +253,30 @@ function BookingStatusContent() {
                     <span>حان دورك الآن!</span>
                   </div>
                   <p className="text-xs font-normal text-slate-300">
-                    يرجى التوجه فوراً إلى شباك بصمة الوجه بمعمل الحاسب الآلي لإتمام تسجيل بصمتك.
+                    يرجى التوجه فوراً إلى <b className="text-white">شباك {statusData.desk || "T"}</b> بمبنى الشؤون (الواحة) لإتمام تسجيل بصمتك.
                   </p>
                 </div>
               )}
 
               {/* Dynamic Queue Number Display */}
               <div className="text-center py-6 px-4 bg-slate-950 rounded-2xl text-white space-y-3 border border-amber-500/30 shadow-inner relative overflow-hidden">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[10px] font-bold text-emerald-400">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>طابور حي ومتحرك</span>
+                <div className="flex items-center justify-center gap-2 flex-wrap">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[10px] font-bold text-emerald-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>طابور حي ومتحرك</span>
+                  </div>
+
+                  {statusData.desk === "D" ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 text-[11px] font-black font-mono">
+                      <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                      <span>الشباك المخصص: شباك D</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-[11px] font-black font-mono">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                      <span>الشباك المخصص: شباك T</span>
+                    </span>
+                  )}
                 </div>
 
                 <span className="text-xs text-amber-400 font-bold uppercase tracking-wider block">
@@ -279,6 +294,11 @@ function BookingStatusContent() {
                   <span className="bg-slate-900 px-3 py-1 rounded-xl border border-slate-800 text-slate-300">
                     باقي قبلك في الانتظار: <b className="text-cyan-400 font-mono">{statusData.studentsAhead}</b> طلاب
                   </span>
+                </div>
+
+                <div className="text-xs text-slate-300 pt-1 flex items-center justify-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>الواحة — مبنى الشؤون (شباك بصمة الوجه)</span>
                 </div>
 
                 <p className="text-[11px] text-slate-400 pt-1">

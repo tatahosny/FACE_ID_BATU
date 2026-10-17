@@ -33,7 +33,7 @@ export default function AdminSchedulesPage() {
   const [formStartTime, setFormStartTime] = useState("09:00");
   const [formEndTime, setFormEndTime] = useState("13:00");
   const [formVenue, setFormVenue] = useState(
-    "معمل الحاسب الآلي الرئيسي — الطابق الأرضي — شباك تسجيل البصمة"
+    "الواحة — مبنى الشؤون (شباك بصمة الوجه)"
   );
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -44,10 +44,10 @@ export default function AdminSchedulesPage() {
   const [filterSubSection, setFilterSubSection] = useState<"ALL" | "A" | "B">("ALL");
 
   const venuePresets = [
+    "الواحة — مبنى الشؤون (شباك بصمة الوجه)",
+    "شباك الاستقبال المركزي - شؤون الطلاب (الواحة)",
     "معمل الحاسب الآلي الرئيسي — الطابق الأرضي — شباك تسجيل البصمة",
-    "مبنى كلية تكنولوجيا الصناعة والطاقة — قاعة السكاشن 104",
     "المدرج المركزي للكلية — شباك الفحص البيومتري",
-    "مكتب شؤون الطلاب وقيد الفرق الدراسية — الطابق الأول",
   ];
 
   const fetchSchedules = async () => {
@@ -468,7 +468,7 @@ export default function AdminSchedulesPage() {
                         من {sc.startTime} إلى {sc.endTime}
                       </td>
                       <td className="p-3 border border-slate-700 print:border print:border-black text-xs text-slate-300 font-medium print:text-black">
-                        {sc.notes || "معمل الحاسب الآلي الرئيسي (الدور الأرضي)"}
+                        {sc.notes || "الواحة — مبنى الشؤون (شباك بصمة الوجه)"}
                       </td>
                       <td className="p-3 border border-slate-700 print:hidden text-center">
                         <div className="flex items-center justify-center gap-1.5 flex-wrap">
@@ -658,7 +658,7 @@ export default function AdminSchedulesPage() {
                   required
                   value={formVenue}
                   onChange={(e) => setFormVenue(e.target.value)}
-                  placeholder="مثال: مبنى كلية تكنولوجيا الصناعة والطاقة — معمل الحاسب الآلي (الطابق الأرضي)"
+                  placeholder="مثال: الواحة — مبنى الشؤون (شباك بصمة الوجه)"
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-700 text-xs bg-slate-950 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
 

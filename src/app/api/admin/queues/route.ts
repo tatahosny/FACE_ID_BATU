@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status") || undefined;
     const sectionId = searchParams.get("sectionId") || undefined;
+    const desk = searchParams.get("desk") || undefined;
     const search = searchParams.get("search") || undefined;
     const page = parseInt(searchParams.get("page") || "1", 10);
     const limit = parseInt(searchParams.get("limit") || "50", 10);
@@ -24,6 +25,7 @@ export async function GET(req: NextRequest) {
     const result = await BookingService.getDetailedQueueList({
       status,
       sectionId,
+      desk,
       search,
       page,
       limit,

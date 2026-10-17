@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
             if (sentTelegramUsers.has(tgKey)) return;
             sentTelegramUsers.add(tgKey);
 
-            const openMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تم فتح حجز دور البصمة للسكشن الخاص بكم الآن!</b>\n\n<b>السكشن:</b> ${sec?.sectionName || "السكشن الأكاديمي"}${subSectionText} (${sec?.groupName || "المجموعة"})\n<b>عزيزي الطالب:</b> ${st.fullName}\n\n<b>يمكنك الآن الدخول إلى المنصة وحجز رقم دورك فوراً:</b>\n<a href="${appUrl}/booking">${appUrl}/booking</a>\n\nيرجى الدخول فوراً واختيار رقم دورك والتواجد بالموعد المحدد.`;
+            const openMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تم فتح حجز دور البصمة للسكشن الخاص بكم الآن!</b>\n\n<b>السكشن:</b> ${sec?.sectionName || "السكشن الأكاديمي"}${subSectionText} (${sec?.groupName || "المجموعة"})\n<b>عزيزي الطالب:</b> ${st.fullName}\n\n<b>المقر:</b> الواحة — مبنى الشؤون (شباك بصمة الوجه)\n\n<b>يمكنك الآن الدخول إلى المنصة وحجز رقم دورك فوراً:</b>\n<a href="${appUrl}/booking">${appUrl}/booking</a>\n\nيرجى الدخول فوراً لحجز دورك (سيتم تخصيص شباك T أو شباك D لك تلقائياً بالتناوب).`;
 
             TelegramService.sendMessage(Number(st.telegramUserId), openMsg).catch((err) => {
               console.error(`Failed to send bulk open notice to student ${st.id}:`, err.message);

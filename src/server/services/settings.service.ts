@@ -3,7 +3,7 @@ import { systemSettings } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
 export class SettingsService {
-  private static defaultLocation = "معمل الحاسب الآلي الرئيسي (شباك بصمة الوجه)";
+  private static defaultLocation = "الواحة — مبنى الشؤون (شباك بصمة الوجه)";
 
   /**
    * Retrieve a setting by its key with fallback
@@ -76,5 +76,27 @@ export class SettingsService {
     );
 
     return trimmed;
+  }
+
+  /**
+   * Get assigned staff for Desk T and Desk D
+   */
+  static async getDeskStaff() {
+    const deskTStaffId = await this.getSetting("desk_t_staff_id", "");
+    const deskDStaffId = await this.getSetting("desk_d_staff_id", "");
+    return {
+      deskT: deskTStaffId,
+      deskD: deskDStaffId,
+    };
+  }
+
+  /**
+   * Set assigned staff for a desk (T or D)
+   */
+  static async setDeskStaff(desk: "T" | "D", staffId: string, updatedBy?: string) {
+    const key = desk === "T" ? "desk_t_staff_id" : "desk_d_staff_id";
+    const desc = desk === "T" ? "الموظف المسؤول عن شباك T" : "الموظف المسؤول عن شباك D";
+    await this.setSetting(key, staffId, desc, updatedBy);
+    return { desk, staffId };
   }
 }

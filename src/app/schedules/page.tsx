@@ -385,7 +385,7 @@ export default function PublicSchedulesPage() {
                         من {sc.startTime} إلى {sc.endTime}
                       </td>
                       <td className="p-3 border border-slate-800/80 print:border print:border-black text-xs text-slate-300 font-medium print:text-black">
-                        {sc.notes || "معمل الحاسب الآلي الرئيسي (الدور الأرضي)"}
+                        {sc.notes || "الواحة — مبنى الشؤون (شباك بصمة الوجه)"}
                       </td>
                     </tr>
                   ))}

@@ -27,6 +27,7 @@ export class NotificationService {
       .select({
         bookingId: bookings.id,
         queueNumber: bookings.queueNumber,
+        desk: bookings.desk,
         studentId: students.id,
         fullName: students.fullName,
         telegramUserId: students.telegramUserId,
@@ -45,6 +46,7 @@ export class NotificationService {
         if (!item.telegramUserId) continue; // Not linked
 
         const studentsAhead = i; // Array is ordered by queueNumber, so index i is exactly count ahead
+        const deskName = item.desk || "T";
 
         if (studentsAhead === 10) {
           const idempotencyKey = `proximity_10_${item.bookingId}`;
@@ -54,9 +56,10 @@ export class NotificationService {
 <b>تنبيه اقتراب الدور:</b>
 عزيزي الطالب <b>${item.fullName}</b>،
 <b>باقى على دورك 10 اشخاص يرجى التوجه الان لمكتب البصمة</b>
+<b>الشباك المخصص:</b> <code>شباك ${deskName}</code>
 
-<b>المقر:</b> مبنى كلية تكنولوجيا الصناعة والطاقة — الطابق الأرضي — معمل الحاسب الآلي (شباك بصمة الوجه)
-يرجى الاستعداد والتواجد بالقرب من الشباك لتسجيل بصمة الوجه فور النداء.`;
+<b>المقر:</b> الواحة — مبنى الشؤون (شباك ${deskName})
+يرجى الاستعداد والتواجد بالقرب من شباك ${deskName} لتسجيل بصمة الوجه فور النداء.`;
 
           const inserted = await this.queueOutboxItem({
             eventType: "PROXIMITY_10",
@@ -65,6 +68,7 @@ export class NotificationService {
             payload: {
               studentName: item.fullName,
               remainingAhead: 10,
+              desk: deskName,
               message: msg,
             },
             idempotencyKey,
@@ -78,7 +82,7 @@ export class NotificationService {
           }
         } else if (studentsAhead === 5) {
           const idempotencyKey = `proximity_5_${item.bookingId}`;
-          const msg = `<b>تنبيه عاجل:</b> متبقي 5 أشخاص فقط على دورك (<b>${item.fullName}</b>). يرجى الوقوف أمام شباك بصمة الوجه بالمعمل الآن.`;
+          const msg = `<b>تنبيه عاجل:</b> متبقي 5 أشخاص فقط على دورك (<b>${item.fullName}</b>). الشباك: <b>شباك ${deskName}</b>. يرجى الوقوف أمام شباك ${deskName} بمبنى الشؤون (الواحة) الآن.`;
           const inserted = await this.queueOutboxItem({
             eventType: "PROXIMITY_5",
             recipientId: item.studentId,
@@ -86,6 +90,7 @@ export class NotificationService {
             payload: {
               studentName: item.fullName,
               remainingAhead: 5,
+              desk: deskName,
               message: msg,
             },
             idempotencyKey,
@@ -140,21 +145,21 @@ export class NotificationService {
       case "PROXIMITY_10":
         return (
           payload.message ||
-          `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه اقتراب الدور:</b>\nعزيزي الطالب <b>${payload.studentName}</b>،\n<b>باقى على دورك 10 اشخاص يرجى التوجه الان لمكتب البصمة</b>\n\n<b>المقر:</b> مبنى كلية تكنولوجيا الصناعة والطاقة — الطابق الأرضي — معمل الحاسب الآلي (شباك بصمة الوجه).`
+          `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه اقتراب الدور:</b>\nعزيزي الطالب <b>${payload.studentName}</b>،\n<b>باقى على دورك 10 اشخاص يرجى التوجه الان لمكتب البصمة</b>\n${payload.desk ? `<b>الشباك المخصص:</b> <code>شباك ${payload.desk}</code>\n` : ""}<b>المقر:</b> الواحة — مبنى الشؤون (شباك بصمة الوجه).`
         );
 
       case "PROXIMITY_5":
-        return `تنبيه: متبقي 5 أدوار فقط على دورك (<b>${payload.studentName}</b>). يرجى التوجه إلى مكتب البصمة للاستعداد.`;
+        return `تنبيه عاجل: متبقي 5 أدوار فقط على دورك (<b>${payload.studentName}</b>).${payload.desk ? ` الشباك: <b>شباك ${payload.desk}</b>.` : ""} يرجى التوجه إلى شباك بصمة الوجه بمبنى الشؤون (الواحة) للاستعداد.`;
 
       case "TURN_CALLED":
-        return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>حان دورك الآن!</b>\nعزيزي الطالب <b>${payload.studentName}</b>،\nدورك الحالي في الطابور: <b>${payload.queueNumber}</b>\nيرجى التوجه فوراً إلى شباك بصمة الوجه بالمعمل لتسجيل بصمة الوجه.`;
+        return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>حان دورك الآن!</b>\nعزيزي الطالب <b>${payload.studentName}</b>،\nدورك الحالي في الطابور: <b>${payload.queueNumber}</b>\n${payload.desk ? `<b>الشباك المخصص:</b> <code>شباك ${payload.desk}</code>\n` : ""}<b>المقر:</b> الواحة — مبنى الشؤون (شباك بصمة الوجه)\nيرجى التوجه فوراً إلى شباك ${payload.desk ? `شباك ${payload.desk}` : "بصمة الوجه"} بمبنى الشؤون لتسجيل بصمة الوجه.`;
 
       case "BOOKING_CONFIRMATION":
         if (payload.message) return payload.message;
         if (payload.isFirstTen) {
-          return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\n\n<b>تم تأكيد حجز موعدك بنجاح!</b>\n\n<b>رقم دورك في الطابور:</b> ${payload.queueNumber}\n<b>الطالب:</b> ${payload.studentName}\n<b>الرقم الأكاديمي:</b> ${payload.academicNumber}\n\n<b>تنبيه عاجل:</b>\nأنت من <b>أول 10 طلاب</b> في قائمة الانتظار!\n<b>يرجى التوجه فوراً الآن إلى مقر التسجيل لعمل بصمة الوجه.</b>`;
+          return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\n\n<b>تم تأكيد حجز موعدك بنجاح!</b>\n\n<b>رقم دورك في الطابور:</b> ${payload.queueNumber}\n${payload.desk ? `<b>الشباك المخصص:</b> شباك ${payload.desk}\n` : ""}<b>الطالب:</b> ${payload.studentName}\n<b>الرقم الأكاديمي:</b> ${payload.academicNumber}\n\n<b>تنبيه عاجل:</b>\nأنت من <b>أول 10 طلاب</b> في قائمة الانتظار!\n<b>يرجى التوجه فوراً الآن إلى الواحة — مبنى الشؤون لعمل بصمة الوجه.</b>`;
         }
-        return `<b>تأكيد حجز موعد البصمة</b>\n\nعزيزي الطالب <b>${payload.studentName}</b>,\nتم تسجيل حجزك بنجاح.\n\n<b>رقمك في قائمة الانتظار:</b> ${payload.queueNumber}\n<b>الرقم الأكاديمي:</b> ${payload.academicNumber}\n\nيرجى متابعة إشعارات البوت عند فتح فترة الحضور واقتراب دورك.`;
+        return `<b>تأكيد حجز موعد البصمة</b>\n\nعزيزي الطالب <b>${payload.studentName}</b>,\nتم تسجيل حجزك بنجاح.\n\n<b>رقمك في قائمة الانتظار:</b> ${payload.queueNumber}\n${payload.desk ? `<b>الشباك المخصص:</b> شباك ${payload.desk}\n` : ""}<b>الرقم الأكاديمي:</b> ${payload.academicNumber}\n<b>المقر:</b> الواحة — مبنى الشؤون\n\nيرجى متابعة إشعارات البوت عند فتح فترة الحضور واقتراب دورك.`;
 
       case "ACTIVATION_SUCCESS":
         return `<b>جامعة برج العرب التكنولوجية (BATU)</b>
@@ -169,7 +174,7 @@ export class NotificationService {
 
 <b>المسؤول المعتمد:</b> ${payload.staffName}
 <b>توقيت الاعتماد:</b> ${payload.activatedAt}
-<b>المقر:</b> ${payload.location || "معمل الحاسب الآلي الرئيسي (شباك بصمة الوجه)"}
+<b>المقر:</b> ${payload.location || "الواحة — مبنى الشؤون (شباك بصمة الوجه)"}
 
 نتمنى لك دوام التوفيق والنجاح!`;
 

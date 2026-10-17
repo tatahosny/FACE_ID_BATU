@@ -28,11 +28,11 @@ export default function AdminSettingsPage() {
   const [feedback, setFeedback] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   const presets = [
+    "الواحة — مبنى الشؤون (شباك بصمة الوجه)",
+    "شباك الاستقبال المركزي - شؤون الطلاب (الواحة)",
     "معمل الحاسب الآلي الرئيسي (شباك بصمة الوجه)",
-    "معمل 2 - مبنى كلية تكنولوجيا الصناعة والطاقة",
-    "شباك الاستقبال المركزي - شؤون الطلاب",
     "مدرج 1 - مقر لجان البصمة المؤقت",
-    "معمل النظم والشبكات - الدور الأول",
+    "معمل 2 - مبنى كلية تكنولوجيا الصناعة والطاقة",
   ];
 
   useEffect(() => {
@@ -203,7 +203,7 @@ export default function AdminSettingsPage() {
                     type="text"
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
-                    placeholder="مثال: معمل الحاسب الآلي الرئيسي (شباك بصمة الوجه)"
+                    placeholder="مثال: الواحة — مبنى الشؤون (شباك بصمة الوجه)"
                     disabled={locationLoading || locationSaving}
                     className="w-full px-4 py-3 rounded-2xl bg-slate-950 border border-blue-500/40 text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 placeholder-slate-600 transition shadow-inner"
                   />
@@ -289,7 +289,7 @@ export default function AdminSettingsPage() {
                 <div className="text-cyan-300 font-bold flex items-start gap-1">
                   <span className="text-slate-400 font-normal">المقر:</span>
                   <span className="underline decoration-cyan-400 underline-offset-2">
-                    {location || "معمل الحاسب الآلي الرئيسي (شباك بصمة الوجه)"}
+                    {location || "الواحة — مبنى الشؤون (شباك بصمة الوجه)"}
                   </span>
                 </div>
               </div>

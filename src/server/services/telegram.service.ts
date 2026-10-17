@@ -241,7 +241,7 @@ export class TelegramService {
 
       const venueDetails = schedule?.notes
         ? schedule.notes
-        : `مبنى كلية تكنولوجيا الصناعة والطاقة — الطابق الأرضي — معمل الحاسب الآلي وتكنولوجيا المعلومات (شباك بصمة الوجه)`;
+        : `الواحة — مبنى الشؤون (شباك بصمة الوجه)`;
 
       const confirmationText = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تم توثيق وربط حسابك بنجاح</b>\n\n<b>اسم الطالب:</b> ${student.fullName}\n<b>الرقم الأكاديمي:</b> ${student.academicNumber}\n<b>المجموعة:</b> ${studentAcademic?.groupName || "المجموعة المحددة"}\n<b>السكشن:</b> ${studentAcademic?.sectionName || "السكشن المحدد"} (قسم ${student.subSection || "A"})\n\n${scheduleDetails}\n\n<b>المقر والمكان بالتفصيل:</b>\n${venueDetails}\n\n<b>تعليمات هامة:</b>\n• يرجى إحضار بطاقة الرقم القومي الأصلية والكارنيه الجامعي.\n• فور قيام الإدارة بفتح باب حجز الأدوار لسكشنك، ستصلك رسالة فورية هنا للدخول وحجز رقم دورك في الطابور!`;
 
@@ -305,6 +305,7 @@ export class TelegramService {
       const formattedCurrentTurn = String(currentTurn).padStart(3, "0");
       const rawTicket = activeBooking.booking.ticketNumber || activeBooking.booking.queueNumber;
       const formattedTicketNum = String(rawTicket).padStart(3, "0");
+      const deskName = activeBooking.booking.desk || "T";
       const isFirstTen = currentTurn <= 10;
 
       const statusMsg = isFirstTen
@@ -313,23 +314,26 @@ export class TelegramService {
 
 <b>الطالب:</b> ${student.fullName}
 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
+<b>الشباك المخصص:</b> <code>شباك ${deskName}</code>
 <b>دورك الحالي في الطابور الآن:</b> <code>#${formattedCurrentTurn}</code>
 <b>رقم التذكرة عند الحجز:</b> <code>#${formattedTicketNum}</code>
 <b>المتبقي قبلك في الانتظار:</b> ${countAhead === 0 ? "أنت التالي الآن!" : `${countAhead} طلاب`}
 
 <b>تنبيه عاجل:</b>
 أنت من <b>أول 10 طلاب</b> في الطابور المتحرك!
-<b>يرجى التوجه فوراً الآن إلى مقر التسجيل (معمل الحاسب الآلي — الطابق الأرضي) لعمل بصمة الوجه.</b>`
+<b>يرجى التوجه فوراً الآن إلى شباك ${deskName} (الواحة — مبنى الشؤون) لعمل بصمة الوجه.</b>`
         : `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
 <b>الطالب:</b> ${student.fullName}
 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
+<b>الشباك المخصص:</b> <code>شباك ${deskName}</code>
 <b>دورك الحالي في الطابور الآن:</b> <code>#${formattedCurrentTurn}</code>
 <b>رقم التذكرة عند الحجز:</b> <code>#${formattedTicketNum}</code>
 <b>المتبقي قبلك في الانتظار:</b> ${countAhead} طلاب
 
-<b>طابور حي ومتحرك:</b> يتقدم رقم دورك تلقائياً للأمام مع انتهاء كل دور يسبقك. ستصلك رسالة تنبيهية فور وصول المتبقي أمامك إلى 10 طلاب للاستعداد والحضور.`;
+<b>المقر:</b> الواحة — مبنى الشؤون (شباك ${deskName})
+<b>طابور حي ومتحرك:</b> يتقدم رقم دورك تلقائياً للأمام مع انتهاء كل دور يسبقك. ستصلك رسالة تنبيهية فور وصول المتبقي أمامك إلى 10 طلاب للاستعداد والتوجه لشباك ${deskName}.`;
 
       await this.sendMessage(telegramUserId, statusMsg);
       return { handled: true, statusSent: true };

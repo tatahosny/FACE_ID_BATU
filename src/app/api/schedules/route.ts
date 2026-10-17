@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
         startTime,
         endTime,
         subSection: validSubSection,
-        notes: notes || "مبنى كلية تكنولوجيا الصناعة والطاقة — الطابق الأرضي — معمل الحاسب الآلي وتكنولوجيا المعلومات (شباك بصمة الوجه رقم 1)",
+        notes: notes || "الواحة — مبنى الشؤون (شباك بصمة الوجه)",
       })
       .returning();
 
@@ -116,7 +116,7 @@ export async function PUT(req: NextRequest) {
         startTime,
         endTime,
         subSection: validSubSection,
-        notes: notes || "مبنى كلية تكنولوجيا الصناعة والطاقة — الطابق الأرضي — معمل الحاسب الآلي وتكنولوجيا المعلومات (شباك بصمة الوجه رقم 1)",
+        notes: notes || "الواحة — مبنى الشؤون (شباك بصمة الوجه)",
       })
       .where(eq(sectionSchedules.id, id))
       .returning();
