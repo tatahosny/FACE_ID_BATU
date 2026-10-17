@@ -99,13 +99,12 @@ export async function GET(req: NextRequest) {
     if (existingBooking) {
       const ticketNum = existingBooking.ticketNumber || existingBooking.queueNumber;
       formattedTicketNumber = formatQueueNumber(ticketNum);
-      // Count active students ahead in the same window
+      // Count active students ahead across the unified line
       const [aheadCount] = await db
         .select({ count: sql<number>`count(*)` })
         .from(bookings)
         .where(
           and(
-            eq(bookings.bookingWindowId, existingBooking.bookingWindowId),
             sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
             lt(bookings.queueNumber, existingBooking.queueNumber)
           )

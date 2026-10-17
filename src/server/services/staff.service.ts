@@ -222,11 +222,9 @@ export class StaffService {
       };
     });
 
-    if (result.affectedWindowId) {
-      BookingService.notifyQueueProgress(result.affectedWindowId).catch((err) => {
-        console.error("[RecordActivation] Failed to notify queue progress:", err.message);
-      });
-    }
+    BookingService.notifyQueueProgress().catch((err) => {
+      console.error("[RecordActivation] Failed to notify queue progress:", err.message);
+    });
 
     return result;
   }

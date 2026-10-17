@@ -514,8 +514,12 @@ export class BookingService {
       return updated;
     });
 
-    if (newStatus === BOOKING_STATUSES.COMPLETED || newStatus === BOOKING_STATUSES.CANCELLED) {
-      BookingService.notifyQueueProgress(updated.bookingWindowId).catch((err) => {
+    if (
+      newStatus === BOOKING_STATUSES.COMPLETED ||
+      newStatus === BOOKING_STATUSES.CANCELLED ||
+      newStatus === BOOKING_STATUSES.CALLED
+    ) {
+      BookingService.notifyQueueProgress().catch((err) => {
         console.error("[BookingStatus] Failed to notify queue progress:", err.message);
       });
     }
@@ -1000,8 +1004,7 @@ ${
       .from(bookings)
       .where(
         and(
-          eq(bookings.bookingWindowId, activeBooking.bookingWindowId),
-          sql`${bookings.status} IN ('WAITING', 'CALLED')`,
+          sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
           lt(bookings.queueNumber, activeBooking.queueNumber)
         )
       );
@@ -1049,7 +1052,7 @@ ${
         .from(bookings)
         .innerJoin(students, eq(bookings.studentId, students.id))
         .where(
-          sql`${bookings.status} IN ('WAITING', 'CALLED')`
+          sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`
         )
         .orderBy(bookings.queueNumber);
 
@@ -1067,24 +1070,36 @@ ${
         const ticketNum = item.ticketNumber || item.queueNumber;
         const formattedNum = formatQueueNumber(ticketNum);
 
-        const progressMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
+        let aheadText = "";
+        if (aheadCount === 0) {
+          aheadText = "🚀 <b>أنت التالي في الطابور مباشرة الآن!</b>\nيرجى الوقوف أمام شباك بصمة الوجه بالمعمل فوراً.";
+        } else if (aheadCount === 1) {
+          aheadText = "⏳ <b>لقد أصبح أمامك شخص واحد فقط (1) في الانتظار!</b>\nيرجى التواجد أمام المعمل والاستعداد.";
+        } else if (aheadCount === 2) {
+          aheadText = "⏳ <b>لقد أصبح أمامك شخصان فقط (2) في الانتظار!</b>\nيرجى الاستعداد والاقتراب من المعمل.";
+        } else {
+          aheadText = `⏳ <b>لقد أصبح أمامك ${aheadCount} أشخاص في الانتظار.</b>`;
+        }
+
+        const progressMsg = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
-<b>تحديث حركة الطابور:</b>
-عزيزي الطالب <b>${item.fullName}</b>،
-تم إنهاء معاملة الطالب السابق وتقدم الطابور، وأصبح دورك الحالي في الانتظار: <b>#${formattedTurn}</b> (تذكرة حجز رقم: <code>#${formattedNum}</code>).
-${
-  aheadCount === 0
-    ? "أنت التالي في الطابور مباشرة! يرجى الوقوف أمام شباك التسجيل بالمعمل للاستعداد."
-    : `باقي أمامك في الانتظار: ${aheadCount} طلاب.`
-}
+📢 <b>تحديث حركة وتقدم الطابور:</b>
+عزيزي الطالب: <b>${item.fullName}</b>
+<b>دورك الحالي في الطابور الآن:</b> <code>#${formattedTurn}</code>
+<b>رقم التذكرة الثابت:</b> <code>#${formattedNum}</code>
 
-<b>المقر:</b> مبنى كلية تكنولوجيا الصناعة والطاقة — معمل الحاسب الآلي (شباك بصمة الوجه)`;
+${aheadText}
 
-        // Send via Telegram
-        TelegramService.sendMessage(Number(item.telegramUserId), progressMsg).catch((err) => {
-          console.error(`[QueueProgress] Failed to notify student ${item.studentId}:`, err.message);
-        });
+📍 <b>المقر:</b> مبنى كلية تكنولوجيا الصناعة والطاقة — معمل الحاسب الآلي (شباك بصمة الوجه)`;
+
+        // Send via Telegram with small throttle to respect Telegram API
+        try {
+          await TelegramService.sendMessage(Number(item.telegramUserId), progressMsg);
+          await new Promise((resolve) => setTimeout(resolve, 80));
+        } catch (err: any) {
+          console.error(`[QueueProgress] Failed to notify student ${item.studentId}:`, err?.message || err);
+        }
       }
     } catch (err: any) {
       console.error("[QueueProgress] Error broadcasting queue progress:", err.message);

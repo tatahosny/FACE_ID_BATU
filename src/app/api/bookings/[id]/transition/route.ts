@@ -27,8 +27,9 @@ export async function POST(
       parsed.data.notes
     );
 
-    // If a student was called or completed, advance and evaluate queue proximity notifications asynchronously
-    if (parsed.data.status === "CALLED" || parsed.data.status === "COMPLETED") {
+    // If a student was called, completed or cancelled, notify queue movement and evaluate proximity notifications
+    if (parsed.data.status === "CALLED" || parsed.data.status === "COMPLETED" || parsed.data.status === "CANCELLED") {
+      BookingService.notifyQueueProgress().catch(console.error);
       NotificationService.checkAndQueueProximityNotifications(updated.bookingWindowId).catch(console.error);
     }
 
