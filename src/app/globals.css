@@ -37,6 +37,31 @@ body {
   background: #94a3b8;
 }
 
+/* Futuristic Dark Custom Scrollbar for Dashboard & Sidebar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(11, 16, 29, 0.4);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.25);
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.55);
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(59, 130, 246, 0.3) rgba(11, 16, 29, 0.4);
+}
+
 /* Glassmorphism Card Utility */
 .glass-card {
   background: rgba(255, 255, 255, 0.95);

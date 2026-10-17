@@ -154,10 +154,10 @@ export default function AdminLayout({
     : navSections;
 
   return (
-    <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col font-arabic selection:bg-blue-600 selection:text-white">
+    <div className="h-screen max-h-screen bg-[#070b14] text-slate-100 flex flex-col font-arabic selection:bg-blue-600 selection:text-white overflow-hidden">
       {/* Top Banner if Logged Out */}
       {authLoaded && !sessionUser && (
-        <div className="bg-amber-950/90 border-b border-amber-500/40 text-amber-200 px-4 py-2.5 text-xs flex flex-col sm:flex-row items-center justify-between gap-2 shadow-lg z-50">
+        <div className="flex-shrink-0 bg-amber-950/90 border-b border-amber-500/40 text-amber-200 px-4 py-2.5 text-xs flex flex-col sm:flex-row items-center justify-between gap-2 shadow-lg z-50">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
             <span className="font-bold">تنبيه: أنت تتصفح لوحة التحكم كزائر غير مسجل الدخول.</span>
@@ -176,7 +176,7 @@ export default function AdminLayout({
       )}
 
       {/* Dedicated High-Tech Top Bar (Autonomous Admin Header) */}
-      <header className="sticky top-0 z-40 bg-[#0d1322]/90 backdrop-blur-xl border-b border-blue-900/40 px-4 sm:px-6 py-2.5 flex items-center justify-between shadow-2xl">
+      <header className="flex-shrink-0 z-40 bg-[#0d1322]/90 backdrop-blur-xl border-b border-blue-900/40 px-4 sm:px-6 py-2.5 flex items-center justify-between shadow-2xl">
         <div className="flex items-center gap-4">
           {/* Mobile Sidebar Toggle */}
           <button
@@ -296,15 +296,32 @@ export default function AdminLayout({
       </header>
 
       {/* Admin Workspace: Futuristic Sidebar + Canvas */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-h-0 relative">
         {/* Sleek Command Sidebar */}
         <aside
-          className={`fixed md:static inset-y-0 right-0 z-30 w-72 bg-[#0b101d] border-l border-blue-900/30 flex flex-col justify-between transition-transform duration-300 ease-in-out md:translate-x-0 pt-16 md:pt-0 ${
+          className={`fixed md:relative inset-y-0 right-0 z-50 md:z-30 w-72 h-full bg-[#0b101d] border-l border-blue-900/30 flex flex-col justify-between transition-transform duration-300 ease-in-out md:translate-x-0 flex-shrink-0 shadow-2xl md:shadow-none ${
             sidebarOpen ? "translate-x-0" : "translate-x-full"
           }`}
         >
+          {/* Mobile Close Button Header */}
+          <div className="flex items-center justify-between p-3.5 border-b border-slate-900 md:hidden flex-shrink-0 bg-[#080c16]">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-white p-1">
+                <img src="/images/batu-logo.png" alt="BATU" className="w-full h-full object-contain" />
+              </div>
+              <span className="font-bold text-xs text-white">قائمة لوحة التحكم</span>
+            </div>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="p-1.5 rounded-lg bg-slate-900 text-slate-400 hover:text-white"
+              aria-label="إغلاق القائمة"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
           {/* Scrollable Nav List */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar min-h-0">
             {visibleNavSections.map((sec, idx) => (
               <div key={idx} className="space-y-1.5">
                 <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 mb-1 flex items-center justify-between">
@@ -346,7 +363,7 @@ export default function AdminLayout({
           </div>
 
           {/* Sidebar Footer Info */}
-          <div className="p-4 border-t border-slate-900 bg-[#080c16] space-y-2">
+          <div className="p-4 border-t border-slate-900 bg-[#080c16] space-y-2 flex-shrink-0">
             <div className="bg-blue-950/40 border border-blue-900/30 p-2.5 rounded-xl text-[11px] text-blue-300/90 flex items-center justify-between">
               <div>
                 <div className="font-bold">جامعة برج العرب</div>
@@ -364,12 +381,12 @@ export default function AdminLayout({
         {sidebarOpen && (
           <div
             onClick={() => setSidebarOpen(false)}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-20 md:hidden"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
           />
         )}
 
         {/* Main Command Workspace */}
-        <main className="flex-1 overflow-y-auto bg-gradient-to-b from-[#070b14] via-[#090e1a] to-[#070b14] p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 h-full overflow-y-auto min-h-0 bg-gradient-to-b from-[#070b14] via-[#090e1a] to-[#070b14] p-4 sm:p-6 lg:p-8 custom-scrollbar">
           <div className="max-w-7xl mx-auto">{children}</div>
         </main>
       </div>

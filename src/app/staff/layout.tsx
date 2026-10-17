@@ -24,10 +24,10 @@ export default function StaffLayout({
   ];
 
   return (
-    <div className="flex-1 flex flex-col md:flex-row bg-slate-950 text-slate-100 min-h-[calc(100vh-64px)]">
+    <div className="h-screen max-h-screen flex flex-col md:flex-row bg-slate-950 text-slate-100 overflow-hidden font-arabic">
       {/* Staff Sidebar */}
-      <aside className="w-full md:w-64 bg-slate-900/95 backdrop-blur-xl text-white p-5 flex flex-col justify-between border-b md:border-b-0 md:border-l border-slate-800 shadow-xl">
-        <div className="space-y-6">
+      <aside className="w-full md:w-64 md:h-full bg-slate-900/95 backdrop-blur-xl text-white p-5 flex flex-col justify-between border-b md:border-b-0 md:border-l border-slate-800 shadow-xl flex-shrink-0 min-h-0">
+        <div className="flex-1 overflow-y-auto custom-scrollbar space-y-6 min-h-0 pr-1">
           <div className="pb-4 border-b border-slate-800 flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-white p-1 flex items-center justify-center flex-shrink-0 border border-slate-700 shadow-md">
               <img
@@ -67,7 +67,7 @@ export default function StaffLayout({
           </nav>
         </div>
 
-        <div className="pt-6 border-t border-slate-800">
+        <div className="pt-4 border-t border-slate-800 flex-shrink-0">
           <button
             onClick={handleLogout}
             className="w-full py-2.5 px-4 rounded-xl bg-slate-800/80 hover:bg-rose-900/60 text-slate-300 hover:text-rose-200 border border-slate-700 hover:border-rose-700/50 text-xs font-semibold transition shadow-sm"
@@ -78,7 +78,7 @@ export default function StaffLayout({
       </aside>
 
       {/* Main Staff Content */}
-      <main className="flex-1 p-4 sm:p-8 overflow-y-auto">{children}</main>
+      <main className="flex-1 h-full overflow-y-auto p-4 sm:p-8 custom-scrollbar min-h-0">{children}</main>
     </div>
   );
 }
