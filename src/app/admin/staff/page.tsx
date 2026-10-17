@@ -444,8 +444,8 @@ export default function AdminStaffManagementPage() {
           </div>
         ) : activeTab === "staff" ? (
           /* Staff / Admin Table */
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-right text-xs min-w-[700px]">
               <thead className="bg-[#0b101d] text-slate-400 uppercase border-b border-slate-800">
                 <tr>
                   <th className="py-3.5 px-4 font-bold">الاسم والبيانات</th>
@@ -542,8 +542,8 @@ export default function AdminStaffManagementPage() {
           </div>
         ) : (
           /* Students Table */
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-right text-xs min-w-[800px]">
               <thead className="bg-[#0b101d] text-slate-400 uppercase border-b border-slate-800">
                 <tr>
                   <th className="py-3.5 px-4 font-bold">اسم الطالب</th>

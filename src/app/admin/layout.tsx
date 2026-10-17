@@ -176,43 +176,44 @@ export default function AdminLayout({
       )}
 
       {/* Dedicated High-Tech Top Bar (Autonomous Admin Header) */}
-      <header className="flex-shrink-0 z-40 bg-[#0d1322]/90 backdrop-blur-xl border-b border-blue-900/40 px-4 sm:px-6 py-2.5 flex items-center justify-between shadow-2xl">
-        <div className="flex items-center gap-4">
+      <header className="flex-shrink-0 z-40 bg-[#0d1322]/90 backdrop-blur-xl border-b border-blue-900/40 px-3 sm:px-6 py-2.5 flex items-center justify-between shadow-2xl gap-2">
+        <div className="flex items-center gap-2.5 sm:gap-4 min-w-0">
           {/* Mobile Sidebar Toggle */}
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="md:hidden p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white"
+            className="md:hidden p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white flex-shrink-0 active:scale-95 transition"
+            aria-label="تبديل القائمة الجانبية"
           >
             {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
 
           {/* Command Center Title */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white p-1 shadow-lg shadow-blue-500/20 border border-slate-700 flex items-center justify-center flex-shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-white p-1 shadow-lg shadow-blue-500/20 border border-slate-700 flex items-center justify-center flex-shrink-0">
               <img
                 src="/images/batu-logo.png"
                 alt="BATU Logo"
                 className="w-full h-full object-contain"
               />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-sm sm:text-base tracking-wide bg-gradient-to-r from-white via-slate-200 to-blue-300 bg-clip-text text-transparent">
-                  BATU COMMAND CENTER
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="font-extrabold text-xs sm:text-base tracking-wide bg-gradient-to-r from-white via-slate-200 to-blue-300 bg-clip-text text-transparent truncate">
+                  BATU COMMAND
                 </span>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${
+                <span className={`px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-mono font-bold border flex-shrink-0 ${
                   isStaff
                     ? "bg-cyan-500/10 text-cyan-300 border-cyan-500/30"
                     : "bg-amber-500/10 text-amber-300 border-amber-500/30"
                 }`}>
-                  {isStaff ? "STAFF MEMBER" : "SUPER ADMIN"}
+                  {isStaff ? "STAFF" : "ADMIN"}
                 </span>
               </div>
-              <div className="text-[11px] text-slate-400 flex items-center gap-2">
-                <span>جامعة برج العرب التكنولوجية</span>
+              <div className="text-[10px] sm:text-[11px] text-slate-400 hidden sm:flex items-center gap-2 truncate">
+                <span>جامعة برج العرب</span>
                 <span>•</span>
-                <span className="text-blue-400">
-                  {isStaff ? "بوابة طاقم موظفي البصمة" : "إدارة منظومة بصمة الوجه والتحكم المركزي"}
+                <span className="text-blue-400 truncate">
+                  {isStaff ? "بوابة طاقم موظفي البصمة" : "إدارة منظومة بصمة الوجه"}
                 </span>
               </div>
             </div>
@@ -220,7 +221,7 @@ export default function AdminLayout({
         </div>
 
         {/* Status Indicators & Clock */}
-        <div className="flex items-center gap-3 sm:gap-6">
+        <div className="flex items-center gap-2 sm:gap-6 flex-shrink-0">
           {/* Live System Diagnostics */}
           <div className="hidden lg:flex items-center gap-3 text-xs bg-slate-950/60 px-3 py-1.5 rounded-xl border border-slate-800">
             <div className="flex items-center gap-1.5 text-emerald-400">
@@ -259,12 +260,12 @@ export default function AdminLayout({
           </div>
 
           {/* Admin Avatar & Logout / Login */}
-          <div className="flex items-center gap-3 pl-1 border-r border-slate-800 pr-3">
+          <div className="flex items-center gap-2 sm:gap-3 pl-1 border-r border-slate-800 pr-2 sm:pr-3">
             {sessionUser ? (
               <>
                 <Link
                   href="/admin/account-settings"
-                  className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm text-white shadow-md border hover:scale-105 transition ${
+                  className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center font-bold text-xs sm:text-sm text-white shadow-md border hover:scale-105 transition flex-shrink-0 ${
                     isStaff
                       ? "bg-gradient-to-tr from-cyan-700 to-blue-800 border-cyan-500/40"
                       : "bg-gradient-to-tr from-blue-700 to-indigo-800 border-blue-500/40"
@@ -275,20 +276,20 @@ export default function AdminLayout({
                 </Link>
                 <button
                   onClick={handleLogout}
-                  className="p-2 rounded-xl text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition text-xs font-bold flex items-center gap-1.5"
+                  className="p-1.5 sm:p-2 rounded-xl text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition text-xs font-bold flex items-center gap-1"
                   title="تسجيل الخروج"
                 >
                   <LogOut className="w-4 h-4 text-red-400" />
-                  <span>خروج</span>
+                  <span className="hidden xs:inline">خروج</span>
                 </button>
               </>
             ) : (
               <Link
                 href="/login"
-                className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md transition flex items-center gap-1.5"
+                className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md transition flex items-center gap-1"
               >
                 <LogIn className="w-3.5 h-3.5" />
-                <span>دخول الإدارة</span>
+                <span className="text-[11px] sm:text-xs">دخول</span>
               </Link>
             )}
           </div>
@@ -386,7 +387,7 @@ export default function AdminLayout({
         )}
 
         {/* Main Command Workspace */}
-        <main className="flex-1 h-full overflow-y-auto min-h-0 bg-gradient-to-b from-[#070b14] via-[#090e1a] to-[#070b14] p-4 sm:p-6 lg:p-8 custom-scrollbar">
+        <main className="flex-1 h-full overflow-y-auto min-h-0 bg-gradient-to-b from-[#070b14] via-[#090e1a] to-[#070b14] p-3.5 sm:p-6 lg:p-8 custom-scrollbar">
           <div className="max-w-7xl mx-auto">{children}</div>
         </main>
       </div>

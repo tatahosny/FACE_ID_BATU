@@ -339,8 +339,8 @@ export default function AdminSchedulesPage() {
             لا توجد مواعيد مضافة في الجدول حتى الآن. اضغط على «إضافة موعد ومكان لسكشن» للبدء.
           </div>
         ) : (
-          <div className="overflow-x-auto print:overflow-visible">
-            <table className="w-full text-right border-collapse border border-slate-700 print:border-2 print:border-black text-xs sm:text-sm">
+          <div className="overflow-x-auto custom-scrollbar print:overflow-visible">
+            <table className="w-full text-right border-collapse border border-slate-700 print:border-2 print:border-black text-xs sm:text-sm min-w-[720px] print:min-w-0">
               <thead>
                 <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-300 text-xs font-black print:bg-slate-100 print:text-black print:border-b-2 print:border-black">
                   <th className="p-3 border border-slate-800 print:border print:border-black text-center w-10">
@@ -429,8 +429,8 @@ export default function AdminSchedulesPage() {
 
       {/* Add Schedule Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 rounded-3xl p-6 sm:p-8 max-w-lg w-full space-y-5 animate-scale-up shadow-2xl border border-slate-800 text-white">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-3.5 sm:p-4">
+          <div className="bg-slate-900 rounded-2xl sm:rounded-3xl p-4 sm:p-8 max-w-lg w-full max-h-[92vh] overflow-y-auto custom-scrollbar space-y-4 sm:space-y-5 animate-scale-up shadow-2xl border border-slate-800 text-white">
             <div className="flex justify-between items-center pb-3 border-b border-slate-800">
               <h3 className="font-extrabold text-lg text-white flex items-center gap-2">
                 <Calendar className="w-5 h-5 text-blue-400" />

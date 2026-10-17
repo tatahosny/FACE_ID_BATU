@@ -32,19 +32,19 @@ export default function AdminNotificationsPage() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <div>
-          <h1 className="text-2xl font-black text-white">سجلات تسليم إشعارات التيليجرام</h1>
-          <p className="text-xs sm:text-sm text-slate-400">
+          <h1 className="text-xl sm:text-2xl font-black text-white">سجلات تسليم إشعارات التيليجرام</h1>
+          <p className="text-xs sm:text-sm text-slate-400 mt-1">
             متابعة حالة إرسال الإشعارات الصادرة (Outbox) وتأكيد التسليم أو أسباب الفشل
           </p>
         </div>
         <button
           onClick={fetchLogs}
-          className="flex items-center gap-2 py-2 px-4 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-bold transition shadow-sm"
+          className="flex items-center gap-2 py-2 px-4 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-bold transition shadow-sm self-stretch sm:self-auto justify-center"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-blue-400' : 'text-slate-400'}`} />
-          تحديث السجلات
+          <span>تحديث السجلات</span>
         </button>
       </div>
 
@@ -54,8 +54,8 @@ export default function AdminNotificationsPage() {
         ) : items.length === 0 ? (
           <div className="p-12 text-center text-slate-400 text-sm">لا توجد إشعارات مسجلة حتى الآن.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-right text-xs min-w-[700px]">
               <thead className="bg-[#0b101d] text-slate-400 uppercase border-b border-slate-800 font-bold">
                 <tr>
                   <th className="py-3.5 px-4">نوع الحدث</th>

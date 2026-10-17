@@ -252,10 +252,10 @@ export default function AdminBookingWindowsPage() {
             التحكم في مواعيد فتح وإيقاف الحجز لكل سكشن وتحديد القسم المسموح له بالحجز (قسم A أو B أو معاً)، مع إرسال إشعار فوري عبر التيليجرام للطلاب عند الفتح. (تصفير أرقام التذاكر لنهاية اليوم متاح بشاشة الطابور الحي).
           </p>
         </div>
-        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+        <div className="grid grid-cols-1 sm:flex sm:items-center gap-2 self-stretch sm:self-auto flex-wrap w-full sm:w-auto">
           <Link
             href="/admin/settings"
-            className="py-2.5 px-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 text-xs font-bold transition flex items-center gap-1.5 shadow-md"
+            className="py-2.5 px-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md text-center"
             title="تحديد وتعديل المقر المعتمد للبصمة المرسل في رسالة التيليجرام للطلاب"
           >
             <MapPin className="w-3.5 h-3.5 text-cyan-400" />
@@ -263,7 +263,7 @@ export default function AdminBookingWindowsPage() {
           </Link>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-blue-600/30 transition flex items-center gap-2"
+            className="py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-blue-600/30 transition flex items-center justify-center gap-2 text-center"
           >
             <Plus className="w-4 h-4" />
             <span>إنشاء فترة حجز جديدة لسكشن</span>
@@ -370,8 +370,8 @@ export default function AdminBookingWindowsPage() {
             لا توجد فترات حجز مسجلة. اضغط على «إنشاء فترة حجز جديدة» للبدء.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-sm">
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-right text-sm min-w-[850px]">
               <thead className="bg-[#0b101d] text-slate-400 text-xs font-bold border-b border-slate-800">
                 <tr>
                   <th className="py-4 px-4 w-12 text-center">
@@ -649,8 +649,8 @@ export default function AdminBookingWindowsPage() {
 
       {/* Create Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-[#0b101d] rounded-2xl border border-slate-800 max-w-lg w-full p-6 space-y-5 shadow-2xl text-white">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-3.5 sm:p-4">
+          <div className="bg-[#0b101d] rounded-2xl border border-slate-800 max-w-lg w-full max-h-[92vh] overflow-y-auto custom-scrollbar p-4 sm:p-6 space-y-4 sm:space-y-5 shadow-2xl text-white">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="font-bold text-lg text-white flex items-center gap-2">
                 <Clock className="w-5 h-5 text-blue-400" />
@@ -714,7 +714,7 @@ export default function AdminBookingWindowsPage() {
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-300 font-bold mb-1">تاريخ ووقت البداية:</label>
                   <input

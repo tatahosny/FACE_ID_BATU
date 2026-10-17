@@ -176,10 +176,10 @@ export default function AdminTelegramBroadcastPage() {
   return (
     <div className="max-w-6xl mx-auto space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">
-          إدارة حملات التيليجرام الجماعية (Telegram Broadcast Management)
+        <h1 className="text-xl sm:text-2xl font-black text-white">
+          إدارة حملات التيليجرام الجماعية (Telegram Broadcast)
         </h1>
-        <p className="text-xs sm:text-sm text-slate-500">
+        <p className="text-xs sm:text-sm text-slate-400 mt-1">
           إرسال إعلانات وتنبيهات رسمية موجهة لكافة الطلاب أو لمجموعة وسكشن محدد
         </p>
       </div>
@@ -210,7 +210,7 @@ export default function AdminTelegramBroadcastPage() {
               <label className="block text-xs font-bold text-slate-300 mb-1.5">
                 تحديد الجمهور المستهدف
               </label>
-              <div className="flex gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={() => setTargetType("ALL")}
@@ -405,8 +405,8 @@ export default function AdminTelegramBroadcastPage() {
         {campaigns.length === 0 ? (
           <div className="p-8 text-center text-xs text-slate-400">لا توجد حملات مرسلة مسبقاً.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-right text-xs min-w-[700px]">
               <thead className="bg-slate-950/60 text-slate-400 uppercase border-b border-slate-800">
                 <tr>
                   <th className="py-3 px-4 font-bold">العنوان</th>

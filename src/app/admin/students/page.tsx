@@ -368,11 +368,11 @@ export default function AdminStudentsPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
+        <div className="grid grid-cols-1 sm:flex sm:items-center gap-2 self-stretch sm:self-auto flex-wrap w-full md:w-auto">
           <button
             onClick={handleExportExcel}
             disabled={exportLoading}
-            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-md shadow-emerald-600/30 transition flex items-center gap-2 disabled:opacity-50"
+            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-md shadow-emerald-600/30 transition flex items-center justify-center gap-2 disabled:opacity-50 text-center"
             title="تصدير كشف الطلاب الحالي كاملاً مع الأرقام القومية والأكاديمية والسكاشن لشيت Excel"
           >
             <FileSpreadsheet className={`w-4 h-4 ${exportLoading ? "animate-bounce" : ""}`} />
@@ -381,7 +381,7 @@ export default function AdminStudentsPage() {
           <button
             onClick={fetchStudents}
             disabled={loading}
-            className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold border border-slate-700 shadow-md transition flex items-center gap-2"
+            className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold border border-slate-700 shadow-md transition flex items-center justify-center gap-2 text-center"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-blue-400" : ""}`} />
             <span>تحديث القائمة</span>
@@ -783,8 +783,8 @@ export default function AdminStudentsPage() {
             لا توجد سجلات طلاب تطابق خيارات التصفية الحالية.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-right border-collapse">
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-right border-collapse min-w-[860px]">
               <thead>
                 <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-400 text-xs font-bold">
                   {isSuperAdmin && (

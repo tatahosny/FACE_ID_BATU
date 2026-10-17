@@ -31,16 +31,16 @@ export default function AdminAuditLogsPage() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">سجل التدقيق الأمني (Audit Logs)</h1>
-          <p className="text-xs sm:text-sm text-slate-500">
+          <h1 className="text-xl sm:text-2xl font-black text-white">سجل التدقيق الأمني (Audit Logs)</h1>
+          <p className="text-xs sm:text-sm text-slate-400 mt-1">
             سجل غير قابل للتعديل لكافة الإجراءات والعمليات الحساسة في النظام
           </p>
         </div>
         <button
           onClick={fetchLogs}
-          className="py-2 px-3.5 rounded-xl border border-slate-700 bg-slate-950 text-slate-300 text-xs font-bold hover:bg-slate-800 transition flex items-center gap-1.5"
+          className="py-2 px-3.5 rounded-xl border border-slate-700 bg-slate-950 text-slate-300 text-xs font-bold hover:bg-slate-800 transition flex items-center justify-center gap-1.5 self-stretch sm:self-auto"
         >
           <span>تحديث</span>
         </button>
@@ -52,8 +52,8 @@ export default function AdminAuditLogsPage() {
         ) : logs.length === 0 ? (
           <div className="p-12 text-center text-slate-400 text-sm">لا توجد سجلات مسجلة حتى الآن.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-right text-xs min-w-[700px]">
               <thead className="bg-[#0b101d] text-slate-400 uppercase border-b border-slate-800">
                 <tr>
                   <th className="py-3 px-4 font-bold">الحدث / العملية</th>

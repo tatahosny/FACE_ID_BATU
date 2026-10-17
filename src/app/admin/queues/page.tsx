@@ -240,17 +240,17 @@ export default function AdminQueuesPage() {
         </div>
 
         {/* Search */}
-        <form onSubmit={handleSearchSubmit} className="flex gap-2">
+        <form onSubmit={handleSearchSubmit} className="flex gap-2 w-full md:w-auto">
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="بحث بالاسم أو الرقم الأكاديمي..."
-            className="px-4 py-2 rounded-xl border border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white placeholder-slate-500"
+            className="flex-1 md:w-64 px-4 py-2 rounded-xl border border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white placeholder-slate-500"
           />
           <button
             type="submit"
-            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 flex items-center gap-1.5"
+            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 flex items-center justify-center gap-1.5 flex-shrink-0"
           >
             <Search className="w-3.5 h-3.5" />
             <span>بحث</span>
@@ -270,8 +270,8 @@ export default function AdminQueuesPage() {
             لا توجد أدوار مسجلة تطابق الفلتر المحدد حالياً.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-right border-collapse">
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-right border-collapse min-w-[820px]">
               <thead>
                 <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-400 text-xs font-bold">
                   <th className="p-4">الدور في الطابور</th>
