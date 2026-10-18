@@ -179,17 +179,6 @@ export class BookingService {
           );
         }
 
-        // Verify subSection match (A or B)
-        if (
-          window.subSection &&
-          window.subSection !== "ALL" &&
-          window.subSection !== (student.subSection || "A")
-        ) {
-          throw new Error(
-            `فترة الحجز الحالية مخصصة لطلاب (قسم ${window.subSection}) فقط، وأنت مسجل في (قسم ${student.subSection || "A"}). يرجى انتظار موعد فتح الحجز لقسمك.`
-          );
-        }
-
         // 4. Verify window status and time
         const now = new Date();
         if (
@@ -202,7 +191,42 @@ export class BookingService {
           );
         }
 
-        // 5. Check existing active booking for this student in this window (idempotency check)
+        // 5. Verify subSection match (A or B)
+        let targetWindow = window;
+        if (
+          window.subSection &&
+          window.subSection !== "ALL" &&
+          window.subSection !== (student.subSection || "A")
+        ) {
+          // Check if an alternate window is open for the student's subSection in this section
+          const [alternateWindow] = await tx
+            .select()
+            .from(bookingWindows)
+            .where(
+              and(
+                eq(bookingWindows.sectionId, student.sectionId),
+                eq(bookingWindows.status, BOOKING_WINDOW_STATUSES.OPEN),
+                or(
+                  eq(bookingWindows.subSection, "ALL"),
+                  eq(bookingWindows.subSection, student.subSection || "A")
+                ),
+                sql`${bookingWindows.startsAt} <= ${now}`,
+                sql`${bookingWindows.endsAt} >= ${now}`
+              )
+            )
+            .orderBy(desc(bookingWindows.createdAt))
+            .limit(1);
+
+          if (alternateWindow) {
+            targetWindow = alternateWindow;
+          } else {
+            throw new Error(
+              `فترة الحجز الحالية مخصصة لطلاب (قسم ${window.subSection}) فقط، وأنت مسجل في (قسم ${student.subSection || "A"}). يرجى انتظار موعد فتح الحجز لقسمك.`
+            );
+          }
+        }
+
+        // 6. Check existing active booking for this student in this window (idempotency check)
         const [existingBooking] = await tx
           .select()
           .from(bookings)
@@ -222,7 +246,7 @@ export class BookingService {
               .from(bookings)
               .where(
                 and(
-                  eq(bookings.desk, deskName),
+                  eq(bookings.bookingWindowId, existingBooking.bookingWindowId),
                   sql`${bookings.status} IN ('WAITING', 'CALLED')`,
                   lt(bookings.queueNumber, existingBooking.queueNumber)
                 )
@@ -261,25 +285,14 @@ export class BookingService {
           };
         }
 
-        // 6. Queue capacity: Open queueing - every student receives a unique sequential queue number
-
-        // 7. Atomic desk allocation & independent next queue number calculation in a single fast query
-        const deskQueryRes = await tx.execute(sql<{
-          last_desk: string | null;
-          max_t: string | number;
-          max_d: string | number;
-        }>`
-          SELECT 
-            (SELECT desk FROM bookings ORDER BY created_at DESC LIMIT 1) AS last_desk,
-            (SELECT COALESCE(MAX(queue_number), 0) FROM bookings WHERE desk = 'T') AS max_t,
-            (SELECT COALESCE(MAX(queue_number), 0) FROM bookings WHERE desk = 'D') AS max_d
-        `);
-
-        const deskStats = (deskQueryRes.rows?.[0] || {}) as {
-          last_desk?: string | null;
-          max_t?: string | number;
-          max_d?: string | number;
-        };
+        // 7. Atomic desk allocation & strictly sequential queue number allocation
+        // Determine desk assignment alternating between T and D based on last booking in this window
+        const [lastBooking] = await tx
+          .select({ desk: bookings.desk })
+          .from(bookings)
+          .where(eq(bookings.bookingWindowId, targetWindow.id))
+          .orderBy(desc(bookings.createdAt))
+          .limit(1);
 
         // Check active desk statuses from settings
         const deskStatuses = await SettingsService.getDeskStatuses();
@@ -292,26 +305,34 @@ export class BookingService {
           // Window T is closed, Window D is active: all bookings go to D
           assignedDesk = "D";
         } else {
-          // Both active (or fallback): alternate between T and D based on last desk
-          assignedDesk = deskStats.last_desk === "T" ? "D" : "T";
+          // Both active: alternate between T and D based on last booking
+          assignedDesk = lastBooking?.desk === "T" ? "D" : "T";
         }
 
-        const maxQueueForDesk = assignedDesk === "T" ? Number(deskStats.max_t || 0) : Number(deskStats.max_d || 0);
-        const assignedQueueNumber = maxQueueForDesk + 1;
+        // Strictly append to the very end of the line: always sequential within the window
+        const [maxBooking] = await tx
+          .select({ maxQueue: sql<number>`COALESCE(MAX(${bookings.queueNumber}), 0)` })
+          .from(bookings)
+          .where(eq(bookings.bookingWindowId, targetWindow.id));
 
+        const currentMaxQueue = Number(maxBooking?.maxQueue || 0);
+        const nextFromWindow = Number(targetWindow.nextQueueNumber || 1);
+        const assignedQueueNumber = Math.max(currentMaxQueue + 1, nextFromWindow);
 
-        // Keep booking windows updatedAt synced
+        // Advance nextQueueNumber counter on the window
         await tx
           .update(bookingWindows)
           .set({
+            nextQueueNumber: assignedQueueNumber + 1,
             updatedAt: new Date(),
-          });
+          })
+          .where(eq(bookingWindows.id, targetWindow.id));
 
-        // 8. Insert booking record with independent desk queue number and ticket number
+        // 8. Insert booking record with globally sequential queue number and permanent ticket number
         const [createdBooking] = await tx
           .insert(bookings)
           .values({
-            bookingWindowId: window.id,
+            bookingWindowId: targetWindow.id,
             studentId: student.id,
             queueNumber: assignedQueueNumber,
             ticketNumber: assignedQueueNumber,
@@ -327,9 +348,9 @@ export class BookingService {
             .from(bookings)
             .where(
               and(
-                eq(bookings.desk, assignedDesk),
+                eq(bookings.bookingWindowId, targetWindow.id),
                 sql`${bookings.status} IN ('WAITING', 'CALLED')`,
-                ne(bookings.id, createdBooking.id)
+                lt(bookings.queueNumber, createdBooking.queueNumber)
               )
             );
           const peopleAhead = Number(aheadResult?.count || 0);
@@ -1014,7 +1035,7 @@ ${
       });
     }
 
-    // Calculate liveTurn per desk
+    // Calculate liveTurn per desk and globally across the entire active queue
     const activeWaiting = await db
       .select({
         id: bookings.id,
@@ -1025,13 +1046,18 @@ ${
       .where(sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`)
       .orderBy(bookings.queueNumber);
 
+    const globalTurns = new Map<string, number>();
     const deskTurns = {
       T: new Map<string, number>(),
       D: new Map<string, number>(),
     };
+    let countGlobal = 0;
     let countT = 0;
     let countD = 0;
     activeWaiting.forEach((b) => {
+      countGlobal++;
+      globalTurns.set(b.id, countGlobal);
+
       const d = (b.desk === "D" ? "D" : "T") as "T" | "D";
       if (d === "T") {
         countT++;
@@ -1042,7 +1068,9 @@ ${
       }
     });
 
-    // Format items with decrypted National ID, activation info, and dynamic live turn per desk
+    const isDeskFiltered = params.desk === "T" || params.desk === "D";
+
+    // Format items with decrypted National ID, activation info, and dynamic live turn
     const items = rawBookings.map((b, index) => {
       let nationalId = "غير متوفر";
       try {
@@ -1053,7 +1081,9 @@ ${
 
       const activation = activationsMap.get(b.studentId);
       const deskKey = (b.desk === "D" ? "D" : "T") as "T" | "D";
-      const liveTurn = deskTurns[deskKey].get(b.id) || b.queueNumber;
+      const liveTurn = isDeskFiltered
+        ? (deskTurns[deskKey].get(b.id) || b.queueNumber)
+        : (globalTurns.get(b.id) || b.queueNumber);
       const ticketNum = b.ticketNumber || b.queueNumber;
 
       return {
@@ -1274,9 +1304,9 @@ ${aheadText}
         return [];
       }
 
-      // 2. Query maximum queue number across toDesk to append safely
+      // 2. Query global maximum queue number across all bookings to append safely
       const maxRes = await tx.execute(sql<{ max_q: number }>`
-        SELECT COALESCE(MAX(queue_number), 0) AS max_q FROM bookings WHERE desk = ${toDesk}
+        SELECT COALESCE(MAX(queue_number), 0) AS max_q FROM bookings
       `);
       let currentMax = Number(maxRes.rows?.[0]?.max_q || 0);
 
@@ -1304,6 +1334,14 @@ ${aheadText}
 
         affectedIds.push(item.id);
       }
+
+      // Keep booking windows nextQueueNumber synchronized
+      await tx
+        .update(bookingWindows)
+        .set({
+          nextQueueNumber: currentMax + 1,
+          updatedAt: new Date(),
+        });
 
       return affectedIds;
     });

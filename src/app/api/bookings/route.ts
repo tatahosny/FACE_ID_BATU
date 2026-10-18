@@ -48,6 +48,7 @@ export async function POST(req: NextRequest) {
         .select({
           id: students.id,
           sectionId: students.sectionId,
+          subSection: students.subSection,
           telegramUserId: students.telegramUserId,
           isActive: students.isActive,
         })
@@ -71,11 +72,14 @@ export async function POST(req: NextRequest) {
 
       studentId = student.id;
 
-      // If windowId was not provided, automatically find the open window for student's section
+      // If windowId was not provided, automatically find the open window for student's section and subsection
       if (!windowId) {
         const now = new Date();
-        const [activeWindow] = await db
-          .select({ id: bookingWindows.id })
+        const candidateWindows = await db
+          .select({
+            id: bookingWindows.id,
+            subSection: bookingWindows.subSection,
+          })
           .from(bookingWindows)
           .where(
             and(
@@ -85,11 +89,15 @@ export async function POST(req: NextRequest) {
               sql`${bookingWindows.endsAt} >= ${now.toISOString()}`
             )
           )
-          .limit(1);
+          .orderBy(desc(bookingWindows.createdAt));
+
+        const activeWindow = candidateWindows.find(
+          (w) => w.subSection === "ALL" || w.subSection === (student.subSection || "A")
+        );
 
         if (!activeWindow) {
           return apiError(
-            "لم يتم تفعيل وقت البصمة للسكشن بتاعك. يرجى الانتظار، ستصلك رسالة تنبيهية على التيليجرام فور فتح الحجز لسكشنك.",
+            `لم يتم تفعيل وقت البصمة للسكشن أو القسم الفرعي (${student.subSection || "A"}) بتاعك بعد. يرجى الانتظار، ستصلك رسالة تنبيهية على التيليجرام فور فتح الحجز.`,
             400
           );
         }

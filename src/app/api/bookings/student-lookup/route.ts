@@ -36,6 +36,7 @@ export async function GET(req: NextRequest) {
         groupName: groups.name,
         sectionId: students.sectionId,
         sectionName: sections.name,
+        subSection: students.subSection,
         telegramUserId: students.telegramUserId,
         telegramUsername: students.telegramUsername,
         isActive: students.isActive,
@@ -100,14 +101,13 @@ export async function GET(req: NextRequest) {
       const ticketNum = existingBooking.ticketNumber || existingBooking.queueNumber;
       formattedTicketNumber = formatQueueNumber(ticketNum);
       const studentDesk = existingBooking.desk || "T";
-      // Count active students ahead in this specific desk
+      // Count active students ahead in queue
       const [aheadCount] = await db
         .select({ count: sql<number>`count(*)` })
         .from(bookings)
         .where(
           and(
             sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
-            eq(bookings.desk, studentDesk),
             lt(bookings.queueNumber, existingBooking.queueNumber)
           )
         );
@@ -116,9 +116,9 @@ export async function GET(req: NextRequest) {
       formattedCurrentTurn = formatQueueNumber(currentTurn);
     }
 
-    // 4. Check whether booking window is open for student's section
+    // 4. Check whether booking window is open for student's section and subsection
     const now = new Date();
-    const [openWindow] = await db
+    const candidateWindows = await db
       .select()
       .from(bookingWindows)
       .where(
@@ -129,12 +129,16 @@ export async function GET(req: NextRequest) {
           sql`${bookingWindows.endsAt} >= ${now.toISOString()}`
         )
       )
-      .limit(1);
+      .orderBy(desc(bookingWindows.createdAt));
+
+    const openWindow = candidateWindows.find(
+      (w) => w.subSection === "ALL" || w.subSection === (student.subSection || "A")
+    );
 
     const isWindowOpen = !!openWindow;
     const windowClosedReason = isWindowOpen
       ? null
-      : "لم يتم تفعيل وقت البصمة للسكشن بتاعك. يرجى الانتظار، ستصلك رسالة تنبيهية على التيليجرام فور فتح الحجز لسكشنك.";
+      : `لم يتم تفعيل وقت البصمة للسكشن أو القسم الفرعي (${student.subSection || "A"}) بتاعك بعد. يرجى الانتظار، ستصلك رسالة تنبيهية على التيليجرام فور فتح الحجز.`;
 
     // Generate unique personal linking token if student is not linked yet
     let telegramDeepLink: string | null = null;
@@ -155,6 +159,7 @@ export async function GET(req: NextRequest) {
         groupName: student.groupName,
         sectionName: student.sectionName,
         sectionId: student.sectionId,
+        subSection: student.subSection || "A",
         hasTelegram,
         telegramUsername: student.telegramUsername,
         telegramDeepLink,
