@@ -7,84 +7,148 @@ import {
   notificationOutbox,
   bookingWindows,
 } from "../src/db/schema";
-import { ne, eq, inArray } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 
-async function cleanup() {
-  console.log("🧹 Starting database cleanup: Removing all test/dummy students...");
+async function cleanupTestStudents() {
+  console.log("🧹 ========================================================");
+  console.log("🧹 DATABASE CLEANUP: REMOVING TEST DATA & PRESERVING REAL STUDENTS");
+  console.log("🧹 ========================================================\n");
 
-  // 1. Find all students except Mostafa Mohamed Hosny (academicNumber 2421204)
-  const dummyStudents = await db
-    .select({ id: students.id, name: students.fullName, academicNumber: students.academicNumber })
-    .from(students)
-    .where(ne(students.academicNumber, "2421204"));
+  // 1. Fetch all students
+  const allStudents = await db
+    .select({
+      id: students.id,
+      fullName: students.fullName,
+      academicNumber: students.academicNumber,
+      telegramUsername: students.telegramUsername,
+      telegramUserId: students.telegramUserId,
+    })
+    .from(students);
 
-  console.log(`Found ${dummyStudents.length} dummy students to remove.`);
+  console.log(`📊 Total students currently in database: ${allStudents.length}`);
 
-  if (dummyStudents.length > 0) {
-    const dummyIds = dummyStudents.map((s) => s.id);
+  // Test students filter criteria:
+  // - Name contains 'تجريب' or 'تجربة' or 'test'
+  // - Academic number starts with BOOK_AC_, DESK_AC_, STAFF_AC_, TG_AC_, TEST_, DEMO_
+  const isTestStudent = (s: typeof allStudents[0]) => {
+    const nameLower = (s.fullName || "").toLowerCase();
+    const ac = (s.academicNumber || "").trim().toUpperCase();
 
-    // 2. Delete fingerprint activations for dummy students
-    const deletedActivations = await db
+    return (
+      nameLower.includes("تجريب") ||
+      nameLower.includes("تجربة") ||
+      nameLower.includes("test") ||
+      ac.startsWith("BOOK_AC_") ||
+      ac.startsWith("DESK_AC_") ||
+      ac.startsWith("STAFF_AC_") ||
+      ac.startsWith("TG_AC_") ||
+      ac.startsWith("TEST_") ||
+      ac.startsWith("DEMO_")
+    );
+  };
+
+  const testStudentsList = allStudents.filter(isTestStudent);
+  const realStudentsList = allStudents.filter((s) => !isTestStudent(s));
+
+  console.log(`❌ Test students identified: ${testStudentsList.length}`);
+  console.log(`✅ Real students to be preserved: ${realStudentsList.length}\n`);
+
+  if (testStudentsList.length === 0) {
+    console.log("✨ No test students found in the database. Nothing to clean.");
+    return;
+  }
+
+  const testStudentIds = testStudentsList.map((s) => s.id);
+
+  console.log("📋 Test students to be deleted:");
+  testStudentsList.forEach((s, idx) => {
+    console.log(`  ${idx + 1}. [${s.academicNumber}] ${s.fullName}`);
+  });
+
+  // Execute cleanup inside an atomic database transaction
+  await db.transaction(async (tx) => {
+    // A. Delete fingerprint activations for test students
+    const deletedActivations = await tx
       .delete(fingerprintActivations)
-      .where(inArray(fingerprintActivations.studentId, dummyIds))
-      .returning();
-    console.log(`Deleted ${deletedActivations.length} dummy fingerprint activations.`);
+      .where(inArray(fingerprintActivations.studentId, testStudentIds))
+      .returning({ id: fingerprintActivations.id });
+    console.log(`\n🗑️  Deleted ${deletedActivations.length} test fingerprint activations.`);
 
-    // 3. Delete bookings for dummy students
-    const deletedBookings = await db
+    // B. Delete bookings for test students
+    const deletedBookings = await tx
       .delete(bookings)
-      .where(inArray(bookings.studentId, dummyIds))
-      .returning();
-    console.log(`Deleted ${deletedBookings.length} dummy bookings.`);
+      .where(inArray(bookings.studentId, testStudentIds))
+      .returning({ id: bookings.id, queueNumber: bookings.queueNumber });
+    console.log(`🗑️  Deleted ${deletedBookings.length} test bookings.`);
 
-    // 4. Delete telegram link tokens for dummy students
-    const deletedTokens = await db
+    // C. Delete telegram link tokens for test students
+    const deletedTokens = await tx
       .delete(telegramLinkTokens)
-      .where(inArray(telegramLinkTokens.studentId, dummyIds))
-      .returning();
-    console.log(`Deleted ${deletedTokens.length} dummy telegram link tokens.`);
+      .where(inArray(telegramLinkTokens.studentId, testStudentIds))
+      .returning({ id: telegramLinkTokens.id });
+    console.log(`🗑️  Deleted ${deletedTokens.length} test telegram link tokens.`);
 
-    // 5. Delete notification outbox records for dummy students
-    const deletedOutbox = await db
+    // D. Delete notification outbox records for test students
+    const deletedOutbox = await tx
       .delete(notificationOutbox)
-      .where(inArray(notificationOutbox.recipientId, dummyIds))
-      .returning();
-    console.log(`Deleted ${deletedOutbox.length} dummy notification outbox records.`);
+      .where(inArray(notificationOutbox.recipientId, testStudentIds))
+      .returning({ id: notificationOutbox.id });
+    console.log(`🗑️  Deleted ${deletedOutbox.length} test notification outbox records.`);
 
-    // 6. Delete the dummy students
-    const deletedStudents = await db
+    // E. Finally, delete the test students themselves
+    const deletedStudents = await tx
       .delete(students)
-      .where(inArray(students.id, dummyIds))
-      .returning();
-    console.log(`Deleted ${deletedStudents.length} dummy students.`);
-  }
+      .where(inArray(students.id, testStudentIds))
+      .returning({ id: students.id, academicNumber: students.academicNumber });
+    console.log(`🗑️  Deleted ${deletedStudents.length} test students from the students table.`);
 
-  // 7. Verify remaining students
-  const remaining = await db.select().from(students);
-  console.log("✅ Remaining students in database:", remaining.map((s) => ({
-    name: s.fullName,
-    academicNumber: s.academicNumber,
-    telegramUserId: s.telegramUserId,
-    telegramUsername: s.telegramUsername,
-  })));
+    // F. Resynchronize nextQueueNumber across all booking windows based on remaining real bookings
+    const [maxRealBooking] = await tx
+      .select({ maxQ: sql<number>`COALESCE(MAX(${bookings.queueNumber}), 0)` })
+      .from(bookings);
 
-  // 8. Make sure Mostafa has an active booking to test
-  if (remaining.length > 0) {
-    const mostafa = remaining[0];
-    const mostafaBookings = await db
-      .select()
-      .from(bookings)
-      .where(eq(bookings.studentId, mostafa.id));
+    const currentMaxRealQueue = Number(maxRealBooking?.maxQ || 0);
+    const synchronizedNext = currentMaxRealQueue + 1;
 
-    console.log(`Mostafa has ${mostafaBookings.length} active bookings:`, mostafaBookings);
-  }
+    await tx
+      .update(bookingWindows)
+      .set({
+        nextQueueNumber: synchronizedNext,
+        updatedAt: new Date(),
+      });
+    console.log(`🔄 Synchronized all booking windows nextQueueNumber to: ${synchronizedNext}`);
+  });
 
-  console.log("🎉 Database cleanup complete!");
+  // Verify remaining real data
+  const remainingStudents = await db
+    .select({
+      id: students.id,
+      fullName: students.fullName,
+      academicNumber: students.academicNumber,
+    })
+    .from(students);
+
+  const remainingBookings = await db
+    .select({
+      id: bookings.id,
+      queueNumber: bookings.queueNumber,
+      ticketNumber: bookings.ticketNumber,
+      desk: bookings.desk,
+      status: bookings.status,
+      studentId: bookings.studentId,
+    })
+    .from(bookings);
+
+  console.log("\n========================================================");
+  console.log(`🎉 CLEANUP SUCCESSFUL!`);
+  console.log(`✅ Preserved Real Students: ${remainingStudents.length}`);
+  console.log(`✅ Preserved Real Bookings: ${remainingBookings.length}`);
+  console.log("========================================================\n");
 }
 
-cleanup()
+cleanupTestStudents()
   .then(() => process.exit(0))
   .catch((err) => {
-    console.error("Cleanup error:", err);
+    console.error("❌ Cleanup failed:", err);
     process.exit(1);
   });
