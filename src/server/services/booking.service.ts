@@ -151,6 +151,11 @@ export class BookingService {
     let pendingTelegramNotification: { chatId: number; message: string } | null = null;
     const result = await bookingQueueLock.acquire(async () => {
       return await db.transaction(async (tx) => {
+        // 0. Acquire global PostgreSQL advisory transaction lock for booking queue allocation.
+        // This guarantees absolute mutual exclusion across ALL distributed serverless instances,
+        // containers, and concurrent requests, completely preventing duplicate queue numbers or collisions.
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(84729103)`);
+
         // 1. Fetch student
         const [student] = await tx
           .select()
@@ -344,14 +349,13 @@ export class BookingService {
         const nextFromWindow = Number(targetWindow.nextQueueNumber || 1);
         const assignedQueueNumber = Math.max(currentMaxQueue + 1, nextFromWindow);
 
-        // Advance nextQueueNumber counter on the window
+        // Advance nextQueueNumber counter across all booking windows to keep the entire system in sync
         await tx
           .update(bookingWindows)
           .set({
             nextQueueNumber: assignedQueueNumber + 1,
             updatedAt: new Date(),
-          })
-          .where(eq(bookingWindows.id, targetWindow.id));
+          });
 
         // 8. Insert booking record with globally sequential queue number and permanent ticket number
         const [createdBooking] = await tx

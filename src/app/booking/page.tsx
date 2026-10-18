@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
 import {
   Search,
@@ -24,6 +24,7 @@ export default function BookingPage() {
   const [academicNumberInput, setAcademicNumberInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
+  const isBookingSubmittingRef = useRef(false);
   const [telegramResending, setTelegramResending] = useState(false);
   const [telegramResentMsg, setTelegramResentMsg] = useState<string | null>(null);
   const [lookupResult, setLookupResult] = useState<any>(null);
@@ -94,10 +95,14 @@ export default function BookingPage() {
 
   const handleCreateBooking = async () => {
     if (!lookupResult?.student?.academicNumber) return;
+    if (isBookingSubmittingRef.current || bookingLoading) return;
 
     try {
+      isBookingSubmittingRef.current = true;
       setBookingLoading(true);
       setError(null);
+
+      const idempotencyKey = `book_${lookupResult.student.academicNumber}_${Date.now()}`;
 
       const res = await fetch("/api/bookings", {
         method: "POST",
@@ -105,6 +110,7 @@ export default function BookingPage() {
         body: JSON.stringify({
           academicNumber: lookupResult.student.academicNumber,
           bookingWindowId: lookupResult.windowId,
+          idempotencyKey,
         }),
       });
 
@@ -122,6 +128,7 @@ export default function BookingPage() {
       setError(err?.message || "حدث خطأ أثناء حجز الدور");
     } finally {
       setBookingLoading(false);
+      isBookingSubmittingRef.current = false;
     }
   };
 
