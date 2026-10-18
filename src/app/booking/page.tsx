@@ -348,9 +348,9 @@ export default function BookingPage() {
                 </div>
               ) : lookupResult.existingBooking ? (
                 /* Case B: Student has an active confirmed booking */
-                <div className="bg-gradient-to-r from-blue-950/50 via-slate-900 to-indigo-950/50 border border-blue-500/40 rounded-2xl p-6 text-center space-y-4">
-                  <div className="space-y-2">
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[10px] font-bold text-emerald-400 mb-1">
+                <div className="bg-gradient-to-r from-blue-950/50 via-slate-900 to-indigo-950/50 border border-blue-500/40 rounded-2xl p-6 text-center space-y-5">
+                  <div className="space-y-3">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[11px] font-bold text-emerald-400">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                       <span>طابور حي ومتحرك</span>
                     </div>
@@ -359,38 +359,62 @@ export default function BookingPage() {
                     <div className="flex items-center justify-center gap-2">
                       <span className="text-xs text-slate-300 font-medium">الشباك المخصص:</span>
                       {lookupResult.existingBooking.desk === "D" ? (
-                        <span className="px-3.5 py-1 rounded-xl text-xs font-black bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm font-mono flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                        <span className="px-4 py-1.5 rounded-xl text-xs font-black bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm font-mono flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
                           <span>شباك D</span>
                         </span>
                       ) : (
-                        <span className="px-3.5 py-1 rounded-xl text-xs font-black bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm font-mono flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                        <span className="px-4 py-1.5 rounded-xl text-xs font-black bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm font-mono flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
                           <span>شباك T</span>
                         </span>
                       )}
                     </div>
 
-                    <span className="text-xs text-blue-300 font-bold uppercase tracking-wider block">
-                      دورك الحالي في الطابور الآن
-                    </span>
-                    <div className="text-5xl font-black text-amber-400 font-mono py-1">
-                      #{lookupResult.existingBooking.formattedCurrentTurn || lookupResult.existingBooking.formattedQueueNumber}
-                    </div>
-                    <div className="text-xs text-slate-400">
-                      رقم التذكرة عند الحجز: <b className="text-white font-mono">#{lookupResult.existingBooking.formattedTicketNumber || lookupResult.existingBooking.formattedQueueNumber}</b>
+                    {/* Prominent Unique Ticket Number */}
+                    <div className="py-1">
+                      <span className="text-xs text-blue-300 font-bold uppercase tracking-wider block mb-1">
+                        رقم تذكرة الحجز الرسمية الثابتة
+                      </span>
+                      <div className="text-5xl sm:text-6xl font-black text-amber-400 font-mono py-1 drop-shadow-md">
+                        #{lookupResult.existingBooking.formattedTicketNumber || lookupResult.existingBooking.formattedQueueNumber}
+                      </div>
+                      <div className="text-xs text-slate-300 mt-1">
+                        رقم التذكرة فريد وخاص بك: <b className="text-white font-mono">#{lookupResult.existingBooking.formattedTicketNumber || lookupResult.existingBooking.formattedQueueNumber}</b>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="bg-[#0b101d] p-3.5 rounded-xl border border-slate-800 text-xs text-slate-300 flex items-center justify-around">
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-amber-400" />
-                      <span>الحالة: <b className="text-white">في الانتظار</b></span>
+                  {/* Turn Status Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-right">
+                    <div className="bg-[#0b101d] p-3.5 rounded-xl border border-slate-800 text-xs space-y-1">
+                      <div className="text-slate-400 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>ترتيبك على شباك {lookupResult.existingBooking.desk || "T"}:</span>
+                      </div>
+                      <div className="text-sm font-black text-cyan-300 font-mono">
+                        {(lookupResult.existingBooking.deskAhead ?? lookupResult.existingBooking.peopleAhead) === 0 ? (
+                          <span className="text-emerald-400">أنت التالي مباشرة! (#001)</span>
+                        ) : (
+                          <span>الدور رقم #{lookupResult.existingBooking.formattedDeskTurn || lookupResult.existingBooking.formattedCurrentTurn}</span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        باقي قبلك على هذا الشباك: <b className="text-cyan-400 font-mono">{lookupResult.existingBooking.deskAhead ?? lookupResult.existingBooking.peopleAhead}</b> طلاب
+                      </div>
                     </div>
-                    <span className="text-slate-700">|</span>
-                    <div className="flex items-center gap-2">
-                      <Users className="w-4 h-4 text-cyan-400" />
-                      <span>باقي قبلك: <b className="text-cyan-400 font-mono text-sm">{lookupResult.existingBooking.peopleAhead}</b> طلاب</span>
+
+                    <div className="bg-[#0b101d] p-3.5 rounded-xl border border-slate-800 text-xs space-y-1">
+                      <div className="text-slate-400 flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>ترتيبك في انتظار الكلية العام:</span>
+                      </div>
+                      <div className="text-sm font-black text-indigo-300 font-mono">
+                        الدور رقم #{lookupResult.existingBooking.formattedGlobalTurn || lookupResult.existingBooking.formattedTicketNumber}
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        إجمالي الطلاب قبلك: <b className="text-indigo-300 font-mono">{lookupResult.existingBooking.globalAhead ?? lookupResult.existingBooking.peopleAhead}</b> طلاب
+                      </div>
                     </div>
                   </div>
 

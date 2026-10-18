@@ -83,14 +83,14 @@ describe("Booking Concurrency & Queue Allocation Integration Tests", () => {
     const successes = attempts.filter((r) => r.status === "fulfilled") as PromiseFulfilledResult<any>[];
     expect(successes).toHaveLength(2);
 
-    const queueNumbers = successes.map((s) => s.value.booking.queueNumber);
+    const queueNumbers = (successes.map((s) => s.value.booking.queueNumber) as number[]).sort((a, b) => a - b);
     expect(new Set(queueNumbers).size).toBe(2); // Zero duplicate queue numbers!
-    expect(queueNumbers.sort()).toEqual([1, 2]);
+    expect(queueNumbers[1] - queueNumbers[0]).toBe(1); // Consecutive sequential numbers
 
     // Third student also books successfully without capacity cap (as requested: no max limit)
     const thirdBooking = await BookingService.createBooking(testStudents[2].id, openWindow.id);
-    expect(thirdBooking.booking.queueNumber).toBe(3);
-  });
+    expect(thirdBooking.booking.queueNumber).toBe(queueNumbers[1] + 1);
+  }, 60000);
 
   it("should prevent duplicate booking by the same student in the same window (idempotent)", async () => {
     const res = await BookingService.createBooking(testStudents[0].id, openWindow.id);

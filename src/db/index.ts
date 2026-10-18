@@ -6,8 +6,9 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 const rawConn =
+  process.env.DATABASE_URL_UNPOOLED ||
   process.env.DATABASE_URL ||
-  "postgresql://neondb_owner:npg_PwWrK2l4iyZu@ep-rapid-heart-b5kd9qu2-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require";
+  "postgresql://neondb_owner:npg_PwWrK2l4iyZu@ep-rapid-heart-b5kd9qu2.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require";
 const connectionString = rawConn
   .replace("&channel_binding=require", "")
   .replace("channel_binding=require&", "")
@@ -26,7 +27,8 @@ if (process.env.NODE_ENV === "production") {
     connectionString,
     max: 30,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 15000,
+    connectionTimeoutMillis: 35000,
+    keepAlive: true,
     ssl: { rejectUnauthorized: false },
   });
 } else {
@@ -35,7 +37,8 @@ if (process.env.NODE_ENV === "production") {
       connectionString,
       max: 20,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 15000,
+      connectionTimeoutMillis: 35000,
+      keepAlive: true,
       ssl: { rejectUnauthorized: false },
     });
   }

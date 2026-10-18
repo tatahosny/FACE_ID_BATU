@@ -279,24 +279,42 @@ function BookingStatusContent() {
                   )}
                 </div>
 
-                <span className="text-xs text-amber-400 font-bold uppercase tracking-wider block">
-                  دورك الحالي في الطابور الآن
+                <span className="text-xs text-blue-300 font-bold uppercase tracking-wider block">
+                  رقم تذكرة الحجز الرسمية الثابتة
                 </span>
 
                 <div className="text-6xl sm:text-7xl font-black font-mono tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-amber-400 to-yellow-500">
-                  #{statusData.formattedCurrentTurn || statusData.formattedQueueNumber}
+                  #{statusData.formattedTicketNumber || statusData.formattedQueueNumber}
                 </div>
 
-                <div className="flex flex-wrap items-center justify-center gap-2 pt-1 text-xs">
-                  <span className="bg-slate-900 px-3 py-1 rounded-xl border border-slate-800 text-slate-300">
-                    رقم التذكرة عند الحجز: <b className="text-white font-mono">#{statusData.formattedTicketNumber || statusData.formattedQueueNumber}</b>
-                  </span>
-                  <span className="bg-slate-900 px-3 py-1 rounded-xl border border-slate-800 text-slate-300">
-                    باقي قبلك في الانتظار: <b className="text-cyan-400 font-mono">{statusData.studentsAhead}</b> طلاب
-                  </span>
+                {/* Turn Status Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-right pt-2">
+                  <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 text-xs space-y-1">
+                    <span className="text-slate-400 block">ترتيبك على شباك {statusData.desk || "T"}:</span>
+                    <div className="text-sm font-black text-cyan-300 font-mono">
+                      {(statusData.deskAhead ?? statusData.studentsAhead) === 0 ? (
+                        <span className="text-emerald-400">أنت التالي مباشرة! (#001)</span>
+                      ) : (
+                        <span>الدور رقم #{statusData.formattedDeskTurn || statusData.formattedCurrentTurn}</span>
+                      )}
+                    </div>
+                    <span className="text-[11px] text-slate-400 block">
+                      باقي قبلك: <b className="text-cyan-400 font-mono">{statusData.deskAhead ?? statusData.studentsAhead}</b> طلاب
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 text-xs space-y-1">
+                    <span className="text-slate-400 block">ترتيبك في انتظار الكلية العام:</span>
+                    <div className="text-sm font-black text-indigo-300 font-mono">
+                      الدور رقم #{statusData.formattedGlobalTurn || statusData.formattedTicketNumber}
+                    </div>
+                    <span className="text-[11px] text-slate-400 block">
+                      إجمالي الطلاب قبلك: <b className="text-indigo-300 font-mono">{statusData.globalAhead ?? statusData.studentsAhead}</b> طلاب
+                    </span>
+                  </div>
                 </div>
 
-                <div className="text-xs text-slate-300 pt-1 flex items-center justify-center gap-1.5">
+                <div className="text-xs text-slate-300 pt-2 flex items-center justify-center gap-1.5">
                   <MapPin className="w-3.5 h-3.5 text-emerald-400" />
                   <span>الواحة — مبنى الشؤون (شباك بصمة الوجه)</span>
                 </div>

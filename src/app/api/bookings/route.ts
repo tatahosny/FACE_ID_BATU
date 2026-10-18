@@ -126,8 +126,8 @@ export async function POST(req: NextRequest) {
     );
 
     const message = result.isExisting
-      ? `لديك حجز مسبق بالفعل برقم دور: #${result.formattedQueueNumber}`
-      : `تم تأكيد حجزك بنجاح! رقم دورك في قائمة الانتظار: #${result.formattedQueueNumber}`;
+      ? `لديك حجز مسبق بالفعل! تذكرة حجز رقم: #${result.formattedQueueNumber} على شباك ${result.desk}`
+      : `تم تأكيد حجزك بنجاح! تذكرة حجز رقم: #${result.formattedQueueNumber} على شباك ${result.desk}`;
 
     return apiSuccess(result, message, result.isExisting ? 200 : 201);
   } catch (error: any) {

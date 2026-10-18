@@ -239,23 +239,38 @@ export class BookingService {
 
         if (existingBooking) {
           // Also deliver current queue status to student via Telegram
-          if (student.telegramUserId) {
-            const deskName = existingBooking.desk || "T";
-            const [aheadResult] = await tx
-              .select({ count: sql<number>`count(*)` })
-              .from(bookings)
-              .where(
-                and(
-                  eq(bookings.bookingWindowId, existingBooking.bookingWindowId),
-                  sql`${bookings.status} IN ('WAITING', 'CALLED')`,
-                  lt(bookings.queueNumber, existingBooking.queueNumber)
-                )
-              );
-            const peopleAhead = Number(aheadResult?.count || 0);
-            const currentTurn = peopleAhead + 1;
-            const formattedNum = formatQueueNumber(existingBooking.queueNumber);
-            const formattedTurn = formatQueueNumber(currentTurn);
+          const deskName = existingBooking.desk || "T";
+          const [aheadDeskResult] = await tx
+            .select({ count: sql<number>`count(*)` })
+            .from(bookings)
+            .where(
+              and(
+                eq(bookings.desk, deskName),
+                sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
+                lt(bookings.queueNumber, existingBooking.queueNumber)
+              )
+            );
+          const deskAhead = Number(aheadDeskResult?.count || 0);
+          const deskTurn = deskAhead + 1;
 
+          const [aheadGlobalResult] = await tx
+            .select({ count: sql<number>`count(*)` })
+            .from(bookings)
+            .where(
+              and(
+                sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
+                lt(bookings.queueNumber, existingBooking.queueNumber)
+              )
+            );
+          const globalAhead = Number(aheadGlobalResult?.count || 0);
+          const globalTurn = globalAhead + 1;
+
+          const rawTicket = existingBooking.ticketNumber || existingBooking.queueNumber;
+          const formattedTicket = formatQueueNumber(rawTicket);
+          const formattedDeskTurn = formatQueueNumber(deskTurn);
+          const formattedGlobalTurn = formatQueueNumber(globalTurn);
+
+          if (student.telegramUserId) {
             const reminderMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
@@ -263,9 +278,10 @@ export class BookingService {
 
 <b>اسم الطالب:</b> ${student.fullName}
 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
+<b>رقم تذكرة الحجز الثابت:</b> <code>#${formattedTicket}</code>
 <b>الشباك المخصص:</b> <code>شباك ${deskName}</code>
-<b>رقم دورك الحالي في الطابور:</b> <code>#${formattedTurn}</code> (تذكرة حجز رقم: <code>#${formattedNum}</code>)
-<b>حالة الطابور:</b> ${peopleAhead === 0 ? "أنت أول شخص في الطابور الآن!" : `باقي أمامك ${peopleAhead} أشخاص فقط في الانتظار`}
+<b>ترتيبك في طابور شباك ${deskName}:</b> <code>#${formattedDeskTurn}</code> (${deskAhead === 0 ? "أنت التالي مباشرة على هذا الشباك!" : `باقي قبلك ${deskAhead} طلاب على هذا الشباك`})
+<b>ترتيبك العام في انتظار الكلية:</b> <code>#${formattedGlobalTurn}</code>
 
 <b>المقر:</b> الواحة — مبنى الشؤون (شباك بصمة الوجه)
 ستصلك رسالة تنبيهية فور المناداة على دورك.`;
@@ -278,19 +294,29 @@ export class BookingService {
 
           return {
             booking: existingBooking,
-            formattedQueueNumber: formatQueueNumber(existingBooking.queueNumber),
-            desk: existingBooking.desk || "T",
+            queueNumber: rawTicket,
+            formattedQueueNumber: formattedTicket,
+            ticketNumber: rawTicket,
+            formattedTicketNumber: formattedTicket,
+            desk: deskName,
+            deskTurn,
+            formattedDeskTurn,
+            currentTurn: deskTurn,
+            formattedCurrentTurn: formattedDeskTurn,
+            globalTurn,
+            formattedGlobalTurn,
+            deskAhead,
+            globalAhead,
             isExisting: true,
             pendingTelegramNotification,
           };
         }
 
         // 7. Atomic desk allocation & strictly sequential queue number allocation
-        // Determine desk assignment alternating between T and D based on last booking in this window
+        // Determine desk assignment alternating between T and D based on last booking globally
         const [lastBooking] = await tx
           .select({ desk: bookings.desk })
           .from(bookings)
-          .where(eq(bookings.bookingWindowId, targetWindow.id))
           .orderBy(desc(bookings.createdAt))
           .limit(1);
 
@@ -309,11 +335,10 @@ export class BookingService {
           assignedDesk = lastBooking?.desk === "T" ? "D" : "T";
         }
 
-        // Strictly append to the very end of the line: always sequential within the window
+        // Strictly append to the very end of the line: globally sequential across the entire university
         const [maxBooking] = await tx
           .select({ maxQueue: sql<number>`COALESCE(MAX(${bookings.queueNumber}), 0)` })
-          .from(bookings)
-          .where(eq(bookings.bookingWindowId, targetWindow.id));
+          .from(bookings);
 
         const currentMaxQueue = Number(maxBooking?.maxQueue || 0);
         const nextFromWindow = Number(targetWindow.nextQueueNumber || 1);
@@ -341,24 +366,39 @@ export class BookingService {
           })
           .returning();
 
-        // 9. Send Telegram confirmation message immediately & log to outbox
-        if (student.telegramUserId) {
-          const [aheadResult] = await tx
-            .select({ count: sql<number>`count(*)` })
-            .from(bookings)
-            .where(
-              and(
-                eq(bookings.bookingWindowId, targetWindow.id),
-                sql`${bookings.status} IN ('WAITING', 'CALLED')`,
-                lt(bookings.queueNumber, createdBooking.queueNumber)
-              )
-            );
-          const peopleAhead = Number(aheadResult?.count || 0);
-          const isFirstTen = peopleAhead < 10;
-          const currentTurn = peopleAhead + 1;
-          const formattedNum = formatQueueNumber(assignedQueueNumber);
-          const formattedTurn = formatQueueNumber(currentTurn);
+        // 9. Count students ahead specifically on assigned desk AND globally across college
+        const [aheadDeskResult] = await tx
+          .select({ count: sql<number>`count(*)` })
+          .from(bookings)
+          .where(
+            and(
+              eq(bookings.desk, assignedDesk),
+              sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
+              lt(bookings.queueNumber, createdBooking.queueNumber)
+            )
+          );
+        const deskAhead = Number(aheadDeskResult?.count || 0);
+        const deskTurn = deskAhead + 1;
 
+        const [aheadGlobalResult] = await tx
+          .select({ count: sql<number>`count(*)` })
+          .from(bookings)
+          .where(
+            and(
+              sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
+              lt(bookings.queueNumber, createdBooking.queueNumber)
+            )
+          );
+        const globalAhead = Number(aheadGlobalResult?.count || 0);
+        const globalTurn = globalAhead + 1;
+
+        const isFirstTen = deskAhead < 10;
+        const formattedTicket = formatQueueNumber(assignedQueueNumber);
+        const formattedDeskTurn = formatQueueNumber(deskTurn);
+        const formattedGlobalTurn = formatQueueNumber(globalTurn);
+
+        // Send Telegram confirmation message immediately & log to outbox
+        if (student.telegramUserId) {
           const telegramText = isFirstTen
             ? `<b>جامعة برج العرب التكنولوجية (BATU)</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
@@ -367,9 +407,10 @@ export class BookingService {
 
 <b>اسم الطالب:</b> ${student.fullName}
 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
+<b>رقم تذكرة الحجز الثابت:</b> <code>#${formattedTicket}</code>
 <b>الشباك المخصص:</b> <code>شباك ${assignedDesk}</code>
-<b>رقم دورك في طابور شباك ${assignedDesk}:</b> <code>#${formattedTurn}</code> (تذكرة حجز رقم: <code>#${formattedNum}</code>)
-<b>حالة الطابور:</b> ${peopleAhead === 0 ? `أنت أول شخص في طابور شباك ${assignedDesk} الآن!` : `باقي أمامك ${peopleAhead} أشخاص في طابور شباك ${assignedDesk}`}
+<b>ترتيبك في طابور شباك ${assignedDesk}:</b> <code>#${formattedDeskTurn}</code> (باقي قبلك ${deskAhead} طلاب على هذا الشباك)
+<b>ترتيبك العام في انتظار الكلية:</b> <code>#${formattedGlobalTurn}</code>
 
 <b>تنبيه عاجل:</b>
 أنت من <b>أول 10 طلاب</b> في طابور شباك ${assignedDesk}!
@@ -381,9 +422,10 @@ export class BookingService {
 
 <b>اسم الطالب:</b> ${student.fullName}
 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
+<b>رقم تذكرة الحجز الثابت:</b> <code>#${formattedTicket}</code>
 <b>الشباك المخصص:</b> <code>شباك ${assignedDesk}</code>
-<b>رقم دورك في طابور شباك ${assignedDesk}:</b> <code>#${formattedTurn}</code> (تذكرة حجز رقم: <code>#${formattedNum}</code>)
-<b>فاضلك كام واحد:</b> باقي أمامك <b>${peopleAhead}</b> أشخاص في طابور شباك ${assignedDesk}.
+<b>ترتيبك في طابور شباك ${assignedDesk}:</b> <code>#${formattedDeskTurn}</code> (باقي أمامك <b>${deskAhead}</b> طلاب على هذا الشباك)
+<b>ترتيبك العام في انتظار الكلية:</b> <code>#${formattedGlobalTurn}</code>
 
 <b>المقر:</b> الواحة — مبنى الشؤون (شباك ${assignedDesk})
 <b>ستصلك رسالة تنبيهية فور وصول المتبقي على دورك إلى 10 أشخاص للاستعداد والتوجه إلى شباك ${assignedDesk}.</b>`;
@@ -396,9 +438,14 @@ export class BookingService {
             payload: {
               studentName: student.fullName,
               academicNumber: student.academicNumber,
-              queueNumber: formattedNum,
+              queueNumber: formattedTicket,
+              ticketNumber: formattedTicket,
               desk: assignedDesk,
-              peopleAhead,
+              deskTurn,
+              globalTurn,
+              peopleAhead: deskAhead,
+              deskAhead,
+              globalAhead,
               isFirstTen,
               bookingId: createdBooking.id,
               message: telegramText,
@@ -423,14 +470,26 @@ export class BookingService {
             studentId: student.id,
             bookingWindowId: window.id,
             queueNumber: assignedQueueNumber,
+            ticketNumber: assignedQueueNumber,
             desk: assignedDesk,
           },
         });
 
         return {
           booking: createdBooking,
-          formattedQueueNumber: formatQueueNumber(assignedQueueNumber),
+          queueNumber: assignedQueueNumber,
+          formattedQueueNumber: formattedTicket,
+          ticketNumber: assignedQueueNumber,
+          formattedTicketNumber: formattedTicket,
           desk: assignedDesk,
+          deskTurn,
+          formattedDeskTurn,
+          currentTurn: deskTurn,
+          formattedCurrentTurn: formattedDeskTurn,
+          globalTurn,
+          formattedGlobalTurn,
+          deskAhead,
+          globalAhead,
           isExisting: false,
           pendingTelegramNotification,
         };
@@ -483,42 +542,64 @@ export class BookingService {
       return null;
     }
 
-    // Accurately calculate waiting students ahead within the student's assigned desk
+    const rawTicket = latestBooking.booking.ticketNumber || latestBooking.booking.queueNumber;
+    const formattedTicketNumber = formatQueueNumber(rawTicket);
+    const desk = latestBooking.booking.desk || "T";
+
+    // 1. Accurately calculate waiting students ahead within the student's assigned desk
     const [{ studentsAhead }] = await db
       .select({ studentsAhead: sql<number>`cast(count(*) as integer)` })
       .from(bookings)
       .where(
         and(
-          eq(bookings.desk, latestBooking.booking.desk),
+          eq(bookings.desk, desk),
           sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
           sql`${bookings.queueNumber} < ${latestBooking.booking.queueNumber}`
         )
       );
 
-    const aheadCount = Number(studentsAhead || 0);
-    // Dynamic moving turn: advances forward when earlier students finish (e.g. 12 -> 10 -> 1)
-    const currentTurn = aheadCount + 1;
-    const formattedCurrentTurn = formatQueueNumber(currentTurn);
-    const rawTicket = latestBooking.booking.ticketNumber || latestBooking.booking.queueNumber;
-    const formattedTicketNumber = formatQueueNumber(rawTicket);
+    const deskAhead = Number(studentsAhead || 0);
+    const deskTurn = deskAhead + 1;
+    const formattedDeskTurn = formatQueueNumber(deskTurn);
+
+    // 2. Accurately calculate waiting students ahead across all desks globally in college
+    const [{ globalAheadCount }] = await db
+      .select({ globalAheadCount: sql<number>`cast(count(*) as integer)` })
+      .from(bookings)
+      .where(
+        and(
+          sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
+          sql`${bookings.queueNumber} < ${latestBooking.booking.queueNumber}`
+        )
+      );
+
+    const globalAhead = Number(globalAheadCount || 0);
+    const globalTurn = globalAhead + 1;
+    const formattedGlobalTurn = formatQueueNumber(globalTurn);
 
     return {
       bookingId: latestBooking.booking.id,
       ticketNumber: rawTicket,
       formattedTicketNumber,
       initialQueueNumber: rawTicket,
-      currentTurn,
-      formattedCurrentTurn,
-      // Provide currentTurn as primary queueNumber so all consumers display the dynamic moving position
-      queueNumber: currentTurn,
-      formattedQueueNumber: formattedCurrentTurn,
+      // Provide unique ticket number as primary queueNumber so each student has a distinct number
+      queueNumber: rawTicket,
+      formattedQueueNumber: formattedTicketNumber,
+      deskTurn,
+      formattedDeskTurn,
+      currentTurn: deskTurn,
+      formattedCurrentTurn: formattedDeskTurn,
+      globalTurn,
+      formattedGlobalTurn,
       status: latestBooking.booking.status,
       bookedAt: latestBooking.booking.bookedAt,
       calledAt: latestBooking.booking.calledAt,
       startedAt: latestBooking.booking.startedAt,
       completedAt: latestBooking.booking.completedAt,
-      studentsAhead: aheadCount,
-      desk: latestBooking.booking.desk || "T",
+      studentsAhead: deskAhead,
+      deskAhead,
+      globalAhead,
+      desk,
       sectionName: latestBooking.section.name,
       studentName: latestBooking.student.fullName,
       academicNumber: latestBooking.student.academicNumber,

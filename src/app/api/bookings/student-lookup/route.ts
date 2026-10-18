@@ -93,16 +93,36 @@ export async function GET(req: NextRequest) {
       .limit(1);
 
     let peopleAhead = 0;
+    let deskAhead = 0;
+    let globalAhead = 0;
     let formattedTicketNumber: string | null = null;
-    let currentTurn = 1;
-    let formattedCurrentTurn: string | null = null;
+    let deskTurn = 1;
+    let globalTurn = 1;
+    let formattedDeskTurn: string | null = null;
+    let formattedGlobalTurn: string | null = null;
 
     if (existingBooking) {
       const ticketNum = existingBooking.ticketNumber || existingBooking.queueNumber;
       formattedTicketNumber = formatQueueNumber(ticketNum);
       const studentDesk = existingBooking.desk || "T";
-      // Count active students ahead in queue
-      const [aheadCount] = await db
+
+      // 1. Count active students ahead specifically in the assigned desk
+      const [aheadDeskCount] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(bookings)
+        .where(
+          and(
+            eq(bookings.desk, studentDesk),
+            sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
+            lt(bookings.queueNumber, existingBooking.queueNumber)
+          )
+        );
+      deskAhead = Number(aheadDeskCount?.count || 0);
+      deskTurn = deskAhead + 1;
+      formattedDeskTurn = formatQueueNumber(deskTurn);
+
+      // 2. Count active students ahead across the entire college queue
+      const [aheadGlobalCount] = await db
         .select({ count: sql<number>`count(*)` })
         .from(bookings)
         .where(
@@ -111,9 +131,10 @@ export async function GET(req: NextRequest) {
             lt(bookings.queueNumber, existingBooking.queueNumber)
           )
         );
-      peopleAhead = Number(aheadCount?.count || 0);
-      currentTurn = peopleAhead + 1;
-      formattedCurrentTurn = formatQueueNumber(currentTurn);
+      globalAhead = Number(aheadGlobalCount?.count || 0);
+      globalTurn = globalAhead + 1;
+      formattedGlobalTurn = formatQueueNumber(globalTurn);
+      peopleAhead = deskAhead;
     }
 
     // 4. Check whether booking window is open for student's section and subsection
@@ -176,14 +197,20 @@ export async function GET(req: NextRequest) {
             id: existingBooking.id,
             ticketNumber: existingBooking.ticketNumber || existingBooking.queueNumber,
             formattedTicketNumber,
-            // Dynamic moving turn: advances forward when earlier students finish (e.g. 12 -> 10 -> 1)
-            queueNumber: currentTurn,
-            formattedQueueNumber: formattedCurrentTurn,
-            currentTurn,
-            formattedCurrentTurn,
+            // Provide unique ticket number as primary queueNumber so each student has a distinct number
+            queueNumber: existingBooking.ticketNumber || existingBooking.queueNumber,
+            formattedQueueNumber: formattedTicketNumber,
+            deskTurn,
+            formattedDeskTurn,
+            currentTurn: deskTurn,
+            formattedCurrentTurn: formattedDeskTurn,
+            globalTurn,
+            formattedGlobalTurn,
             status: existingBooking.status,
             desk: existingBooking.desk || "T",
-            peopleAhead,
+            peopleAhead: deskAhead,
+            deskAhead,
+            globalAhead,
             bookedAt: formatCairoDateTime(existingBooking.bookedAt),
           }
         : null,
