@@ -99,4 +99,27 @@ export class SettingsService {
     await this.setSetting(key, staffId, desc, updatedBy);
     return { desk, staffId };
   }
+
+  /**
+   * Get active status for Desk T and Desk D
+   */
+  static async getDeskStatuses(): Promise<{ deskTActive: boolean; deskDActive: boolean }> {
+    const deskTActiveStr = await this.getSetting("desk_t_active", "true");
+    const deskDActiveStr = await this.getSetting("desk_d_active", "true");
+    return {
+      deskTActive: deskTActiveStr !== "false",
+      deskDActive: deskDActiveStr !== "false",
+    };
+  }
+
+  /**
+   * Set active status for a desk (T or D)
+   */
+  static async setDeskStatus(desk: "T" | "D", isActive: boolean, updatedBy?: string) {
+    const key = desk === "T" ? "desk_t_active" : "desk_d_active";
+    const desc = desk === "T" ? "حالة تفعيل شباك T" : "حالة تفعيل شباك D";
+    await this.setSetting(key, isActive ? "true" : "false", desc, updatedBy);
+    return { desk, isActive };
+  }
 }
+

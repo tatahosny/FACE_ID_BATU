@@ -25,6 +25,7 @@ import {
   GraduationCap,
   Calendar,
   Ticket,
+  Power,
 } from "lucide-react";
 
 interface DeskConsoleProps {
@@ -44,6 +45,7 @@ export default function DeskConsole({ desk }: DeskConsoleProps) {
   const [desksData, setDesksData] = useState<any>(null);
   const [staffList, setStaffList] = useState<any[]>([]);
   const [assigningDesk, setAssigningDesk] = useState<boolean>(false);
+  const [togglingStatus, setTogglingStatus] = useState<boolean>(false);
 
   // Auto refresh & Audio chime state
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -180,6 +182,47 @@ export default function DeskConsole({ desk }: DeskConsoleProps) {
     }
   };
 
+  const handleToggleDeskStatus = async (nextActive: boolean) => {
+    try {
+      if (!nextActive) {
+        const confirmed = window.confirm(
+          `هل أنت متأكد من قفل وإيقاف تفعيل شباك (${desk})؟\n\n- سيتم تحويل جميع أدوار وتذاكر الطلاب المنتظرين حالياً تلقائياً إلى شباك (${otherDesk}).\n- أي تذاكر أو حجوزات جديدة ستتجه بالكامل إلى شباك (${otherDesk}) فقط.`
+        );
+        if (!confirmed) return;
+      }
+
+      setTogglingStatus(true);
+      setFeedback(null);
+
+      const res = await fetch("/api/admin/desks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "toggle-status", desk, isActive: nextActive }),
+      });
+
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setFeedback({
+          message: json.message || (nextActive ? `تم تفعيل شباك ${desk} بنجاح` : `تم إيقاف تفعيل شباك ${desk} بنجاح`),
+          type: "success",
+        });
+        await Promise.all([fetchDesks(), fetchQueues()]);
+      } else {
+        setFeedback({
+          message: json.error || "فشل تغيير حالة الشباك",
+          type: "error",
+        });
+      }
+    } catch (err: any) {
+      setFeedback({
+        message: err.message || "حدث خطأ أثناء تعديل حالة الشباك",
+        type: "error",
+      });
+    } finally {
+      setTogglingStatus(false);
+    }
+  };
+
   const handleAction = async (action: string, bookingId?: string, studentId?: string) => {
     try {
       setActionLoading(`${action}_${bookingId || desk}`);
@@ -222,6 +265,7 @@ export default function DeskConsole({ desk }: DeskConsoleProps) {
   const nextWaitingStudent = items.find((item) => item.status === "WAITING");
 
   const currentDeskData = desksData?.[desk];
+  const isDeskActive = currentDeskData?.isActive !== false;
 
   return (
     <div className="space-y-6">
@@ -247,7 +291,22 @@ export default function DeskConsole({ desk }: DeskConsoleProps) {
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Window Active Status Toggle Button */}
+          <button
+            onClick={() => handleToggleDeskStatus(!isDeskActive)}
+            disabled={togglingStatus}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border shadow-sm disabled:opacity-50 ${
+              isDeskActive
+                ? "bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border-rose-500/40"
+                : "bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/40"
+            }`}
+            title={isDeskActive ? `قفل شباك ${desk} وتحويل كافة أدواره لشباك ${otherDesk}` : `تفعيل وفتح شباك ${desk}`}
+          >
+            <Power className={`w-3.5 h-3.5 ${togglingStatus ? "animate-spin" : ""}`} />
+            <span>{togglingStatus ? "جاري التحديث..." : isDeskActive ? "قفل الشباك" : "تفعيل الشباك"}</span>
+          </button>
+
           {/* Audio Chime Toggle */}
           <button
             onClick={() => setAudioEnabled(!audioEnabled)}
@@ -316,6 +375,17 @@ export default function DeskConsole({ desk }: DeskConsoleProps) {
               >
                 DESK {desk} OPERATIONAL CONSOLE • طابور مستقل تماماً
               </span>
+              {isDeskActive ? (
+                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>مفعّل وشغال</span>
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 flex items-center gap-1.5 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                  <span>مغلق ومتوقف</span>
+                </span>
+              )}
             </div>
 
             <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight flex items-center gap-3">
@@ -381,6 +451,32 @@ export default function DeskConsole({ desk }: DeskConsoleProps) {
           </div>
         </div>
       </div>
+
+      {/* Closed Window Alert Banner */}
+      {!isDeskActive && (
+        <div className="p-4 sm:p-5 rounded-2xl bg-rose-950/40 border-2 border-rose-500/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-rose-200 shadow-xl backdrop-blur-xl">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-500/20 flex items-center justify-center shrink-0 border border-rose-500/40">
+              <AlertTriangle className="w-5 h-5 text-rose-400" />
+            </div>
+            <div>
+              <h4 className="font-black text-white text-sm sm:text-base">تنبيه إداري: شباك {desk} مغلق ومتوقف عن العمل حالياً</h4>
+              <p className="text-xs text-rose-300/85 mt-0.5">
+                تم تحويل كافة الأدوار والتذاكر تلقائياً إلى <b>شباك {otherDesk}</b>، وتتجه كل الحجوزات الجديدة لشباك {otherDesk} فقط.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => handleToggleDeskStatus(true)}
+            disabled={togglingStatus}
+            className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-900/30 transition shrink-0 flex items-center gap-2"
+          >
+            <Power className="w-3.5 h-3.5" />
+            <span>{togglingStatus ? "جاري التفعيل..." : `إعادة فتح وتفعيل شباك ${desk} الآن`}</span>
+          </button>
+        </div>
+      )}
+
 
       {/* Feedback Banner */}
       {feedback && (

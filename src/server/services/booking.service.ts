@@ -14,6 +14,7 @@ import { eq, and, sql, ne, desc, or, inArray, lt } from "drizzle-orm";
 import { BOOKING_STATUSES, BookingStatus, BOOKING_WINDOW_STATUSES } from "@/lib/constants/statuses";
 import { formatQueueNumber } from "@/lib/utils/datetime";
 import { TelegramService } from "./telegram.service";
+import { SettingsService } from "./settings.service";
 import { decryptNationalId } from "@/lib/security/crypto";
 
 /**
@@ -280,9 +281,24 @@ export class BookingService {
           max_d?: string | number;
         };
 
-        const assignedDesk: "T" | "D" = deskStats.last_desk === "T" ? "D" : "T";
+        // Check active desk statuses from settings
+        const deskStatuses = await SettingsService.getDeskStatuses();
+        let assignedDesk: "T" | "D";
+
+        if (deskStatuses.deskTActive && !deskStatuses.deskDActive) {
+          // Window D is closed, Window T is active: all bookings go to T
+          assignedDesk = "T";
+        } else if (!deskStatuses.deskTActive && deskStatuses.deskDActive) {
+          // Window T is closed, Window D is active: all bookings go to D
+          assignedDesk = "D";
+        } else {
+          // Both active (or fallback): alternate between T and D based on last desk
+          assignedDesk = deskStats.last_desk === "T" ? "D" : "T";
+        }
+
         const maxQueueForDesk = assignedDesk === "T" ? Number(deskStats.max_t || 0) : Number(deskStats.max_d || 0);
         const assignedQueueNumber = maxQueueForDesk + 1;
+
 
         // Keep booking windows updatedAt synced
         await tx
@@ -1227,4 +1243,76 @@ ${aheadText}
       console.error("[QueueProgress] Error broadcasting queue progress:", err.message);
     }
   }
+
+  /**
+   * Migrate all active bookings (WAITING and CALLED) from one desk to another.
+   * Retains the student's ticketNumber and re-sequences queueNumber at destination desk
+   * so there are zero conflicts with the unique constraints.
+   */
+  static async migrateDeskBookings(fromDesk: "T" | "D", toDesk: "T" | "D"): Promise<number> {
+    const movedIds = await db.transaction(async (tx) => {
+      // 1. Fetch all active bookings in fromDesk ordered by queueNumber
+      const activeList = await tx
+        .select({
+          id: bookings.id,
+          queueNumber: bookings.queueNumber,
+          ticketNumber: bookings.ticketNumber,
+          status: bookings.status,
+          notes: bookings.notes,
+        })
+        .from(bookings)
+        .where(
+          and(
+            eq(bookings.desk, fromDesk),
+            sql`${bookings.status} IN ('WAITING', 'CALLED')`
+          )
+        )
+        .orderBy(bookings.queueNumber)
+        .for("update");
+
+      if (activeList.length === 0) {
+        return [];
+      }
+
+      // 2. Query maximum queue number across toDesk to append safely
+      const maxRes = await tx.execute(sql<{ max_q: number }>`
+        SELECT COALESCE(MAX(queue_number), 0) AS max_q FROM bookings WHERE desk = ${toDesk}
+      `);
+      let currentMax = Number(maxRes.rows?.[0]?.max_q || 0);
+
+      const affectedIds: string[] = [];
+
+      for (const item of activeList) {
+        currentMax += 1;
+        const newQueueNumber = currentMax;
+        const originalTicket = item.ticketNumber || item.queueNumber;
+
+        await tx
+          .update(bookings)
+          .set({
+            desk: toDesk,
+            queueNumber: newQueueNumber,
+            ticketNumber: originalTicket,
+            status: BOOKING_STATUSES.WAITING,
+            calledAt: null,
+            notes: item.notes
+              ? `${item.notes} | تم تحويل الدور تلقائياً لشباك ${toDesk} لإغلاق شباك ${fromDesk}`
+              : `تم تحويل الدور تلقائياً لشباك ${toDesk} لإغلاق شباك ${fromDesk}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(bookings.id, item.id));
+
+        affectedIds.push(item.id);
+      }
+
+      return affectedIds;
+    });
+
+    if (movedIds.length > 0) {
+      this.notifyQueueProgress().catch(console.error);
+    }
+
+    return movedIds.length;
+  }
 }
+
