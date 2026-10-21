@@ -13,6 +13,7 @@ import { formatCairoDateTime } from "@/lib/utils/datetime";
 import { TelegramService } from "@/server/services/telegram.service";
 import { BookingService } from "@/server/services/booking.service";
 import { SettingsService } from "@/server/services/settings.service";
+import { NotificationService } from "@/server/services/notification.service";
 
 export class StaffService {
   /**
@@ -172,30 +173,6 @@ export class StaffService {
           .onConflictDoNothing();
 
         notificationQueued = true;
-
-        // Dispatch Telegram message immediately to student
-        const activationMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
-قسم تكنولوجيا المعلومات — كلية تكنولوجيا الصناعة والطاقة
-
-<b>تم تفعيل بصمة الوجه بنجاح!</b>
-
-عزيزي الطالب: <b>${student.fullName}</b>
-<b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
-
-نحيطكم علماً بأنه قد تم تسجيل وتوثيق بصمة الوجه الخاصة بك رسمياً بنجاح تام، وتأكيد حضورك لدى شؤون الطلاب.
-
-<b>المسؤول المعتمد:</b> ${staff.fullName}
-<b>توقيت الاعتماد:</b> ${formatCairoDateTime(activation.activatedAt)}
-<b>المقر:</b> ${activationLocation}
-
-نتمنى لك دوام التوفيق والنجاح!`;
-
-        try {
-          await TelegramService.sendMessage(Number(student.telegramUserId), activationMsg);
-          telegramSent = true;
-        } catch (err: any) {
-          console.error("[RecordActivation] Failed to send Telegram activation message:", err?.message || err);
-        }
       }
 
       // 6. Immutable audit log
@@ -209,7 +186,6 @@ export class StaffService {
           bookingId: resolvedBookingId,
           staffName: staff.fullName,
           notificationQueued,
-          telegramSent,
         },
       });
 
@@ -218,9 +194,11 @@ export class StaffService {
         resolvedBookingId,
         affectedWindowId,
         notificationQueued,
-        telegramSent,
+        telegramSent: notificationQueued,
       };
     });
+
+    NotificationService.triggerBackgroundWorker();
 
     BookingService.notifyQueueProgress().catch((err) => {
       console.error("[RecordActivation] Failed to notify queue progress:", err.message);

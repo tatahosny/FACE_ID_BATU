@@ -463,11 +463,10 @@ export class BookingService {
               bookingId: createdBooking.id,
               message: telegramText,
             },
-            status: "DELIVERED",
+            status: "PENDING",
             idempotencyKey: outboxKey,
           });
 
-          // Queue telegram message for background dispatch outside transaction
           pendingTelegramNotification = {
             chatId: Number(student.telegramUserId),
             message: telegramText,
@@ -509,14 +508,9 @@ export class BookingService {
       });
     });
 
-    // Send instant message directly to student via Telegram API outside the database transaction
+    // Trigger autonomous throttled background worker to dispatch the booking notification safely
     if (result.pendingTelegramNotification) {
-      TelegramService.sendMessage(
-        result.pendingTelegramNotification.chatId,
-        result.pendingTelegramNotification.message
-      ).catch((err: any) => {
-        console.error("[BookingService] Failed to send instant Telegram message:", err?.message || err);
-      });
+      NotificationService.triggerBackgroundWorker();
     }
 
     return {
@@ -728,9 +722,23 @@ ${notes ? `<b>السبب:</b> ${notes}\n` : ""}
 <b>يرجى إعادة الحجز من الرابط التالي:</b>
 <a href="${appUrl}/booking">${appUrl}/booking</a>`;
 
-          TelegramService.sendMessage(Number(student.telegramUserId), cancelMsg).catch((err) => {
-            console.error("[TransitionCancel] Failed to send cancel notification:", err?.message || err);
-          });
+          const cancelKey = `cancel_${booking.id}_${Date.now()}`;
+          await tx
+            .insert(notificationOutbox)
+            .values({
+              eventType: "BOOKING_CANCELLED",
+              recipientId: student.id,
+              telegramChatId: student.telegramUserId,
+              payload: {
+                studentName: student.fullName,
+                academicNumber: student.academicNumber,
+                notes,
+                bookingUrl: `${appUrl}/booking`,
+                message: cancelMsg,
+              },
+              idempotencyKey: cancelKey,
+            })
+            .onConflictDoNothing();
         }
       }
 
@@ -758,6 +766,7 @@ ${notes ? `<b>السبب:</b> ${notes}\n` : ""}
       BookingService.notifyQueueProgress().catch((err) => {
         console.error("[BookingStatus] Failed to notify queue progress:", err.message);
       });
+      NotificationService.triggerBackgroundWorker();
     }
 
     return updated;
@@ -805,17 +814,31 @@ ${notes ? `<b>السبب:</b> ${notes}\n` : ""}
       })
       .where(eq(bookings.id, bookingId));
 
-    // Send Telegram alert
+    // Queue Telegram alert into Outbox
     if (student.telegramUserId) {
       const ticketNum = booking.ticketNumber || booking.queueNumber;
       const deskName = booking.desk || "T";
       const alertMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>نداء عاجل ومكرر!</b>\nعزيزي الطالب <b>${student.fullName}</b>،\nحان دورك الآن رسمياً في الطابور برقم: <code>#${formatQueueNumber(currentTurn)}</code> (تذكرة حجز رقم: <code>#${formatQueueNumber(ticketNum)}</code>)\n<b>الشباك المخصص:</b> <code>شباك ${deskName}</code>\n\n<b>يرجى التوجه فوراً إلى الواحة — مبنى الشؤون (شباك ${deskName}) لعمل بصمة الوجه قبل فوات الدور!</b>`;
 
-      try {
-        await TelegramService.sendMessage(Number(student.telegramUserId), alertMsg);
-      } catch (err: any) {
-        console.error("Failed to send repeat alert:", err.message);
-      }
+      const repeatKey = `repeat_alert_${booking.id}_${Date.now()}`;
+      await db
+        .insert(notificationOutbox)
+        .values({
+          eventType: "REPEAT_ALERT",
+          recipientId: student.id,
+          telegramChatId: student.telegramUserId,
+          payload: {
+            studentName: student.fullName,
+            queueNumber: `رقم #${formatQueueNumber(currentTurn)} لشباك ${deskName}`,
+            ticketNumber: formatQueueNumber(ticketNum),
+            desk: deskName,
+            message: alertMsg,
+          },
+          idempotencyKey: repeatKey,
+        })
+        .onConflictDoNothing();
+
+      NotificationService.triggerBackgroundWorker();
     }
 
     return { success: true, message: "تم إرسال النداء العاجل للطالب بنجاح" };
@@ -963,13 +986,29 @@ ${
 <b>المقر:</b> الواحة — مبنى الشؤون (شباك ${deskName})
 يرجى التواجد أمام شباك ${deskName} بمبنى الشؤون فور اقتراب رقم دورك.`;
 
-        try {
-          await TelegramService.sendMessage(Number(student.telegramUserId), delayMsg);
-          telegramSent = true;
-        } catch (err: any) {
-          console.error("[PushBackTen] Failed to send Telegram delay message:", err?.message || err);
-        }
+        const pushBackKey = `pushback_${booking.id}_${Date.now()}`;
+        await tx
+          .insert(notificationOutbox)
+          .values({
+            eventType: "QUEUE_PUSH_BACK",
+            recipientId: student.id,
+            telegramChatId: student.telegramUserId,
+            payload: {
+              studentName: student.fullName,
+              ticketNumber: formatQueueNumber(originalTicketNumber),
+              desk: deskName,
+              newTurn: formatQueueNumber(newTurn),
+              remainingAhead: studentsAhead === 0 ? "أنت التالي الآن!" : `${studentsAhead} طلاب`,
+              message: delayMsg,
+            },
+            idempotencyKey: pushBackKey,
+          })
+          .onConflictDoNothing();
+
+        telegramSent = true;
       }
+
+      NotificationService.triggerBackgroundWorker();
 
       return {
         success: true,
@@ -1052,12 +1091,26 @@ ${
 <b>يرجى إعادة الحجز من الرابط التالي:</b>
 <a href="${appUrl}/booking">${appUrl}/booking</a>`;
 
-      try {
-        await TelegramService.sendMessage(Number(student.telegramUserId), cancelMsg);
-        telegramSent = true;
-      } catch (err: any) {
-        console.error("[CancelNoShow] Failed to send cancel notification:", err?.message || err);
-      }
+      const cancelKey = `cancel_noshow_${booking.id}_${Date.now()}`;
+      await db
+        .insert(notificationOutbox)
+        .values({
+          eventType: "BOOKING_CANCELLED",
+          recipientId: student.id,
+          telegramChatId: student.telegramUserId,
+          payload: {
+            studentName: student.fullName,
+            academicNumber: student.academicNumber,
+            notes: "عدم التواجد بعد تكرار النداء",
+            bookingUrl: `${appUrl}/booking`,
+            message: cancelMsg,
+          },
+          idempotencyKey: cancelKey,
+        })
+        .onConflictDoNothing();
+
+      telegramSent = true;
+      NotificationService.triggerBackgroundWorker();
     }
 
     BookingService.notifyQueueProgress(booking.bookingWindowId).catch((err) => {
