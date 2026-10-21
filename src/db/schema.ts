@@ -366,14 +366,38 @@ export const feedbackCampaigns = pgTable(
     title: varchar("title", { length: 255 }).notNull(),
     targetType: varchar("target_type", { length: 20 }).default("ALL").notNull(), // 'ALL' | 'STUDENT'
     targetStudentId: uuid("target_student_id").references(() => students.id, { onDelete: "set null" }),
-    status: varchar("status", { length: 20 }).default("PENDING").notNull(), // 'PENDING' | 'SENT' | 'FAILED'
+    status: varchar("status", { length: 20 }).default("PENDING").notNull(), // 'PENDING' | 'SENDING' | 'SENT' | 'FAILED'
     sentCount: integer("sent_count").default(0).notNull(),
     failedCount: integer("failed_count").default(0).notNull(),
+    totalRecipients: integer("total_recipients").default(0).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     sentAt: timestamp("sent_at", { withTimezone: true }),
   },
   (table) => ({
     createdByIdx: index("feedback_campaigns_created_by_idx").on(table.createdBy),
+  })
+);
+
+// 19. Feedback Campaign Recipients (Detailed recipient delivery tracking for rating requests)
+export const feedbackCampaignRecipients = pgTable(
+  "feedback_campaign_recipients",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    campaignId: uuid("campaign_id")
+      .notNull()
+      .references(() => feedbackCampaigns.id, { onDelete: "cascade" }),
+    studentId: uuid("student_id")
+      .notNull()
+      .references(() => students.id, { onDelete: "cascade" }),
+    telegramUserId: bigint("telegram_user_id", { mode: "number" }).notNull(),
+    status: varchar("status", { length: 20 }).default("PENDING").notNull(), // 'PENDING' | 'SENT' | 'FAILED'
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    campaignIdx: index("feedback_recipients_campaign_idx").on(table.campaignId),
+    studentIdx: index("feedback_recipients_student_idx").on(table.studentId),
   })
 );
 
@@ -409,6 +433,12 @@ export const feedbackCampaignsRelations = relations(feedbackCampaigns, ({ one, m
   creator: one(users, { fields: [feedbackCampaigns.createdBy], references: [users.id] }),
   targetStudent: one(students, { fields: [feedbackCampaigns.targetStudentId], references: [students.id] }),
   ratings: many(feedbackRatings),
+  recipients: many(feedbackCampaignRecipients),
+}));
+
+export const feedbackCampaignRecipientsRelations = relations(feedbackCampaignRecipients, ({ one }) => ({
+  campaign: one(feedbackCampaigns, { fields: [feedbackCampaignRecipients.campaignId], references: [feedbackCampaigns.id] }),
+  student: one(students, { fields: [feedbackCampaignRecipients.studentId], references: [students.id] }),
 }));
 
 export const bookingWindowsRelations = relations(bookingWindows, ({ one, many }) => ({

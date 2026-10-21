@@ -15,6 +15,12 @@ import {
   UserCheck,
   Megaphone,
   BarChart2,
+  CheckCircle,
+  XCircle,
+  Clock,
+  Eye,
+  X,
+  Filter,
 } from "lucide-react";
 
 interface Rating {
@@ -41,6 +47,9 @@ interface Stats {
   oneStar: number;
   issueCount: number;
   serviceCount: number;
+  totalStudents?: number;
+  eligibleStudents?: number;
+  unlinkedStudents?: number;
 }
 
 interface Campaign {
@@ -50,6 +59,7 @@ interface Campaign {
   status: string;
   sentCount: number;
   failedCount: number;
+  totalRecipients?: number;
   createdAt: string;
   sentAt: string | null;
   creatorName: string;
@@ -182,16 +192,61 @@ export default function AdminRatingsPage() {
     finally { setFormSearching(false); }
   };
 
-  const handleAutoSendAllRatings = async (
-    campaignId: string,
-    campaignTitle: string,
-    totalRecipients: number,
-    initialOffset = 0
-  ) => {
-    if (isAutoSendingRef.current) return;
-    isAutoSendingRef.current = true;
-    pauseAutoSendRef.current = false;
+  // Delivery Details Modal State
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [deliveryCampaignId, setDeliveryCampaignId] = useState<string | null>(null);
+  const [deliveryData, setDeliveryData] = useState<{
+    campaign: any;
+    summary: {
+      totalEligible: number;
+      deliveredCount: number;
+      failedCount: number;
+      pendingCount: number;
+      ratingsReceived: number;
+      responseRate: string;
+    };
+    recipients: any[];
+    pagination: { total: number; page: number; limit: number; totalPages: number };
+  } | null>(null);
+  const [deliveryLoading, setDeliveryLoading] = useState(false);
+  const [deliverySearch, setDeliverySearch] = useState("");
+  const [deliveryFilterStatus, setDeliveryFilterStatus] = useState("ALL");
+  const [deliveryPage, setDeliveryPage] = useState(1);
 
+  const fetchDeliveryDetails = useCallback(
+    async (cId?: string | null, pageNum = 1, search = "", status = "ALL") => {
+      try {
+        setDeliveryLoading(true);
+        let url = `/api/admin/ratings/recipients?page=${pageNum}&limit=30`;
+        if (cId) url += `&campaignId=${cId}`;
+        if (search.trim()) url += `&search=${encodeURIComponent(search.trim())}`;
+        if (status && status !== "ALL") url += `&status=${status}`;
+
+        const res = await fetch(url);
+        const json = await res.json();
+        if (json.success) {
+          setDeliveryData(json.data);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setDeliveryLoading(false);
+      }
+    },
+    []
+  );
+
+  const openDeliveryModal = (cId?: string) => {
+    const targetId = cId || (campaigns.length > 0 ? campaigns[0].id : null);
+    setDeliveryCampaignId(targetId);
+    setDeliveryPage(1);
+    setDeliverySearch("");
+    setDeliveryFilterStatus("ALL");
+    setShowDeliveryModal(true);
+    fetchDeliveryDetails(targetId, 1, "", "ALL");
+  };
+
+  const startBackgroundPolling = (campaignId: string, campaignTitle: string, totalRecipients: number) => {
     setActiveAutoSend({
       campaignId,
       title: campaignTitle,
@@ -203,90 +258,44 @@ export default function AdminRatingsPage() {
       isCompleted: false,
     });
 
-    let currentOffset = initialOffset;
-    try {
-      let isDone = false;
-      while (!isDone && !pauseAutoSendRef.current) {
-        const res = await fetch("/api/admin/ratings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "process-batch",
-            campaignId,
-            batchOffset: currentOffset,
-            batchSize: 25,
-          }),
-        });
-
+    const intervalId = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/admin/ratings/recipients?campaignId=${campaignId}&limit=1`);
         const json = await res.json();
-        if (!res.ok || !json.success) {
-          throw new Error(json.error || "فشل معالجة دفعة التقييمات");
+        if (json.success && json.data) {
+          const { summary, campaign } = json.data;
+          const sent = summary.deliveredCount ?? 0;
+          const failed = summary.failedCount ?? 0;
+          const total = summary.totalEligible ?? totalRecipients;
+          const remaining = summary.pendingCount ?? Math.max(0, total - sent - failed);
+          const isDone = campaign?.status === "SENT" || (remaining === 0 && total > 0);
+
+          setActiveAutoSend((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  sent,
+                  failed,
+                  total,
+                  remaining,
+                  isCompleted: isDone,
+                }
+              : null
+          );
+
+          if (isDone) {
+            clearInterval(intervalId);
+            await fetchData();
+            setStatusMsg({
+              text: `🎉 اكتمل إرسال استبيان التقييم تلقائياً بنجاح لجميع الطلاب (${total})!`,
+              type: "success",
+            });
+          }
         }
-
-        const data = json.data;
-        const totalSent = data.totalSent ?? 0;
-        const totalFailed = data.totalFailed ?? 0;
-        const totalRec = data.totalRecipients ?? totalRecipients;
-        const remaining = Math.max(0, totalRec - totalSent - totalFailed);
-
-        setActiveAutoSend((prev) =>
-          prev
-            ? {
-                ...prev,
-                sent: totalSent,
-                failed: totalFailed,
-                total: totalRec,
-                remaining,
-                isCompleted: data.completed,
-              }
-            : null
-        );
-
-        if (data.completed || remaining === 0) {
-          isDone = true;
-          break;
-        }
-
-        currentOffset = data.nextOffset;
-        await new Promise((r) => setTimeout(r, 250));
+      } catch (err) {
+        console.error(err);
       }
-
-      await fetchData();
-
-      if (pauseAutoSendRef.current) {
-        setStatusMsg({
-          text: "تم إيقاف إرسال استبيان التقييم مؤقتاً.",
-          type: "success",
-        });
-      } else {
-        setStatusMsg({
-          text: `🎉 تم إرسال استبيان التقييم بالكامل بنجاح إلى جميع الطلاب (${totalRecipients})!`,
-          type: "success",
-        });
-      }
-    } catch (err: any) {
-      setStatusMsg({ text: `خطأ أثناء الإرسال: ${err.message}`, type: "error" });
-    } finally {
-      isAutoSendingRef.current = false;
-    }
-  };
-
-  const handlePauseAutoSend = () => {
-    pauseAutoSendRef.current = true;
-    setActiveAutoSend((prev) => (prev ? { ...prev, isPaused: true } : null));
-  };
-
-  const handleResumeAutoSend = () => {
-    if (!activeAutoSend) return;
-    pauseAutoSendRef.current = false;
-    setActiveAutoSend((prev) => (prev ? { ...prev, isPaused: false } : null));
-    const processed = activeAutoSend.sent + activeAutoSend.failed;
-    handleAutoSendAllRatings(
-      activeAutoSend.campaignId,
-      activeAutoSend.title,
-      activeAutoSend.total,
-      processed
-    );
+    }, 1500);
   };
 
   const handleSendCampaign = async () => {
@@ -322,20 +331,17 @@ export default function AdminRatingsPage() {
         setFormSelectedStudent(null);
         setFormStudentSearch("");
 
-        if (campaignData.requiresBatchProcessing) {
-          setStatusMsg({
-            text: `✅ تم إنشاء حملة التقييم لـ ${campaignData.totalRecipients} طالب! جاري الإرسال التلقائي...`,
-            type: "success",
-          });
-          // Start auto-send loop immediately
-          handleAutoSendAllRatings(campaignData.campaignId, campaignData.title || formTitle, campaignData.totalRecipients, 0);
-        } else {
-          setStatusMsg({
-            text: `تم الإرسال! ${campaignData.sentCount} طالب استلم طلب التقييم`,
-            type: "success",
-          });
-          await fetchData();
-        }
+        setStatusMsg({
+          text: `🚀 تم إطلاق الحملة لـ ${campaignData.totalRecipients} طالب بنجاح! يتم الإرسال تلقائياً في السيرفر.`,
+          type: "success",
+        });
+
+        // Start live polling of server autonomous background delivery
+        startBackgroundPolling(
+          campaignData.campaignId,
+          campaignData.title || formTitle,
+          campaignData.totalRecipients
+        );
       } else {
         setStatusMsg({ text: json.error || "فشل الإرسال", type: "error" });
       }
@@ -368,7 +374,17 @@ export default function AdminRatingsPage() {
             إرسال استبيانات التقييم عبر التيليجرام ومتابعة آراء الطلاب
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => openDeliveryModal()}
+            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-900/60 to-blue-900/60 hover:from-indigo-800/80 hover:to-blue-800/80 border border-indigo-500/40 text-indigo-200 hover:text-white transition text-sm font-bold flex items-center gap-2 shadow-lg shadow-indigo-500/10 active:scale-95"
+          >
+            <Users className="w-4 h-4 text-indigo-400" />
+            <span>تقرير استلام الرسائل</span>
+            <span className="bg-indigo-500/30 text-indigo-200 text-xs px-2 py-0.5 rounded-full font-mono border border-indigo-400/30">
+              {stats?.eligibleStudents ? `${stats.eligibleStudents} طالب` : "333"}
+            </span>
+          </button>
           <button
             onClick={fetchData}
             disabled={loading}
@@ -438,33 +454,21 @@ export default function AdminRatingsPage() {
 
             {/* Controls */}
             <div className="flex items-center gap-2">
-              {!activeAutoSend.isCompleted && !activeAutoSend.isPaused && (
-                <button
-                  type="button"
-                  onClick={handlePauseAutoSend}
-                  className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-xs transition"
-                >
-                  إيقاف مؤقت ⏸️
-                </button>
-              )}
-              {!activeAutoSend.isCompleted && activeAutoSend.isPaused && (
-                <button
-                  type="button"
-                  onClick={handleResumeAutoSend}
-                  className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-md transition"
-                >
-                  استئناف الإرسال ▶️
-                </button>
-              )}
-              {activeAutoSend.isCompleted && (
-                <button
-                  type="button"
-                  onClick={() => setActiveAutoSend(null)}
-                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition"
-                >
-                  إغلاق الشريط ✖
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => openDeliveryModal(activeAutoSend.campaignId)}
+                className="px-3 py-1.5 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-400/40 font-bold text-xs transition flex items-center gap-1.5"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>تفاصيل المستلمين</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveAutoSend(null)}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition"
+              >
+                إغلاق الشريط ✖
+              </button>
             </div>
           </div>
 
@@ -595,12 +599,24 @@ export default function AdminRatingsPage() {
                       {c.failedCount > 0 && ` • ${c.failedCount} فشل`}
                     </p>
                   </div>
-                  <span className={`flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    c.status === "SENT" ? "bg-emerald-500/20 text-emerald-400" :
-                    c.status === "FAILED" ? "bg-red-500/20 text-red-400" : "bg-slate-700 text-slate-400"
-                  }`}>
-                    {c.status === "SENT" ? "مرسل" : c.status === "FAILED" ? "فشل" : "معلق"}
-                  </span>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => openDeliveryModal(c.id)}
+                      className="px-2.5 py-1 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 text-xs font-bold transition flex items-center gap-1 shadow-sm"
+                      title="عرض تقرير المستلمين لهذه الحملة"
+                    >
+                      <Eye className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>{c.sentCount} استلموا</span>
+                    </button>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      c.status === "SENT" ? "bg-emerald-500/20 text-emerald-400" :
+                      c.status === "SENDING" ? "bg-blue-500/20 text-blue-400 animate-pulse" :
+                      c.status === "FAILED" ? "bg-red-500/20 text-red-400" : "bg-slate-700 text-slate-400"
+                    }`}>
+                      {c.status === "SENT" ? "مكتمل" : c.status === "SENDING" ? "جاري الإرسال" : c.status === "FAILED" ? "فشل" : "معلق"}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -792,6 +808,259 @@ export default function AdminRatingsPage() {
               <button onClick={handleSendCampaign} disabled={sending}
                 className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-sm transition disabled:opacity-60 flex items-center justify-center gap-1.5 shadow-lg shadow-amber-500/20">
                 {sending ? (<><RefreshCw className="w-4 h-4 animate-spin" />جاري الإرسال...</>) : (<><Send className="w-4 h-4" />إرسال الاستبيان</>)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delivery Details Modal */}
+      {showDeliveryModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
+          <div className="bg-[#0d1322] border border-slate-700/80 rounded-3xl w-full max-w-4xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base">تقرير استلام رسائل الاستبيان</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {deliveryData?.campaign ? `حملة: ${deliveryData.campaign.title}` : "متابعة وصول الرسائل للطلاب"}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowDeliveryModal(false)}
+                className="text-slate-400 hover:text-white transition p-2 rounded-xl hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-5 overflow-y-auto custom-scrollbar flex-1">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-slate-900/90 border border-emerald-500/30 rounded-2xl p-3.5 text-center">
+                  <p className="text-xs text-emerald-400 font-semibold mb-1">تم الاستلام بنجاح</p>
+                  <p className="text-2xl font-black text-emerald-300 font-mono">
+                    {deliveryData?.summary.deliveredCount ?? "—"}
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    من أصل {deliveryData?.summary.totalEligible ?? "—"} طالب
+                  </p>
+                </div>
+                <div className="bg-slate-900/90 border border-amber-500/30 rounded-2xl p-3.5 text-center">
+                  <p className="text-xs text-amber-400 font-semibold mb-1">قيد الإرسال</p>
+                  <p className="text-2xl font-black text-amber-300 font-mono">
+                    {deliveryData?.summary.pendingCount ?? "—"}
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">في قائمة الانتظار</p>
+                </div>
+                <div className="bg-slate-900/90 border border-red-500/30 rounded-2xl p-3.5 text-center">
+                  <p className="text-xs text-red-400 font-semibold mb-1">فشل الإرسال</p>
+                  <p className="text-2xl font-black text-red-300 font-mono">
+                    {deliveryData?.summary.failedCount ?? "—"}
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">خطأ في تيليجرام</p>
+                </div>
+                <div className="bg-slate-900/90 border border-indigo-500/30 rounded-2xl p-3.5 text-center">
+                  <p className="text-xs text-indigo-400 font-semibold mb-1">تفاعلوا بالتقييم</p>
+                  <p className="text-2xl font-black text-indigo-300 font-mono">
+                    {deliveryData?.summary.ratingsReceived ?? "—"}
+                  </p>
+                  <p className="text-[10px] text-indigo-300/80 mt-0.5">
+                    نسبة التفاعل: {deliveryData?.summary.responseRate ?? "0%"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Campaign Picker (if multiple) */}
+              {campaigns.length > 1 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400 font-medium">اختر الحملة:</span>
+                  <select
+                    value={deliveryCampaignId || ""}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setDeliveryCampaignId(id);
+                      setDeliveryPage(1);
+                      fetchDeliveryDetails(id, 1, deliverySearch, deliveryFilterStatus);
+                    }}
+                    className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-1.5 focus:outline-none focus:border-indigo-500"
+                  >
+                    {campaigns.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.title} ({c.sentCount} مرسل)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Search & Filters */}
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <input
+                    value={deliverySearch}
+                    onChange={(e) => {
+                      setDeliverySearch(e.target.value);
+                      fetchDeliveryDetails(deliveryCampaignId, 1, e.target.value, deliveryFilterStatus);
+                    }}
+                    placeholder="بحث باسم الطالب أو الرقم الأكاديمي..."
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl pr-9 pl-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5 text-xs">
+                  {(
+                    [
+                      { key: "ALL", label: "الكل" },
+                      { key: "SENT", label: "تم الاستلام ✅" },
+                      { key: "PENDING", label: "قيد الإرسال ⏳" },
+                      { key: "FAILED", label: "فشل ❌" },
+                    ] as const
+                  ).map((f) => (
+                    <button
+                      key={f.key}
+                      onClick={() => {
+                        setDeliveryFilterStatus(f.key);
+                        setDeliveryPage(1);
+                        fetchDeliveryDetails(deliveryCampaignId, 1, deliverySearch, f.key);
+                      }}
+                      className={`px-3 py-1.5 rounded-xl font-medium transition ${
+                        deliveryFilterStatus === f.key
+                          ? "bg-indigo-600 text-white font-bold shadow"
+                          : "bg-slate-900 text-slate-400 border border-slate-800 hover:text-white"
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Recipients Table */}
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl overflow-hidden">
+                {deliveryLoading ? (
+                  <div className="py-12 flex items-center justify-center text-slate-400 text-xs gap-2">
+                    <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
+                    <span>جاري جلب تفاصيل المستلمين...</span>
+                  </div>
+                ) : !deliveryData || deliveryData.recipients.length === 0 ? (
+                  <div className="py-12 text-center text-slate-500 text-xs">
+                    لا توجد سجلات مطابقة للبحث
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right text-xs">
+                      <thead className="bg-slate-900/90 text-slate-400 uppercase border-b border-slate-800 text-[11px]">
+                        <tr>
+                          <th className="py-3 px-4 font-bold">الطالب</th>
+                          <th className="py-3 px-4 font-bold">الرقم الأكاديمي</th>
+                          <th className="py-3 px-4 font-bold">المجموعة والسكشن</th>
+                          <th className="py-3 px-4 font-bold text-center">حالة الاستلام</th>
+                          <th className="py-3 px-4 font-bold text-center">التقييم المسجل</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60 font-mono">
+                        {deliveryData.recipients.map((r) => (
+                          <tr key={r.id} className="hover:bg-slate-900/40 transition">
+                            <td className="py-3 px-4 text-white font-sans font-semibold">
+                              {r.studentFullName}
+                            </td>
+                            <td className="py-3 px-4 text-slate-300 font-bold">{r.studentAcademicNumber}</td>
+                            <td className="py-3 px-4 text-slate-400 font-sans text-[11px]">
+                              {r.groupName} — {r.sectionName}
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              {r.status === "SENT" ? (
+                                <span className="inline-flex items-center gap-1 text-[11px] bg-emerald-500/20 text-emerald-400 font-sans font-bold px-2.5 py-1 rounded-full border border-emerald-500/30">
+                                  <CheckCircle className="w-3 h-3" />
+                                  <span>استلم بنجاح</span>
+                                </span>
+                              ) : r.status === "FAILED" ? (
+                                <span className="inline-flex items-center gap-1 text-[11px] bg-red-500/20 text-red-400 font-sans font-bold px-2.5 py-1 rounded-full border border-red-500/30">
+                                  <XCircle className="w-3 h-3" />
+                                  <span>فشل</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[11px] bg-amber-500/20 text-amber-400 font-sans font-bold px-2.5 py-1 rounded-full border border-amber-500/30 animate-pulse">
+                                  <Clock className="w-3 h-3" />
+                                  <span>قيد الإرسال</span>
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-center font-sans">
+                              {r.rating ? (
+                                <div className="inline-flex flex-col items-center">
+                                  <span className="text-amber-400 font-bold text-xs">
+                                    {"⭐".repeat(r.rating)} ({r.rating}/5)
+                                  </span>
+                                  {r.feedbackMessage && (
+                                    <span className="text-[10px] text-slate-400 italic max-w-[150px] truncate mt-0.5">
+                                      &quot;{r.feedbackMessage}&quot;
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-600 text-[11px]">لم يقيم بعد</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Pagination */}
+              {deliveryData && deliveryData.pagination.totalPages > 1 && (
+                <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800">
+                  <span>
+                    إجمالي المستلمين: <b className="text-white">{deliveryData.pagination.total}</b>
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => {
+                        const newPage = Math.max(1, deliveryPage - 1);
+                        setDeliveryPage(newPage);
+                        fetchDeliveryDetails(deliveryCampaignId, newPage, deliverySearch, deliveryFilterStatus);
+                      }}
+                      disabled={deliveryPage === 1}
+                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                    <span className="px-2">
+                      {deliveryPage} من {deliveryData.pagination.totalPages}
+                    </span>
+                    <button
+                      onClick={() => {
+                        const newPage = Math.min(deliveryData.pagination.totalPages, deliveryPage + 1);
+                        setDeliveryPage(newPage);
+                        fetchDeliveryDetails(deliveryCampaignId, newPage, deliverySearch, deliveryFilterStatus);
+                      }}
+                      disabled={deliveryPage === deliveryData.pagination.totalPages}
+                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-3 border-t border-slate-800 bg-slate-950/60 flex justify-end">
+              <button
+                onClick={() => setShowDeliveryModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition"
+              >
+                إغلاق
               </button>
             </div>
           </div>

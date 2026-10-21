@@ -13,6 +13,7 @@ import { USER_ROLES } from "@/lib/constants/statuses";
 import { apiError, apiSuccess } from "@/lib/utils/response";
 import { eq, desc, sql, and, isNotNull } from "drizzle-orm";
 import { TelegramService } from "@/server/services/telegram.service";
+import { FeedbackService } from "@/server/services/feedback.service";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +59,16 @@ export async function GET(req: NextRequest) {
       .limit(limit)
       .offset(offset);
 
+    // Student counts
+    const [{ totalStudents }] = await db
+      .select({ totalStudents: sql<number>`cast(count(*) as integer)` })
+      .from(students);
+
+    const [{ eligibleStudents }] = await db
+      .select({ eligibleStudents: sql<number>`cast(count(*) as integer)` })
+      .from(students)
+      .where(and(isNotNull(students.telegramUserId), eq(students.isActive, true)));
+
     // Summary stats
     const [stats] = await db
       .select({
@@ -82,6 +93,7 @@ export async function GET(req: NextRequest) {
         status: feedbackCampaigns.status,
         sentCount: feedbackCampaigns.sentCount,
         failedCount: feedbackCampaigns.failedCount,
+        totalRecipients: feedbackCampaigns.totalRecipients,
         createdAt: feedbackCampaigns.createdAt,
         sentAt: feedbackCampaigns.sentAt,
         creatorName: users.fullName,
@@ -93,7 +105,12 @@ export async function GET(req: NextRequest) {
 
     return apiSuccess({
       ratings,
-      stats,
+      stats: {
+        ...stats,
+        totalStudents,
+        eligibleStudents,
+        unlinkedStudents: totalStudents - eligibleStudents,
+      },
       campaigns,
       pagination: {
         total: totalRow?.count || 0,
@@ -115,98 +132,13 @@ export async function POST(req: NextRequest) {
     const session = await requireRole([USER_ROLES.SUPER_ADMIN]);
 
     const body = await req.json();
-
-    // 1. Process Batch action (for Auto-Send Loop)
-    if (body.action === "process-batch") {
-      const { campaignId, batchOffset = 0, batchSize = 25 } = body;
-      if (!campaignId) {
-        return apiError("معرف الحملة مطلوب", 400);
-      }
-
-      const [campaign] = await db
-        .select()
-        .from(feedbackCampaigns)
-        .where(eq(feedbackCampaigns.id, campaignId));
-
-      if (!campaign) {
-        return apiError("الحملة غير موجودة", 404);
-      }
-
-      const [{ totalEligible }] = await db
-        .select({ totalEligible: sql<number>`cast(count(*) as integer)` })
-        .from(students)
-        .where(and(isNotNull(students.telegramUserId), eq(students.isActive, true)));
-
-      const batchStudents = await db
-        .select({
-          telegramUserId: students.telegramUserId,
-          fullName: students.fullName,
-        })
-        .from(students)
-        .where(and(isNotNull(students.telegramUserId), eq(students.isActive, true)))
-        .orderBy(students.academicNumber)
-        .limit(batchSize)
-        .offset(batchOffset);
-
-      const ratingMessage = buildRatingRequestMessage();
-      const inlineKeyboard = buildRatingInlineKeyboard(campaign.id);
-
-      let sent = 0;
-      let failed = 0;
-
-      for (const student of batchStudents) {
-        if (!student.telegramUserId) continue;
-        try {
-          await TelegramService.sendMessage(student.telegramUserId, ratingMessage, "HTML", inlineKeyboard);
-          sent++;
-          // Safe 40ms delay to respect Telegram's rate limit
-          await new Promise((r) => setTimeout(r, 40));
-        } catch {
-          failed++;
-        }
-      }
-
-      const [updatedCampaign] = await db
-        .update(feedbackCampaigns)
-        .set({
-          sentCount: sql`${feedbackCampaigns.sentCount} + ${sent}`,
-          failedCount: sql`${feedbackCampaigns.failedCount} + ${failed}`,
-        })
-        .where(eq(feedbackCampaigns.id, campaignId))
-        .returning();
-
-      const nextOffset = batchOffset + batchStudents.length;
-      const isCompleted = nextOffset >= totalEligible || batchStudents.length === 0;
-
-      if (isCompleted) {
-        await db
-          .update(feedbackCampaigns)
-          .set({
-            status: "SENT",
-            sentAt: new Date(),
-          })
-          .where(eq(feedbackCampaigns.id, campaignId));
-      }
-
-      return apiSuccess({
-        completed: isCompleted,
-        sentInBatch: sent,
-        failedInBatch: failed,
-        totalSent: updatedCampaign.sentCount,
-        totalFailed: updatedCampaign.failedCount,
-        totalRecipients: totalEligible,
-        nextOffset,
-      });
-    }
-
-    // 2. Create new Campaign
-    const { title, targetType, targetStudentId } = body;
+    const { title, targetType = "ALL", targetStudentId } = body;
 
     if (!title?.trim()) {
       return apiError("عنوان الحملة مطلوب", 400);
     }
 
-    if (!targetType || !["ALL", "STUDENT"].includes(targetType)) {
+    if (!["ALL", "STUDENT"].includes(targetType)) {
       return apiError("نوع الهدف غير صالح", 400);
     }
 
@@ -214,72 +146,23 @@ export async function POST(req: NextRequest) {
       return apiError("معرف الطالب مطلوب عند الاستهداف الفردي", 400);
     }
 
-    // Build campaign record
-    const [campaign] = await db
-      .insert(feedbackCampaigns)
-      .values({
-        createdBy: session.userId,
-        title: title.trim(),
-        targetType,
-        targetStudentId: targetType === "STUDENT" ? targetStudentId : null,
-        status: targetType === "ALL" ? "PENDING" : "PENDING",
-      })
-      .returning();
+    // Dispatch campaign with autonomous background worker
+    const result = await FeedbackService.createAndDispatchCampaign({
+      title: title.trim(),
+      targetType,
+      targetStudentId,
+      createdBy: session.userId,
+    });
 
-    // If targeted to ALL, return campaign ID for client-side batch loop
-    if (targetType === "ALL") {
-      const [{ totalEligible }] = await db
-        .select({ totalEligible: sql<number>`cast(count(*) as integer)` })
-        .from(students)
-        .where(and(isNotNull(students.telegramUserId), eq(students.isActive, true)));
-
-      return apiSuccess(
-        {
-          campaignId: campaign.id,
-          title: campaign.title,
-          totalRecipients: totalEligible,
-          requiresBatchProcessing: true,
-        },
-        `تم إنشاء حملة التقييم وجدولة ${totalEligible} طالب`
-      );
-    }
-
-    // If targeted to a single STUDENT, process immediately
-    const [targetStudent] = await db
-      .select({
-        telegramUserId: students.telegramUserId,
-        fullName: students.fullName,
-      })
-      .from(students)
-      .where(eq(students.id, targetStudentId));
-
-    if (!targetStudent?.telegramUserId) {
-      await db.delete(feedbackCampaigns).where(eq(feedbackCampaigns.id, campaign.id));
-      return apiError("الطالب غير مرتبط بتيليجرام أو غير موجود", 400);
-    }
-
-    const ratingMessage = buildRatingRequestMessage();
-    const inlineKeyboard = buildRatingInlineKeyboard(campaign.id);
-
-    try {
-      await TelegramService.sendMessage(targetStudent.telegramUserId, ratingMessage, "HTML", inlineKeyboard);
-      await db
-        .update(feedbackCampaigns)
-        .set({ status: "SENT", sentCount: 1, failedCount: 0, sentAt: new Date() })
-        .where(eq(feedbackCampaigns.id, campaign.id));
-
-      return apiSuccess(
-        { campaignId: campaign.id, sentCount: 1, failedCount: 0, totalTargeted: 1, requiresBatchProcessing: false },
-        `تم إرسال طلب التقييم إلى الطالب بنجاح`
-      );
-    } catch {
-      await db
-        .update(feedbackCampaigns)
-        .set({ status: "FAILED", sentCount: 0, failedCount: 1, sentAt: new Date() })
-        .where(eq(feedbackCampaigns.id, campaign.id));
-
-      return apiError("فشل إرسال رسالة التليجرام للطالب", 500);
-    }
+    return apiSuccess(
+      {
+        campaignId: result.campaign.id,
+        title: result.campaign.title,
+        totalRecipients: result.totalRecipients,
+        status: result.campaign.status,
+      },
+      `تم إطلاق حملة التقييم لـ ${result.totalRecipients} طالب بنجاح! يتم الإرسال تلقائياً في الخلفية.`
+    );
   } catch (error: any) {
     if (error.message === "UNAUTHORIZED" || error.message === "FORBIDDEN") {
       return apiError("غير مصرح لك", 403);
