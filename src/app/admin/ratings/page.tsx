@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Star,
   Send,
@@ -129,6 +129,21 @@ export default function AdminRatingsPage() {
   const [sending, setSending] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
+  // Auto-Send Loop & Live Progress Bar State
+  const [activeAutoSend, setActiveAutoSend] = useState<{
+    campaignId: string;
+    title: string;
+    sent: number;
+    failed: number;
+    total: number;
+    remaining: number;
+    isPaused: boolean;
+    isCompleted: boolean;
+  } | null>(null);
+
+  const pauseAutoSendRef = useRef(false);
+  const isAutoSendingRef = useRef(false);
+
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
@@ -167,6 +182,113 @@ export default function AdminRatingsPage() {
     finally { setFormSearching(false); }
   };
 
+  const handleAutoSendAllRatings = async (
+    campaignId: string,
+    campaignTitle: string,
+    totalRecipients: number,
+    initialOffset = 0
+  ) => {
+    if (isAutoSendingRef.current) return;
+    isAutoSendingRef.current = true;
+    pauseAutoSendRef.current = false;
+
+    setActiveAutoSend({
+      campaignId,
+      title: campaignTitle,
+      sent: 0,
+      failed: 0,
+      total: totalRecipients,
+      remaining: totalRecipients,
+      isPaused: false,
+      isCompleted: false,
+    });
+
+    let currentOffset = initialOffset;
+    try {
+      let isDone = false;
+      while (!isDone && !pauseAutoSendRef.current) {
+        const res = await fetch("/api/admin/ratings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "process-batch",
+            campaignId,
+            batchOffset: currentOffset,
+            batchSize: 25,
+          }),
+        });
+
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          throw new Error(json.error || "فشل معالجة دفعة التقييمات");
+        }
+
+        const data = json.data;
+        const totalSent = data.totalSent ?? 0;
+        const totalFailed = data.totalFailed ?? 0;
+        const totalRec = data.totalRecipients ?? totalRecipients;
+        const remaining = Math.max(0, totalRec - totalSent - totalFailed);
+
+        setActiveAutoSend((prev) =>
+          prev
+            ? {
+                ...prev,
+                sent: totalSent,
+                failed: totalFailed,
+                total: totalRec,
+                remaining,
+                isCompleted: data.completed,
+              }
+            : null
+        );
+
+        if (data.completed || remaining === 0) {
+          isDone = true;
+          break;
+        }
+
+        currentOffset = data.nextOffset;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+
+      await fetchData();
+
+      if (pauseAutoSendRef.current) {
+        setStatusMsg({
+          text: "تم إيقاف إرسال استبيان التقييم مؤقتاً.",
+          type: "success",
+        });
+      } else {
+        setStatusMsg({
+          text: `🎉 تم إرسال استبيان التقييم بالكامل بنجاح إلى جميع الطلاب (${totalRecipients})!`,
+          type: "success",
+        });
+      }
+    } catch (err: any) {
+      setStatusMsg({ text: `خطأ أثناء الإرسال: ${err.message}`, type: "error" });
+    } finally {
+      isAutoSendingRef.current = false;
+    }
+  };
+
+  const handlePauseAutoSend = () => {
+    pauseAutoSendRef.current = true;
+    setActiveAutoSend((prev) => (prev ? { ...prev, isPaused: true } : null));
+  };
+
+  const handleResumeAutoSend = () => {
+    if (!activeAutoSend) return;
+    pauseAutoSendRef.current = false;
+    setActiveAutoSend((prev) => (prev ? { ...prev, isPaused: false } : null));
+    const processed = activeAutoSend.sent + activeAutoSend.failed;
+    handleAutoSendAllRatings(
+      activeAutoSend.campaignId,
+      activeAutoSend.title,
+      activeAutoSend.total,
+      processed
+    );
+  };
+
   const handleSendCampaign = async () => {
     if (!formTitle.trim()) {
       setStatusMsg({ text: "يرجى كتابة عنوان للحملة", type: "error" });
@@ -193,16 +315,27 @@ export default function AdminRatingsPage() {
       });
       const json = await res.json();
       if (json.success) {
-        setStatusMsg({
-          text: `تم الإرسال! ${json.data.sentCount} طالب استلم طلب التقييم`,
-          type: "success",
-        });
+        const campaignData = json.data;
         setShowForm(false);
         setFormTitle("");
         setFormTargetType("ALL");
         setFormSelectedStudent(null);
         setFormStudentSearch("");
-        await fetchData();
+
+        if (campaignData.requiresBatchProcessing) {
+          setStatusMsg({
+            text: `✅ تم إنشاء حملة التقييم لـ ${campaignData.totalRecipients} طالب! جاري الإرسال التلقائي...`,
+            type: "success",
+          });
+          // Start auto-send loop immediately
+          handleAutoSendAllRatings(campaignData.campaignId, campaignData.title || formTitle, campaignData.totalRecipients, 0);
+        } else {
+          setStatusMsg({
+            text: `تم الإرسال! ${campaignData.sentCount} طالب استلم طلب التقييم`,
+            type: "success",
+          });
+          await fetchData();
+        }
       } else {
         setStatusMsg({ text: json.error || "فشل الإرسال", type: "error" });
       }
@@ -265,6 +398,128 @@ export default function AdminRatingsPage() {
           }`}
         >
           {statusMsg.text}
+        </div>
+      )}
+
+      {/* Live Auto-Send Progress Widget */}
+      {activeAutoSend && (
+        <div className="mb-6 bg-gradient-to-r from-[#0d1322] via-amber-950/40 to-[#0d1322] border-2 border-amber-500/50 rounded-2xl p-5 shadow-2xl backdrop-blur-xl text-white space-y-4 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <span className="relative flex h-3.5 w-3.5">
+                {!activeAutoSend.isCompleted && !activeAutoSend.isPaused && (
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                )}
+                <span
+                  className={`relative inline-flex rounded-full h-3.5 w-3.5 ${
+                    activeAutoSend.isCompleted
+                      ? "bg-emerald-500"
+                      : activeAutoSend.isPaused
+                      ? "bg-amber-500"
+                      : "bg-amber-400"
+                  }`}
+                ></span>
+              </span>
+              <div>
+                <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                  <span>
+                    {activeAutoSend.isCompleted
+                      ? "✅ اكتمل إرسال استبيان التقييم للجميع بنجاح"
+                      : activeAutoSend.isPaused
+                      ? "⏸️ تم إيقاف إرسال التقييمات مؤقتاً"
+                      : "🚀 جاري إرسال استبيان التقييم لجميع الطلاب تلقائياً..."}
+                  </span>
+                </h3>
+                <p className="text-xs text-amber-200/80 font-medium truncate max-w-md mt-0.5">
+                  حملة التقييم: «{activeAutoSend.title}»
+                </p>
+              </div>
+            </div>
+
+            {/* Controls */}
+            <div className="flex items-center gap-2">
+              {!activeAutoSend.isCompleted && !activeAutoSend.isPaused && (
+                <button
+                  type="button"
+                  onClick={handlePauseAutoSend}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-xs transition"
+                >
+                  إيقاف مؤقت ⏸️
+                </button>
+              )}
+              {!activeAutoSend.isCompleted && activeAutoSend.isPaused && (
+                <button
+                  type="button"
+                  onClick={handleResumeAutoSend}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-md transition"
+                >
+                  استئناف الإرسال ▶️
+                </button>
+              )}
+              {activeAutoSend.isCompleted && (
+                <button
+                  type="button"
+                  onClick={() => setActiveAutoSend(null)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition"
+                >
+                  إغلاق الشريط ✖
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Progress Bar */}
+          {(() => {
+            const processed = activeAutoSend.sent + activeAutoSend.failed;
+            const pct =
+              activeAutoSend.total > 0
+                ? Math.min(100, Math.round((processed / activeAutoSend.total) * 100))
+                : activeAutoSend.isCompleted
+                ? 100
+                : 0;
+            return (
+              <div className="space-y-2">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-300 font-mono">
+                    تمت معالجة{" "}
+                    <b className="text-white font-bold">{processed}</b> من أصل{" "}
+                    <b className="text-white font-bold">{activeAutoSend.total}</b> طالب
+                  </span>
+                  <span className="font-mono font-black text-amber-400 text-sm">{pct}%</span>
+                </div>
+                <div className="w-full bg-slate-950/80 rounded-full h-3 p-0.5 border border-amber-900/60 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-300 ${
+                      activeAutoSend.isCompleted
+                        ? "bg-gradient-to-r from-emerald-500 to-teal-400"
+                        : "bg-gradient-to-r from-amber-500 via-orange-500 to-emerald-400"
+                    }`}
+                    style={{ width: `${pct}%` }}
+                  ></div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Quick Metrics Badges */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-center font-mono text-xs">
+            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-2">
+              <span className="text-slate-400 block text-[10px]">المرسل بنجاح</span>
+              <span className="text-emerald-400 font-bold text-sm">{activeAutoSend.sent}</span>
+            </div>
+            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-2">
+              <span className="text-slate-400 block text-[10px]">فشل الإرسال</span>
+              <span className="text-red-400 font-bold text-sm">{activeAutoSend.failed}</span>
+            </div>
+            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-2">
+              <span className="text-slate-400 block text-[10px]">المتبقي في الطابور</span>
+              <span className="text-amber-400 font-bold text-sm">{activeAutoSend.remaining}</span>
+            </div>
+            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-2">
+              <span className="text-slate-400 block text-[10px]">إجمالي الطلاب المؤهلين</span>
+              <span className="text-amber-300 font-bold text-sm">{activeAutoSend.total}</span>
+            </div>
+          </div>
         </div>
       )}
 

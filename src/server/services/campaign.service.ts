@@ -135,7 +135,15 @@ export class CampaignService {
       .where(eq(telegramCampaigns.id, campaignId));
 
     if (!campaign || campaign.status === "COMPLETED" || campaign.status === "PAUSED") {
-      return { completed: true };
+      return {
+        completed: true,
+        sentInBatch: 0,
+        failedInBatch: 0,
+        totalSent: campaign?.sentCount || 0,
+        totalFailed: campaign?.failedCount || 0,
+        totalRecipients: campaign?.totalRecipients || 0,
+        remainingQueued: 0,
+      };
     }
 
     // Set to RUNNING if not already
@@ -162,7 +170,15 @@ export class CampaignService {
         .update(telegramCampaigns)
         .set({ status: "COMPLETED", completedAt: new Date() })
         .where(eq(telegramCampaigns.id, campaignId));
-      return { completed: true };
+      return {
+        completed: true,
+        sentInBatch: 0,
+        failedInBatch: 0,
+        totalSent: campaign.sentCount,
+        totalFailed: campaign.failedCount,
+        totalRecipients: campaign.totalRecipients,
+        remainingQueued: 0,
+      };
     }
 
     let sent = 0;
@@ -181,6 +197,8 @@ export class CampaignService {
           .where(eq(telegramCampaignRecipients.id, recipient.id));
 
         sent++;
+        // Safe 40ms delay to respect Telegram's rate limit (<= 30 msgs/sec)
+        await new Promise((r) => setTimeout(r, 40));
       } catch (err: any) {
         failed++;
         await db
@@ -194,16 +212,44 @@ export class CampaignService {
       }
     }
 
-    // Update campaign summary counts
-    await db
+    // Update campaign summary counts and retrieve updated values
+    const [updatedCampaign] = await db
       .update(telegramCampaigns)
       .set({
         sentCount: sql`${telegramCampaigns.sentCount} + ${sent}`,
         failedCount: sql`${telegramCampaigns.failedCount} + ${failed}`,
       })
-      .where(eq(telegramCampaigns.id, campaignId));
+      .where(eq(telegramCampaigns.id, campaignId))
+      .returning();
 
-    return { completed: false, sentInBatch: sent, failedInBatch: failed };
+    // Check remaining queued recipients
+    const [{ remainingQueued }] = await db
+      .select({ remainingQueued: sql<number>`cast(count(*) as integer)` })
+      .from(telegramCampaignRecipients)
+      .where(
+        and(
+          eq(telegramCampaignRecipients.campaignId, campaignId),
+          eq(telegramCampaignRecipients.status, "QUEUED")
+        )
+      );
+
+    const isCompleted = remainingQueued === 0;
+    if (isCompleted) {
+      await db
+        .update(telegramCampaigns)
+        .set({ status: "COMPLETED", completedAt: new Date() })
+        .where(eq(telegramCampaigns.id, campaignId));
+    }
+
+    return {
+      completed: isCompleted,
+      sentInBatch: sent,
+      failedInBatch: failed,
+      totalSent: updatedCampaign.sentCount,
+      totalFailed: updatedCampaign.failedCount,
+      totalRecipients: updatedCampaign.totalRecipients,
+      remainingQueued,
+    };
   }
 
   /**

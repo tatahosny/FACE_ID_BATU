@@ -115,6 +115,91 @@ export async function POST(req: NextRequest) {
     const session = await requireRole([USER_ROLES.SUPER_ADMIN]);
 
     const body = await req.json();
+
+    // 1. Process Batch action (for Auto-Send Loop)
+    if (body.action === "process-batch") {
+      const { campaignId, batchOffset = 0, batchSize = 25 } = body;
+      if (!campaignId) {
+        return apiError("معرف الحملة مطلوب", 400);
+      }
+
+      const [campaign] = await db
+        .select()
+        .from(feedbackCampaigns)
+        .where(eq(feedbackCampaigns.id, campaignId));
+
+      if (!campaign) {
+        return apiError("الحملة غير موجودة", 404);
+      }
+
+      const [{ totalEligible }] = await db
+        .select({ totalEligible: sql<number>`cast(count(*) as integer)` })
+        .from(students)
+        .where(and(isNotNull(students.telegramUserId), eq(students.isActive, true)));
+
+      const batchStudents = await db
+        .select({
+          telegramUserId: students.telegramUserId,
+          fullName: students.fullName,
+        })
+        .from(students)
+        .where(and(isNotNull(students.telegramUserId), eq(students.isActive, true)))
+        .orderBy(students.academicNumber)
+        .limit(batchSize)
+        .offset(batchOffset);
+
+      const ratingMessage = buildRatingRequestMessage();
+      const inlineKeyboard = buildRatingInlineKeyboard(campaign.id);
+
+      let sent = 0;
+      let failed = 0;
+
+      for (const student of batchStudents) {
+        if (!student.telegramUserId) continue;
+        try {
+          await TelegramService.sendMessage(student.telegramUserId, ratingMessage, "HTML", inlineKeyboard);
+          sent++;
+          // Safe 40ms delay to respect Telegram's rate limit
+          await new Promise((r) => setTimeout(r, 40));
+        } catch {
+          failed++;
+        }
+      }
+
+      const [updatedCampaign] = await db
+        .update(feedbackCampaigns)
+        .set({
+          sentCount: sql`${feedbackCampaigns.sentCount} + ${sent}`,
+          failedCount: sql`${feedbackCampaigns.failedCount} + ${failed}`,
+        })
+        .where(eq(feedbackCampaigns.id, campaignId))
+        .returning();
+
+      const nextOffset = batchOffset + batchStudents.length;
+      const isCompleted = nextOffset >= totalEligible || batchStudents.length === 0;
+
+      if (isCompleted) {
+        await db
+          .update(feedbackCampaigns)
+          .set({
+            status: "SENT",
+            sentAt: new Date(),
+          })
+          .where(eq(feedbackCampaigns.id, campaignId));
+      }
+
+      return apiSuccess({
+        completed: isCompleted,
+        sentInBatch: sent,
+        failedInBatch: failed,
+        totalSent: updatedCampaign.sentCount,
+        totalFailed: updatedCampaign.failedCount,
+        totalRecipients: totalEligible,
+        nextOffset,
+      });
+    }
+
+    // 2. Create new Campaign
     const { title, targetType, targetStudentId } = body;
 
     if (!title?.trim()) {
@@ -137,76 +222,64 @@ export async function POST(req: NextRequest) {
         title: title.trim(),
         targetType,
         targetStudentId: targetType === "STUDENT" ? targetStudentId : null,
-        status: "PENDING",
+        status: targetType === "ALL" ? "PENDING" : "PENDING",
       })
       .returning();
 
-    // Determine target students
-    let targetStudents: { telegramUserId: number | null; fullName: string }[] = [];
-
+    // If targeted to ALL, return campaign ID for client-side batch loop
     if (targetType === "ALL") {
-      targetStudents = await db
-        .select({
-          telegramUserId: students.telegramUserId,
-          fullName: students.fullName,
-        })
+      const [{ totalEligible }] = await db
+        .select({ totalEligible: sql<number>`cast(count(*) as integer)` })
         .from(students)
         .where(and(isNotNull(students.telegramUserId), eq(students.isActive, true)));
-    } else {
-      const [targetStudent] = await db
-        .select({
-          telegramUserId: students.telegramUserId,
-          fullName: students.fullName,
-        })
-        .from(students)
-        .where(eq(students.id, targetStudentId));
 
-      if (!targetStudent?.telegramUserId) {
-        await db.delete(feedbackCampaigns).where(eq(feedbackCampaigns.id, campaign.id));
-        return apiError("الطالب غير مرتبط بتيليجرام أو غير موجود", 400);
-      }
-      targetStudents = [targetStudent];
+      return apiSuccess(
+        {
+          campaignId: campaign.id,
+          title: campaign.title,
+          totalRecipients: totalEligible,
+          requiresBatchProcessing: true,
+        },
+        `تم إنشاء حملة التقييم وجدولة ${totalEligible} طالب`
+      );
     }
 
-    // Send rating request message via Telegram with interactive inline keyboard
+    // If targeted to a single STUDENT, process immediately
+    const [targetStudent] = await db
+      .select({
+        telegramUserId: students.telegramUserId,
+        fullName: students.fullName,
+      })
+      .from(students)
+      .where(eq(students.id, targetStudentId));
+
+    if (!targetStudent?.telegramUserId) {
+      await db.delete(feedbackCampaigns).where(eq(feedbackCampaigns.id, campaign.id));
+      return apiError("الطالب غير مرتبط بتيليجرام أو غير موجود", 400);
+    }
+
     const ratingMessage = buildRatingRequestMessage();
     const inlineKeyboard = buildRatingInlineKeyboard(campaign.id);
 
-    let sentCount = 0;
-    let failedCount = 0;
+    try {
+      await TelegramService.sendMessage(targetStudent.telegramUserId, ratingMessage, "HTML", inlineKeyboard);
+      await db
+        .update(feedbackCampaigns)
+        .set({ status: "SENT", sentCount: 1, failedCount: 0, sentAt: new Date() })
+        .where(eq(feedbackCampaigns.id, campaign.id));
 
-    for (const student of targetStudents) {
-      if (!student.telegramUserId) continue;
-      try {
-        await TelegramService.sendMessage(student.telegramUserId, ratingMessage, "HTML", inlineKeyboard);
-        sentCount++;
-        // Small delay to avoid rate limiting
-        await new Promise((r) => setTimeout(r, 50));
-      } catch {
-        failedCount++;
-      }
+      return apiSuccess(
+        { campaignId: campaign.id, sentCount: 1, failedCount: 0, totalTargeted: 1, requiresBatchProcessing: false },
+        `تم إرسال طلب التقييم إلى الطالب بنجاح`
+      );
+    } catch {
+      await db
+        .update(feedbackCampaigns)
+        .set({ status: "FAILED", sentCount: 0, failedCount: 1, sentAt: new Date() })
+        .where(eq(feedbackCampaigns.id, campaign.id));
+
+      return apiError("فشل إرسال رسالة التليجرام للطالب", 500);
     }
-
-    // Update campaign status
-    await db
-      .update(feedbackCampaigns)
-      .set({
-        status: failedCount === targetStudents.length ? "FAILED" : "SENT",
-        sentCount,
-        failedCount,
-        sentAt: new Date(),
-      })
-      .where(eq(feedbackCampaigns.id, campaign.id));
-
-    return apiSuccess(
-      {
-        campaignId: campaign.id,
-        sentCount,
-        failedCount,
-        totalTargeted: targetStudents.length,
-      },
-      `تم إرسال طلب التقييم إلى ${sentCount} طالب بنجاح`
-    );
   } catch (error: any) {
     if (error.message === "UNAUTHORIZED" || error.message === "FORBIDDEN") {
       return apiError("غير مصرح لك", 403);

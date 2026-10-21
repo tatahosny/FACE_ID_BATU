@@ -15,7 +15,17 @@ export async function POST(
     await requireRole([USER_ROLES.SUPER_ADMIN]);
     const campaignId = params.id;
 
-    const result = await CampaignService.processCampaignBatch(campaignId, 25);
+    let batchSize = 25;
+    try {
+      const body = await req.json();
+      if (body?.batchSize && typeof body.batchSize === "number") {
+        batchSize = Math.min(Math.max(body.batchSize, 5), 50);
+      }
+    } catch {
+      // body is optional
+    }
+
+    const result = await CampaignService.processCampaignBatch(campaignId, batchSize);
     return apiSuccess(result, "تم معالجة دفعة من رسائل الحملة بنجاح");
   } catch (error: any) {
     if (error.message === "UNAUTHORIZED" || error.message === "FORBIDDEN") {

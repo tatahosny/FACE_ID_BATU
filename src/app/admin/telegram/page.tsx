@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { formatCairoDateTime } from "@/lib/utils/datetime";
 
 export default function AdminTelegramBroadcastPage() {
@@ -29,6 +29,21 @@ export default function AdminTelegramBroadcastPage() {
   // Submission / Action State
   const [submitting, setSubmitting] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
+
+  // Auto-Send Loop & Live Progress Bar State
+  const [activeAutoSend, setActiveAutoSend] = useState<{
+    campaignId: string;
+    title: string;
+    sent: number;
+    failed: number;
+    total: number;
+    remaining: number;
+    isPaused: boolean;
+    isCompleted: boolean;
+  } | null>(null);
+
+  const pauseAutoSendRef = useRef(false);
+  const isAutoSendingRef = useRef(false);
 
   const fetchCampaigns = async () => {
     try {
@@ -138,19 +153,136 @@ export default function AdminTelegramBroadcastPage() {
         return;
       }
 
-      setStatusMsg({
-        text: `✅ تم إنشاء حملة الرسائل بنجاح وجدولة ${json.data.campaign.totalRecipients} مستلم!`,
-        type: "success",
-      });
+      const newCampaign = json.data.campaign;
+      const totalRecipients = newCampaign.totalRecipients;
 
       setTitle("");
       setMessage("");
       await fetchCampaigns();
+
+      if (totalRecipients > 0) {
+        setStatusMsg({
+          text: `✅ تم إنشاء حملة الرسائل بنجاح لـ ${totalRecipients} مستلم! جاري بدء الإرسال التلقائي للجميع...`,
+          type: "success",
+        });
+        // Start continuous auto-send loop immediately
+        handleAutoSendAll(newCampaign.id, newCampaign.title, 0, 0, totalRecipients);
+      } else {
+        setStatusMsg({
+          text: `تم إنشاء الحملة، ولكن لا يوجد طلاب مؤهلين (مرتبطين بتيليجرام) في هذه الشريحة`,
+          type: "error",
+        });
+      }
     } catch (err: any) {
       setStatusMsg({ text: err.message, type: "error" });
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Continuous Auto-Send Loop until all recipients are processed
+  const handleAutoSendAll = async (
+    campaignId: string,
+    campaignTitle: string,
+    initialSent = 0,
+    initialFailed = 0,
+    initialTotal = 0
+  ) => {
+    if (isAutoSendingRef.current) return;
+    isAutoSendingRef.current = true;
+    pauseAutoSendRef.current = false;
+
+    setActiveAutoSend({
+      campaignId,
+      title: campaignTitle,
+      sent: initialSent,
+      failed: initialFailed,
+      total: initialTotal,
+      remaining: Math.max(0, initialTotal - initialSent - initialFailed),
+      isPaused: false,
+      isCompleted: false,
+    });
+
+    try {
+      let isDone = false;
+      while (!isDone && !pauseAutoSendRef.current) {
+        const res = await fetch(`/api/telegram/campaigns/${campaignId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ batchSize: 25 }),
+        });
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          throw new Error(json.error || "فشل معالجة دفعة الحملة");
+        }
+
+        const data = json.data;
+        const totalSent = data.totalSent ?? initialSent;
+        const totalFailed = data.totalFailed ?? initialFailed;
+        const totalRecipients = data.totalRecipients ?? initialTotal;
+        const remaining =
+          typeof data.remainingQueued === "number"
+            ? data.remainingQueued
+            : Math.max(0, totalRecipients - totalSent - totalFailed);
+
+        setActiveAutoSend((prev) =>
+          prev
+            ? {
+                ...prev,
+                sent: totalSent,
+                failed: totalFailed,
+                total: totalRecipients,
+                remaining,
+                isCompleted: data.completed,
+              }
+            : null
+        );
+
+        if (data.completed || remaining === 0) {
+          isDone = true;
+          break;
+        }
+
+        // Small pause between batches for smooth UI rendering and Telegram throttle safety
+        await new Promise((r) => setTimeout(r, 250));
+      }
+
+      await fetchCampaigns();
+
+      if (pauseAutoSendRef.current) {
+        setStatusMsg({
+          text: "تم إيقاف الإرسال التلقائي مؤقتاً. يمكنك استئنافه في أي وقت بالضغط على الزر.",
+          type: "success",
+        });
+      } else {
+        setStatusMsg({
+          text: `🎉 اكتمل إرسال الحملة بالكامل بنجاح لجميع الطلاب (${initialTotal || "المستهدفين"})!`,
+          type: "success",
+        });
+      }
+    } catch (err: any) {
+      setStatusMsg({ text: `خطأ أثناء الإرسال التلقائي: ${err.message}`, type: "error" });
+    } finally {
+      isAutoSendingRef.current = false;
+    }
+  };
+
+  const handlePauseAutoSend = () => {
+    pauseAutoSendRef.current = true;
+    setActiveAutoSend((prev) => (prev ? { ...prev, isPaused: true } : null));
+  };
+
+  const handleResumeAutoSend = () => {
+    if (!activeAutoSend) return;
+    pauseAutoSendRef.current = false;
+    setActiveAutoSend((prev) => (prev ? { ...prev, isPaused: false } : null));
+    handleAutoSendAll(
+      activeAutoSend.campaignId,
+      activeAutoSend.title,
+      activeAutoSend.sent,
+      activeAutoSend.failed,
+      activeAutoSend.total
+    );
   };
 
   const handleTriggerSend = async (campaignId: string) => {
@@ -193,6 +325,128 @@ export default function AdminTelegramBroadcastPage() {
           }`}
         >
           {statusMsg.text}
+        </div>
+      )}
+
+      {/* Live Auto-Send Progress Widget */}
+      {activeAutoSend && (
+        <div className="bg-gradient-to-r from-slate-900 via-indigo-950/80 to-slate-900 border-2 border-indigo-500/50 rounded-2xl p-5 shadow-2xl backdrop-blur-xl text-white space-y-4 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <span className="relative flex h-3.5 w-3.5">
+                {!activeAutoSend.isCompleted && !activeAutoSend.isPaused && (
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                )}
+                <span
+                  className={`relative inline-flex rounded-full h-3.5 w-3.5 ${
+                    activeAutoSend.isCompleted
+                      ? "bg-emerald-500"
+                      : activeAutoSend.isPaused
+                      ? "bg-amber-500"
+                      : "bg-blue-500"
+                  }`}
+                ></span>
+              </span>
+              <div>
+                <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                  <span>
+                    {activeAutoSend.isCompleted
+                      ? "✅ اكتمل إرسال الحملة بالكامل بنجاح"
+                      : activeAutoSend.isPaused
+                      ? "⏸️ تم إيقاف الإرسال التلقائي مؤقتاً"
+                      : "🚀 جاري إرسال الحملة لجميع الطلاب تلقائياً..."}
+                  </span>
+                </h3>
+                <p className="text-xs text-indigo-200 font-medium truncate max-w-md mt-0.5">
+                  حملة: «{activeAutoSend.title}»
+                </p>
+              </div>
+            </div>
+
+            {/* Controls */}
+            <div className="flex items-center gap-2">
+              {!activeAutoSend.isCompleted && !activeAutoSend.isPaused && (
+                <button
+                  type="button"
+                  onClick={handlePauseAutoSend}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-xs transition"
+                >
+                  إيقاف مؤقت ⏸️
+                </button>
+              )}
+              {!activeAutoSend.isCompleted && activeAutoSend.isPaused && (
+                <button
+                  type="button"
+                  onClick={handleResumeAutoSend}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-md transition"
+                >
+                  استئناف الإرسال ▶️
+                </button>
+              )}
+              {activeAutoSend.isCompleted && (
+                <button
+                  type="button"
+                  onClick={() => setActiveAutoSend(null)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition"
+                >
+                  إغلاق الشريط ✖
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Progress Bar */}
+          {(() => {
+            const processed = activeAutoSend.sent + activeAutoSend.failed;
+            const pct =
+              activeAutoSend.total > 0
+                ? Math.min(100, Math.round((processed / activeAutoSend.total) * 100))
+                : activeAutoSend.isCompleted
+                ? 100
+                : 0;
+            return (
+              <div className="space-y-2">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-300 font-mono">
+                    تمت معالجة{" "}
+                    <b className="text-white font-bold">{processed}</b> من أصل{" "}
+                    <b className="text-white font-bold">{activeAutoSend.total}</b> طالب
+                  </span>
+                  <span className="font-mono font-black text-indigo-300 text-sm">{pct}%</span>
+                </div>
+                <div className="w-full bg-slate-950/80 rounded-full h-3 p-0.5 border border-indigo-900/60 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-300 ${
+                      activeAutoSend.isCompleted
+                        ? "bg-gradient-to-r from-emerald-500 to-teal-400"
+                        : "bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-400"
+                    }`}
+                    style={{ width: `${pct}%` }}
+                  ></div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Quick Metrics Badges */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-center font-mono text-xs">
+            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-2">
+              <span className="text-slate-400 block text-[10px]">المرسل بنجاح</span>
+              <span className="text-emerald-400 font-bold text-sm">{activeAutoSend.sent}</span>
+            </div>
+            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-2">
+              <span className="text-slate-400 block text-[10px]">فشل الإرسال</span>
+              <span className="text-red-400 font-bold text-sm">{activeAutoSend.failed}</span>
+            </div>
+            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-2">
+              <span className="text-slate-400 block text-[10px]">المتبقي في الطابور</span>
+              <span className="text-amber-400 font-bold text-sm">{activeAutoSend.remaining}</span>
+            </div>
+            <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-2">
+              <span className="text-slate-400 block text-[10px]">إجمالي المستهدفين</span>
+              <span className="text-indigo-300 font-bold text-sm">{activeAutoSend.total}</span>
+            </div>
+          </div>
         </div>
       )}
 
@@ -438,12 +692,37 @@ export default function AdminTelegramBroadcastPage() {
                     <td className="py-3 px-4 text-slate-400">{formatCairoDateTime(c.createdAt)}</td>
                     <td className="py-3 px-4 text-center">
                       {c.status !== "COMPLETED" && (
-                        <button
-                          onClick={() => handleTriggerSend(c.id)}
-                          className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] shadow transition"
-                        >
-                          إرسال دفعة
-                        </button>
+                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                          {activeAutoSend &&
+                          activeAutoSend.campaignId === c.id &&
+                          !activeAutoSend.isCompleted &&
+                          !activeAutoSend.isPaused ? (
+                            <span className="px-2.5 py-1 rounded-lg bg-indigo-600/30 text-indigo-300 font-bold text-[10px] border border-indigo-500/40 animate-pulse">
+                              جاري الإرسال ({activeAutoSend.sent}/{activeAutoSend.total})...
+                            </span>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleAutoSendAll(c.id, c.title, c.sentCount, c.failedCount, c.totalRecipients)
+                                }
+                                className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-[10px] shadow transition flex items-center gap-1"
+                              >
+                                <span>⚡</span>
+                                <span>{c.sentCount > 0 ? "استئناف للجميع" : "إرسال للجميع"}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleTriggerSend(c.id)}
+                                className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[10px] border border-slate-700 transition"
+                                title="إرسال دفعة واحدة فقط (25 رسالة)"
+                              >
+                                دفعة (25)
+                              </button>
+                            </>
+                          )}
+                        </div>
                       )}
                     </td>
                   </tr>
