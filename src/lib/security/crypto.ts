@@ -1,11 +1,22 @@
 import crypto from "crypto";
 
-// Default fallback key for local dev if not supplied in env
-const DEFAULT_KEY_HEX = "f47ac10b58cc4372a5670e02b2e3d4791a8e9d8f3c7e6b5a4d3c2b1a0f9e8d7c";
-const DEFAULT_HMAC_HEX = "c8e7d6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7";
+// Dev-only fallback keys — NEVER used in production
+const DEV_ONLY_KEY_HEX = "f47ac10b58cc4372a5670e02b2e3d4791a8e9d8f3c7e6b5a4d3c2b1a0f9e8d7c";
+const DEV_ONLY_HMAC_HEX = "c8e7d6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7";
 
 function getEncryptionKey(): Buffer {
-  const rawKey = process.env.ENCRYPTION_KEY || DEFAULT_KEY_HEX;
+  const isProd = process.env.NODE_ENV === "production";
+  const rawKey = process.env.ENCRYPTION_KEY;
+
+  if (!rawKey) {
+    if (isProd) {
+      throw new Error("[SECURITY] ENCRYPTION_KEY environment variable is required in production.");
+    }
+    // Dev fallback — clearly labelled, not usable in prod
+    console.warn("[SECURITY WARNING] Using dev-only ENCRYPTION_KEY fallback. Set ENCRYPTION_KEY in .env for production.");
+    return Buffer.from(DEV_ONLY_KEY_HEX, "hex");
+  }
+
   if (rawKey.length === 64) {
     return Buffer.from(rawKey, "hex");
   }
@@ -13,12 +24,23 @@ function getEncryptionKey(): Buffer {
 }
 
 function getHmacSecret(): Buffer {
-  const rawSecret = process.env.HMAC_SECRET || process.env.ENCRYPTION_KEY || DEFAULT_HMAC_HEX;
+  const isProd = process.env.NODE_ENV === "production";
+  const rawSecret = process.env.HMAC_SECRET || process.env.ENCRYPTION_KEY;
+
+  if (!rawSecret) {
+    if (isProd) {
+      throw new Error("[SECURITY] HMAC_SECRET environment variable is required in production.");
+    }
+    console.warn("[SECURITY WARNING] Using dev-only HMAC_SECRET fallback. Set HMAC_SECRET in .env for production.");
+    return Buffer.from(DEV_ONLY_HMAC_HEX, "hex");
+  }
+
   if (rawSecret.length === 64) {
     return Buffer.from(rawSecret, "hex");
   }
   return crypto.createHash("sha256").update(rawSecret).digest();
 }
+
 
 /**
  * Encrypt sensitive Egyptian National ID with AES-256-GCM authenticated encryption.

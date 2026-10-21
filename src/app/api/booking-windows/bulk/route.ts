@@ -6,12 +6,13 @@ import { requireRole } from "@/lib/security/auth";
 import { USER_ROLES } from "@/lib/constants/statuses";
 import { apiError, apiSuccess } from "@/lib/utils/response";
 import { TelegramService } from "@/server/services/telegram.service";
+import { BookingService } from "@/server/services/booking.service";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    await requireRole([USER_ROLES.SUPER_ADMIN]);
+    const session = await requireRole([USER_ROLES.SUPER_ADMIN]);
 
     const body = await req.json();
     const { windowIds, action } = body as {
@@ -29,23 +30,14 @@ export async function POST(req: NextRequest) {
 
     // 1. Bulk Reset Tickets Counter back to 1
     if (action === "RESET_TICKETS") {
-      await db.transaction(async (tx) => {
-        // Clear queue bookings for selected windows to prevent queue index conflicts
-        await tx.delete(bookings).where(inArray(bookings.bookingWindowId, windowIds));
-
-        // Reset queue counters back to 1
-        await tx
-          .update(bookingWindows)
-          .set({
-            nextQueueNumber: 1,
-            updatedAt: new Date(),
-          })
-          .where(inArray(bookingWindows.id, windowIds));
+      const result = await BookingService.resetDayQueuesAndNotify({
+        windowIds,
+        adminUserId: session.userId,
       });
 
       return apiSuccess(
-        { count: windowIds.length },
-        `تمت إعادة تعيين أرقام التذاكر لتبدأ من 1 بنجاح لجميع الفترات المحددة (${windowIds.length} فترات)، وأصبح الطابور جاهزاً لبدء العد من 001.`
+        result,
+        `تمت إعادة تعيين أرقام التذاكر لتبدأ من 1 بنجاح لجميع الفترات المحددة (${windowIds.length} فترات)، وإشعار الطلاب المتبقين في الطابور (${result.notifiedCount} طالب) بحالة الحجز.`
       );
     }
 

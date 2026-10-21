@@ -333,6 +333,50 @@ export const systemSettings = pgTable("system_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// 17. Feedback Ratings (Student satisfaction ratings sent via Telegram bot)
+export const feedbackRatings = pgTable(
+  "feedback_ratings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    studentId: uuid("student_id")
+      .notNull()
+      .references(() => students.id, { onDelete: "cascade" }),
+    rating: integer("rating").notNull(), // 1-5 stars
+    message: text("message"), // optional feedback text
+    type: varchar("type", { length: 20 }).default("SERVICE").notNull(), // 'SERVICE' | 'ISSUE'
+    requestCampaignId: uuid("request_campaign_id").references(() => feedbackCampaigns.id, { onDelete: "set null" }),
+    telegramMessageId: bigint("telegram_message_id", { mode: "number" }), // Telegram msg id for reference
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    studentIdx: index("feedback_ratings_student_idx").on(table.studentId),
+    createdIdx: index("feedback_ratings_created_idx").on(table.createdAt),
+    campaignIdx: index("feedback_ratings_campaign_idx").on(table.requestCampaignId),
+  })
+);
+
+// 18. Feedback Campaigns (Admin-initiated rating request broadcasts)
+export const feedbackCampaigns = pgTable(
+  "feedback_campaigns",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    title: varchar("title", { length: 255 }).notNull(),
+    targetType: varchar("target_type", { length: 20 }).default("ALL").notNull(), // 'ALL' | 'STUDENT'
+    targetStudentId: uuid("target_student_id").references(() => students.id, { onDelete: "set null" }),
+    status: varchar("status", { length: 20 }).default("PENDING").notNull(), // 'PENDING' | 'SENT' | 'FAILED'
+    sentCount: integer("sent_count").default(0).notNull(),
+    failedCount: integer("failed_count").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+  },
+  (table) => ({
+    createdByIdx: index("feedback_campaigns_created_by_idx").on(table.createdBy),
+  })
+);
+
 // Relations definitions
 export const groupsRelations = relations(groups, ({ many }) => ({
   sections: many(sections),
@@ -353,6 +397,18 @@ export const studentsRelations = relations(students, ({ one, many }) => ({
   user: one(users, { fields: [students.userId], references: [users.id] }),
   bookings: many(bookings),
   activations: many(fingerprintActivations),
+  feedbackRatings: many(feedbackRatings),
+}));
+
+export const feedbackRatingsRelations = relations(feedbackRatings, ({ one }) => ({
+  student: one(students, { fields: [feedbackRatings.studentId], references: [students.id] }),
+  campaign: one(feedbackCampaigns, { fields: [feedbackRatings.requestCampaignId], references: [feedbackCampaigns.id] }),
+}));
+
+export const feedbackCampaignsRelations = relations(feedbackCampaigns, ({ one, many }) => ({
+  creator: one(users, { fields: [feedbackCampaigns.createdBy], references: [users.id] }),
+  targetStudent: one(students, { fields: [feedbackCampaigns.targetStudentId], references: [students.id] }),
+  ratings: many(feedbackRatings),
 }));
 
 export const bookingWindowsRelations = relations(bookingWindows, ({ one, many }) => ({

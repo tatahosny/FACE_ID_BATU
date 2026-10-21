@@ -4,9 +4,20 @@ import { cookies } from "next/headers";
 import { UserRole } from "../constants/statuses";
 
 const AUTH_COOKIE_NAME = "batu_auth_session";
-const AUTH_SECRET_BYTES = new TextEncoder().encode(
-  process.env.AUTH_SECRET || "9b8a7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b"
-);
+
+function getAuthSecretBytes(): Uint8Array {
+  const isProd = process.env.NODE_ENV === "production";
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) {
+    if (isProd) {
+      throw new Error("[SECURITY] AUTH_SECRET environment variable is required in production.");
+    }
+    console.warn("[SECURITY WARNING] Using dev-only AUTH_SECRET fallback. Set AUTH_SECRET in .env for production.");
+    return new TextEncoder().encode("9b8a7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b");
+  }
+  return new TextEncoder().encode(secret);
+}
+
 
 export interface SessionPayload {
   userId: string;
@@ -31,13 +42,13 @@ export async function createSessionToken(payload: SessionPayload): Promise<strin
   return new SignJWT({ ...payload })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime("7d")
-    .sign(AUTH_SECRET_BYTES);
+    .setExpirationTime("24h") // Reduced from 7d for better security
+    .sign(getAuthSecretBytes());
 }
 
 export async function verifySessionToken(token: string): Promise<SessionPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, AUTH_SECRET_BYTES);
+    const { payload } = await jwtVerify(token, getAuthSecretBytes());
     return payload as unknown as SessionPayload;
   } catch {
     return null;

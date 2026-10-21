@@ -27,6 +27,7 @@ import {
   LogIn,
   AlertTriangle,
   KeyRound,
+  Star,
 } from "lucide-react";
 
 export default function AdminLayout({
@@ -132,6 +133,7 @@ export default function AdminLayout({
       title: "الاتصالات والإشعارات",
       items: [
         { label: "حملات التيليجرام الجماعية", href: "/admin/telegram", icon: Volume2 },
+        { label: "تقييمات الطلاب وآرائهم", href: "/admin/ratings", icon: Star },
         { label: "قوالب الرسائل الذكية", href: "/admin/templates", icon: FileText },
         { label: "سجلات تسليم الإشعارات", href: "/admin/notifications", icon: Mail },
       ],

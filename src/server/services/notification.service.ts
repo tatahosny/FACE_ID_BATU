@@ -13,15 +13,14 @@ export class NotificationService {
   /**
    * Evaluate queue positions for active windows and automatically enqueue proximity notifications (10 ahead, 5 ahead)
    */
-  static async checkAndQueueProximityNotifications(bookingWindowId?: string) {
-    // 1. Fetch all waiting students across all open windows in unified queue order
+  static async checkAndQueueProximityNotifications(_bookingWindowId?: string) {
+    // 1. Fetch all waiting students across all open windows in unified queue order.
+    // Desks T and D serve all open windows concurrently, so we never restrict desk positions
+    // by a single windowId to avoid incorrect remaining counts.
     const conditions = [
       eq(bookingWindows.status, BOOKING_WINDOW_STATUSES.OPEN),
       eq(bookings.status, BOOKING_STATUSES.WAITING),
     ];
-    if (bookingWindowId) {
-      conditions.push(eq(bookings.bookingWindowId, bookingWindowId));
-    }
 
     const waitingBookings = await db
       .select({
@@ -40,7 +39,7 @@ export class NotificationService {
 
     let queuedCount = 0;
 
-    // 3. For each waiting student per desk, calculate the exact number of waiting students ahead in their desk
+    // 2. For each waiting student per desk, calculate the exact number of waiting students ahead in their desk
     const desks = ["T", "D"] as const;
     for (const deskName of desks) {
       const deskWaiting = waitingBookings.filter((b) => (b.desk || "T") === deskName);
@@ -50,14 +49,14 @@ export class NotificationService {
 
         const studentsAhead = i; // Array is ordered by queueNumber per desk, so index i is count ahead in this desk
 
-        if (studentsAhead === 10) {
+        if (studentsAhead <= 10 && studentsAhead > 5) {
           const idempotencyKey = `proximity_10_${item.bookingId}`;
           const msg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
 <b>تنبيه اقتراب الدور:</b>
 عزيزي الطالب <b>${item.fullName}</b>،
-<b>باقى على دورك 10 اشخاص يرجى التوجه الان لمكتب البصمة</b>
+<b>باقى على دورك ${studentsAhead} أشخاص، يرجى التوجه الآن لمكتب البصمة</b>
 <b>الشباك المخصص:</b> <code>شباك ${deskName}</code>
 
 <b>المقر:</b> الواحة — مبنى الشؤون (شباك ${deskName})
@@ -69,7 +68,7 @@ export class NotificationService {
             telegramChatId: item.telegramUserId,
             payload: {
               studentName: item.fullName,
-              remainingAhead: 10,
+              remainingAhead: studentsAhead,
               desk: deskName,
               message: msg,
             },
@@ -78,20 +77,27 @@ export class NotificationService {
 
           if (inserted) {
             queuedCount++;
-            TelegramService.sendMessage(Number(item.telegramUserId), msg).catch((err) => {
-              console.error(`Failed to send direct proximity 10 alert to student ${item.studentId}:`, err.message);
-            });
+            TelegramService.sendMessage(Number(item.telegramUserId), msg)
+              .then(async () => {
+                await db
+                  .update(notificationOutbox)
+                  .set({ status: "DELIVERED", sentAt: new Date() })
+                  .where(eq(notificationOutbox.idempotencyKey, idempotencyKey));
+              })
+              .catch((err) => {
+                console.error(`Failed to send direct proximity 10 alert to student ${item.studentId}:`, err.message);
+              });
           }
-        } else if (studentsAhead === 5) {
+        } else if (studentsAhead <= 5 && studentsAhead > 1) {
           const idempotencyKey = `proximity_5_${item.bookingId}`;
-          const msg = `<b>تنبيه عاجل:</b> متبقي 5 أشخاص فقط على دورك (<b>${item.fullName}</b>). الشباك: <b>شباك ${deskName}</b>. يرجى الوقوف أمام شباك ${deskName} بمبنى الشؤون (الواحة) الآن.`;
+          const msg = `<b>تنبيه عاجل:</b> متبقي ${studentsAhead} أشخاص فقط على دورك (<b>${item.fullName}</b>). الشباك: <b>شباك ${deskName}</b>. يرجى الوقوف أمام شباك ${deskName} بمبنى الشؤون (الواحة) الآن.`;
           const inserted = await this.queueOutboxItem({
             eventType: "PROXIMITY_5",
             recipientId: item.studentId,
             telegramChatId: item.telegramUserId,
             payload: {
               studentName: item.fullName,
-              remainingAhead: 5,
+              remainingAhead: studentsAhead,
               desk: deskName,
               message: msg,
             },
@@ -100,9 +106,45 @@ export class NotificationService {
 
           if (inserted) {
             queuedCount++;
-            TelegramService.sendMessage(Number(item.telegramUserId), msg).catch((err) => {
-              console.error(`Failed to send direct proximity 5 alert to student ${item.studentId}:`, err.message);
-            });
+            TelegramService.sendMessage(Number(item.telegramUserId), msg)
+              .then(async () => {
+                await db
+                  .update(notificationOutbox)
+                  .set({ status: "DELIVERED", sentAt: new Date() })
+                  .where(eq(notificationOutbox.idempotencyKey, idempotencyKey));
+              })
+              .catch((err) => {
+                console.error(`Failed to send direct proximity 5 alert to student ${item.studentId}:`, err.message);
+              });
+          }
+        } else if (studentsAhead <= 1) {
+          const idempotencyKey = `proximity_next_${item.bookingId}`;
+          const msg = `<b>تنبيه هام:</b> عزيزي الطالب <b>${item.fullName}</b>، أنت التالي مباشرة على <b>شباك ${deskName}</b>! يرجى الوقوف فوراً أمام الشباك (الواحة — مبنى الشؤون) للاستعداد لمناداة دورك.`;
+          const inserted = await this.queueOutboxItem({
+            eventType: "PROXIMITY_NEXT",
+            recipientId: item.studentId,
+            telegramChatId: item.telegramUserId,
+            payload: {
+              studentName: item.fullName,
+              remainingAhead: studentsAhead,
+              desk: deskName,
+              message: msg,
+            },
+            idempotencyKey,
+          });
+
+          if (inserted) {
+            queuedCount++;
+            TelegramService.sendMessage(Number(item.telegramUserId), msg)
+              .then(async () => {
+                await db
+                  .update(notificationOutbox)
+                  .set({ status: "DELIVERED", sentAt: new Date() })
+                  .where(eq(notificationOutbox.idempotencyKey, idempotencyKey));
+              })
+              .catch((err) => {
+                console.error(`Failed to send direct proximity next alert to student ${item.studentId}:`, err.message);
+              });
           }
         }
       }
@@ -148,11 +190,14 @@ export class NotificationService {
       case "PROXIMITY_10":
         return (
           payload.message ||
-          `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه اقتراب الدور:</b>\nعزيزي الطالب <b>${payload.studentName}</b>،\n<b>باقى على دورك 10 اشخاص يرجى التوجه الان لمكتب البصمة</b>\n${payload.desk ? `<b>الشباك المخصص:</b> <code>شباك ${payload.desk}</code>\n` : ""}<b>المقر:</b> الواحة — مبنى الشؤون (شباك بصمة الوجه).`
+          `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه اقتراب الدور:</b>\nعزيزي الطالب <b>${payload.studentName}</b>،\n<b>باقى على دورك ${payload.remainingAhead || 10} اشخاص يرجى التوجه الان لمكتب البصمة</b>\n${payload.desk ? `<b>الشباك المخصص:</b> <code>شباك ${payload.desk}</code>\n` : ""}<b>المقر:</b> الواحة — مبنى الشؤون (شباك بصمة الوجه).`
         );
 
       case "PROXIMITY_5":
-        return `تنبيه عاجل: متبقي 5 أدوار فقط على دورك (<b>${payload.studentName}</b>).${payload.desk ? ` الشباك: <b>شباك ${payload.desk}</b>.` : ""} يرجى التوجه إلى شباك بصمة الوجه بمبنى الشؤون (الواحة) للاستعداد.`;
+        return payload.message || `تنبيه عاجل: متبقي ${payload.remainingAhead || 5} أدوار فقط على دورك (<b>${payload.studentName}</b>).${payload.desk ? ` الشباك: <b>شباك ${payload.desk}</b>.` : ""} يرجى التوجه إلى شباك بصمة الوجه بمبنى الشؤون (الواحة) للاستعداد.`;
+
+      case "PROXIMITY_NEXT":
+        return payload.message || `<b>تنبيه هام:</b> أنت التالي مباشرة على <b>شباك ${payload.desk || "T"}</b>! يرجى الوقوف فوراً أمام الشباك بمبنى الشؤون للاستعداد.`;
 
       case "TURN_CALLED":
         return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>حان دورك الآن!</b>\nعزيزي الطالب <b>${payload.studentName}</b>،\nدورك الحالي في الطابور: <b>${payload.queueNumber}</b>\n${payload.desk ? `<b>الشباك المخصص:</b> <code>شباك ${payload.desk}</code>\n` : ""}<b>المقر:</b> الواحة — مبنى الشؤون (شباك بصمة الوجه)\nيرجى التوجه فوراً إلى شباك ${payload.desk ? `شباك ${payload.desk}` : "بصمة الوجه"} بمبنى الشؤون لتسجيل بصمة الوجه.`;

@@ -14,6 +14,7 @@ import { eq, and, sql, ne, desc, or, inArray, lt } from "drizzle-orm";
 import { BOOKING_STATUSES, BookingStatus, BOOKING_WINDOW_STATUSES } from "@/lib/constants/statuses";
 import { formatQueueNumber } from "@/lib/utils/datetime";
 import { TelegramService } from "./telegram.service";
+import { NotificationService } from "./notification.service";
 import { SettingsService } from "./settings.service";
 import { decryptNationalId } from "@/lib/security/crypto";
 
@@ -248,8 +249,10 @@ export class BookingService {
           const [aheadDeskResult] = await tx
             .select({ count: sql<number>`count(*)` })
             .from(bookings)
+            .innerJoin(bookingWindows, eq(bookings.bookingWindowId, bookingWindows.id))
             .where(
               and(
+                eq(bookingWindows.status, BOOKING_WINDOW_STATUSES.OPEN),
                 eq(bookings.desk, deskName),
                 sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
                 lt(bookings.queueNumber, existingBooking.queueNumber)
@@ -261,8 +264,10 @@ export class BookingService {
           const [aheadGlobalResult] = await tx
             .select({ count: sql<number>`count(*)` })
             .from(bookings)
+            .innerJoin(bookingWindows, eq(bookings.bookingWindowId, bookingWindows.id))
             .where(
               and(
+                eq(bookingWindows.status, BOOKING_WINDOW_STATUSES.OPEN),
                 sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
                 lt(bookings.queueNumber, existingBooking.queueNumber)
               )
@@ -374,8 +379,10 @@ export class BookingService {
         const [aheadDeskResult] = await tx
           .select({ count: sql<number>`count(*)` })
           .from(bookings)
+          .innerJoin(bookingWindows, eq(bookings.bookingWindowId, bookingWindows.id))
           .where(
             and(
+              eq(bookingWindows.status, BOOKING_WINDOW_STATUSES.OPEN),
               eq(bookings.desk, assignedDesk),
               sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
               lt(bookings.queueNumber, createdBooking.queueNumber)
@@ -387,8 +394,10 @@ export class BookingService {
         const [aheadGlobalResult] = await tx
           .select({ count: sql<number>`count(*)` })
           .from(bookings)
+          .innerJoin(bookingWindows, eq(bookings.bookingWindowId, bookingWindows.id))
           .where(
             and(
+              eq(bookingWindows.status, BOOKING_WINDOW_STATUSES.OPEN),
               sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
               lt(bookings.queueNumber, createdBooking.queueNumber)
             )
@@ -554,8 +563,10 @@ export class BookingService {
     const [{ studentsAhead }] = await db
       .select({ studentsAhead: sql<number>`cast(count(*) as integer)` })
       .from(bookings)
+      .innerJoin(bookingWindows, eq(bookings.bookingWindowId, bookingWindows.id))
       .where(
         and(
+          eq(bookingWindows.status, BOOKING_WINDOW_STATUSES.OPEN),
           eq(bookings.desk, desk),
           sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
           sql`${bookings.queueNumber} < ${latestBooking.booking.queueNumber}`
@@ -570,8 +581,10 @@ export class BookingService {
     const [{ globalAheadCount }] = await db
       .select({ globalAheadCount: sql<number>`cast(count(*) as integer)` })
       .from(bookings)
+      .innerJoin(bookingWindows, eq(bookings.bookingWindowId, bookingWindows.id))
       .where(
         and(
+          eq(bookingWindows.status, BOOKING_WINDOW_STATUSES.OPEN),
           sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
           sql`${bookings.queueNumber} < ${latestBooking.booking.queueNumber}`
         )
@@ -688,6 +701,36 @@ export class BookingService {
               idempotencyKey: `turn_called_${booking.id}`,
             })
             .onConflictDoNothing();
+        }
+      }
+
+      // If CANCELLED, send cancellation notification with booking link to student
+      if (newStatus === BOOKING_STATUSES.CANCELLED) {
+        const [student] = await tx
+          .select()
+          .from(students)
+          .where(eq(students.id, booking.studentId));
+
+        if (student?.telegramUserId) {
+          const appUrl =
+            process.env.NEXT_PUBLIC_APP_URL ||
+            process.env.APP_URL ||
+            "https://face-id-batu-hvk9.vercel.app";
+          const cancelMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
+قسم تكنولوجيا المعلومات — نظام بصمة الوجه
+
+<b>تم إلغاء دورك في طابور بصمة الوجه</b>
+
+عزيزي الطالب: <b>${student.fullName}</b>
+<b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
+${notes ? `<b>السبب:</b> ${notes}\n` : ""}
+نحيطكم علماً بأنه قد تم إلغاء حجز دورك في الطابور.
+<b>يرجى إعادة الحجز من الرابط التالي:</b>
+<a href="${appUrl}/booking">${appUrl}/booking</a>`;
+
+          TelegramService.sendMessage(Number(student.telegramUserId), cancelMsg).catch((err) => {
+            console.error("[TransitionCancel] Failed to send cancel notification:", err?.message || err);
+          });
         }
       }
 
@@ -993,6 +1036,10 @@ ${
     // Send Telegram cancellation message
     let telegramSent = false;
     if (student.telegramUserId) {
+      const appUrl =
+        process.env.NEXT_PUBLIC_APP_URL ||
+        process.env.APP_URL ||
+        "https://face-id-batu-hvk9.vercel.app";
       const cancelMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
@@ -1002,7 +1049,8 @@ ${
 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
 
 نحيطكم علماً بأنه قد تم إلغاء حجز دورك رسمياً نظراً لعدم التواجد بعد تكرار النداء.
-يمكنك إعادة الحجز من المنصة عند فتح فترة حجز جديدة لسكشنك أو مراجعة إدارة شؤون الطلاب (مبنى الشؤون — الواحة).`;
+<b>يرجى إعادة الحجز من الرابط التالي:</b>
+<a href="${appUrl}/booking">${appUrl}/booking</a>`;
 
       try {
         await TelegramService.sendMessage(Number(student.telegramUserId), cancelMsg);
@@ -1283,80 +1331,181 @@ ${
   }
 
   /**
-   * Broadcast updated queue position to all remaining waiting students in a booking window
-   * when a preceding student is accepted/completed/moved.
+   * Evaluate and dispatch queue movement and proximity milestone alerts (10, 5, next)
+   * cleanly without flooding or spamming all students on every turn.
    */
-  static async notifyQueueProgress(bookingWindowId?: string) {
+  static async notifyQueueProgress(_bookingWindowId?: string) {
     try {
-      for (const desk of ["T", "D"] as const) {
-        const activeBookings = await db
-          .select({
-            bookingId: bookings.id,
-            queueNumber: bookings.queueNumber,
-            ticketNumber: bookings.ticketNumber,
-            desk: bookings.desk,
-            status: bookings.status,
-            studentId: students.id,
-            fullName: students.fullName,
-            telegramUserId: students.telegramUserId,
-          })
-          .from(bookings)
-          .innerJoin(students, eq(bookings.studentId, students.id))
-          .where(
-            and(
-              eq(bookings.desk, desk),
-              sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`
-            )
-          )
-          .orderBy(bookings.queueNumber);
+      await NotificationService.checkAndQueueProximityNotifications();
+    } catch (err: any) {
+      console.error("[QueueProgress] Error evaluating proximity notifications:", err?.message || err);
+    }
+  }
 
-        if (!activeBookings.length) continue;
+  /**
+   * Reset day queues / tickets counter and send intelligent notifications to all students still in the queue:
+   * - If student's section has an active open booking window:
+   *   "تم تصفير الأدوار، يرجى الحجز من جديد" + booking link.
+   * - If student's section is closed / finished for the day:
+   *   "تم قفل البصمة اليوم وتصفير الحجوزات، توجه فى وقت لاحق".
+   */
+  static async resetDayQueuesAndNotify(params?: {
+    windowIds?: string[];
+    adminUserId?: string;
+  }): Promise<{ resetBookingsCount: number; notifiedCount: number }> {
+    const appUrl =
+      process.env.NEXT_PUBLIC_APP_URL ||
+      process.env.APP_URL ||
+      "https://face-id-batu-hvk9.vercel.app";
 
-        for (let i = 0; i < activeBookings.length; i++) {
-          const item = activeBookings[i];
-          if (item.status !== "WAITING" || !item.telegramUserId) continue;
+    // 1. Fetch all active waiting/called/in_progress bookings to notify students still in line
+    const conditions = [
+      sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS')`,
+    ];
+    if (params?.windowIds && params.windowIds.length > 0) {
+      conditions.push(inArray(bookings.bookingWindowId, params.windowIds));
+    }
 
-          const aheadCount = i;
-          const currentTurn = aheadCount + 1;
-          const formattedTurn = formatQueueNumber(currentTurn);
-          const ticketNum = item.ticketNumber || item.queueNumber;
-          const formattedNum = formatQueueNumber(ticketNum);
+    const activeList = await db
+      .select({
+        bookingId: bookings.id,
+        bookingWindowId: bookings.bookingWindowId,
+        studentId: students.id,
+        fullName: students.fullName,
+        academicNumber: students.academicNumber,
+        sectionId: students.sectionId,
+        subSection: students.subSection,
+        telegramUserId: students.telegramUserId,
+        sectionName: sections.name,
+        groupName: groups.name,
+      })
+      .from(bookings)
+      .innerJoin(students, eq(bookings.studentId, students.id))
+      .innerJoin(sections, eq(students.sectionId, sections.id))
+      .innerJoin(groups, eq(students.groupId, groups.id))
+      .where(and(...conditions));
 
-          let aheadText = "";
-          if (aheadCount === 0) {
-            aheadText = `🚀 <b>أنت التالي في طابور شباك ${desk} مباشرة الآن!</b>\nيرجى الوقوف أمام شباك ${desk} بمبنى الشؤون فوراً.`;
-          } else if (aheadCount === 1) {
-            aheadText = `⏳ <b>لقد أصبح أمامك شخص واحد فقط (1) في طابور شباك ${desk}!</b>\nيرجى التواجد أمام شباك ${desk} والاستعداد.`;
-          } else if (aheadCount === 2) {
-            aheadText = `⏳ <b>لقد أصبح أمامك شخصان فقط (2) في طابور شباك ${desk}!</b>\nيرجى الاستعداد والاقتراب من شباك ${desk}.`;
-          } else {
-            aheadText = `⏳ <b>لقد أصبح أمامك ${aheadCount} أشخاص في طابور شباك ${desk}.</b>`;
-          }
+    // 2. Fetch all currently open booking windows to determine per-student section availability
+    const now = new Date();
+    const openWindows = await db
+      .select({
+        id: bookingWindows.id,
+        sectionId: bookingWindows.sectionId,
+        subSection: bookingWindows.subSection,
+        status: bookingWindows.status,
+      })
+      .from(bookingWindows)
+      .where(
+        and(
+          eq(bookingWindows.status, BOOKING_WINDOW_STATUSES.OPEN),
+          sql`${bookingWindows.startsAt} <= ${now}`,
+          sql`${bookingWindows.endsAt} >= ${now}`
+        )
+      );
 
-          const progressMsg = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
+    // 3. Prepare messages per unique student
+    const pendingNotifications: { chatId: number; message: string }[] = [];
+    const notifiedUserIds = new Set<string>();
+
+    for (const item of activeList) {
+      if (!item.telegramUserId) continue;
+      const key = String(item.telegramUserId);
+      if (notifiedUserIds.has(key)) continue;
+      notifiedUserIds.add(key);
+
+      const isOpenForStudent = openWindows.some(
+        (w) =>
+          w.sectionId === item.sectionId &&
+          (w.subSection === "ALL" || w.subSection === (item.subSection || "A"))
+      );
+
+      const message = isOpenForStudent
+        ? `<b>جامعة برج العرب التكنولوجية (BATU)</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
-📢 <b>تحديث حركة وتقدم طابور شباك ${desk}:</b>
+⚠️ <b>إشعار هام: تم تصفير أدوار الانتظار</b>
+
 عزيزي الطالب: <b>${item.fullName}</b>
-<b>الشباك المخصص:</b> <code>شباك ${desk}</code>
-<b>دورك الحالي في طابور شباك ${desk}:</b> <code>#${formattedTurn}</code>
-<b>رقم التذكرة الثابت:</b> <code>#${formattedNum}</code>
+<b>الرقم الأكاديمي:</b> <code>${item.academicNumber}</code>
+<b>السكشن:</b> ${item.sectionName} (${item.groupName})
 
-${aheadText}
+نحيطكم علماً بأنه قد تم تصفير الأدوار، والحجز لا يزال متاحاً ومفتوحاً لسكشنك الآن.
+<b>يرجى إعادة الحجز من جديد عبر الرابط التالي:</b>
+<a href="${appUrl}/booking">${appUrl}/booking</a>`
+        : `<b>جامعة برج العرب التكنولوجية (BATU)</b>
+قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
-📍 <b>المقر:</b> الواحة — مبنى الشؤون (شباك ${desk})`;
+🛑 <b>إشعار رسمي: انتهاء فترة البصمة لليوم</b>
 
-          try {
-            await TelegramService.sendMessage(Number(item.telegramUserId), progressMsg);
-            await new Promise((resolve) => setTimeout(resolve, 80));
-          } catch (err: any) {
-            console.error(`[QueueProgress] Failed to notify student ${item.studentId}:`, err?.message || err);
-          }
+عزيزي الطالب: <b>${item.fullName}</b>
+<b>الرقم الأكاديمي:</b> <code>${item.academicNumber}</code>
+<b>السكشن:</b> ${item.sectionName} (${item.groupName})
+
+<b>تم قفل البصمة اليوم وتصفير الحجوزات، يرجى التوجه في وقت لاحق.</b>
+يرجى متابعة إعلانات البوت والمنصة لمعرفة مواعيد فتح فترات البصمة القادمة لسكشنك.`;
+
+      pendingNotifications.push({
+        chatId: Number(item.telegramUserId),
+        message,
+      });
+    }
+
+    // 4. Atomically delete bookings and reset nextQueueNumber counter to 1 in transaction
+    await db.transaction(async (tx) => {
+      if (params?.windowIds && params.windowIds.length > 0) {
+        await tx
+          .delete(bookings)
+          .where(inArray(bookings.bookingWindowId, params.windowIds));
+
+        await tx
+          .update(bookingWindows)
+          .set({
+            nextQueueNumber: 1,
+            updatedAt: new Date(),
+          })
+          .where(inArray(bookingWindows.id, params.windowIds));
+      } else {
+        await tx.delete(bookings);
+
+        await tx.update(bookingWindows).set({
+          nextQueueNumber: 1,
+          updatedAt: new Date(),
+        });
+      }
+
+      await tx.insert(auditLogs).values({
+        actorId: params?.adminUserId || null,
+        action: "RESET_TICKETS_DAY",
+        entityType: "BOOKING_QUEUE",
+        safeMetadata: {
+          resetBookingsCount: activeList.length,
+          notifiedStudentsCount: pendingNotifications.length,
+          windowIds: params?.windowIds || "ALL",
+        },
+      });
+    });
+
+    // 5. Send Telegram notifications asynchronously in background with polite rate-limiting
+    (async () => {
+      for (const notif of pendingNotifications) {
+        try {
+          await TelegramService.sendMessage(notif.chatId, notif.message);
+          await new Promise((resolve) => setTimeout(resolve, 60));
+        } catch (err: any) {
+          console.error(
+            `[ResetDayQueues] Failed to send Telegram message to ${notif.chatId}:`,
+            err?.message || err
+          );
         }
       }
-    } catch (err: any) {
-      console.error("[QueueProgress] Error broadcasting queue progress:", err.message);
-    }
+    })().catch((err) => {
+      console.error("[ResetDayQueues] Error during async notification dispatch:", err);
+    });
+
+    return {
+      resetBookingsCount: activeList.length,
+      notifiedCount: pendingNotifications.length,
+    };
   }
 
   /**

@@ -7,13 +7,14 @@ import { USER_ROLES } from "@/lib/constants/statuses";
 import { updateBookingWindowStatusSchema } from "@/lib/validation/booking";
 import { apiError, apiSuccess } from "@/lib/utils/response";
 import { TelegramService } from "@/server/services/telegram.service";
+import { BookingService } from "@/server/services/booking.service";
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    await requireRole([USER_ROLES.SUPER_ADMIN]);
+    const session = await requireRole([USER_ROLES.SUPER_ADMIN]);
     const windowId = params.id;
 
     const body = await req.json();
@@ -24,28 +25,14 @@ export async function PATCH(
 
     // 1. Reset Tickets Action
     if (parsed.data.action === "RESET_TICKETS" || body.resetTickets === true) {
-      const [updated] = await db.transaction(async (tx) => {
-        // Delete current bookings for this window to clear queue conflicts safely
-        await tx.delete(bookings).where(eq(bookings.bookingWindowId, windowId));
-
-        // Reset queue counter back to 1
-        return await tx
-          .update(bookingWindows)
-          .set({
-            nextQueueNumber: 1,
-            updatedAt: new Date(),
-          })
-          .where(eq(bookingWindows.id, windowId))
-          .returning();
+      const result = await BookingService.resetDayQueuesAndNotify({
+        windowIds: [windowId],
+        adminUserId: session.userId,
       });
 
-      if (!updated) {
-        return apiError("فترة الحجز غير موجودة", 404);
-      }
-
       return apiSuccess(
-        { window: updated },
-        "تمت إعادة تعيين أرقام التذاكر لتبدأ من 1 بنجاح، وأصبح الطابور فارغاً وجاهزاً لاستقبال الحجوزات بدءاً من رقم 001."
+        result,
+        `تمت إعادة تعيين أرقام التذاكر لتبدأ من 1 بنجاح، وإشعار الطلاب المتبقين في الطابور (${result.notifiedCount} طالب) بحالة الحجز.`
       );
     }
 

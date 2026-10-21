@@ -62,7 +62,6 @@ export async function POST(req: NextRequest) {
           notes || "تم النداء من شاشة إدارة الشباك"
         );
         BookingService.notifyQueueProgress().catch(console.error);
-        NotificationService.checkAndQueueProximityNotifications(updated.bookingWindowId).catch(console.error);
         return apiSuccess({ booking: updated }, "تم نداء الطالب بنجاح وإرسال إشعار فوري على التيليجرام");
       }
 
@@ -91,7 +90,6 @@ export async function POST(req: NextRequest) {
           `تم نداء التالي آلياً لشباك ${deskParam || ""}`
         );
         BookingService.notifyQueueProgress().catch(console.error);
-        NotificationService.checkAndQueueProximityNotifications(updated.bookingWindowId).catch(console.error);
         return apiSuccess({ booking: updated }, `تم نداء الطالب التالي لشباك ${deskParam || ""} بنجاح!`);
       }
 
@@ -137,20 +135,13 @@ export async function POST(req: NextRequest) {
 
       case "reset-all-tickets": {
         await requireRole([USER_ROLES.SUPER_ADMIN]);
-        await db.transaction(async (tx) => {
-          // 1. Delete all bookings to clear queue completely
-          await tx.delete(bookings);
-
-          // 2. Reset nextQueueNumber back to 1 for all booking windows across the entire system
-          await tx.update(bookingWindows).set({
-            nextQueueNumber: 1,
-            updatedAt: new Date(),
-          });
+        const result = await BookingService.resetDayQueuesAndNotify({
+          adminUserId: session.userId,
         });
 
         return apiSuccess(
-          null,
-          "تمت إعادة تعيين أرقام التذاكر لتبدأ من 001 بنجاح لجميع سكاشن النظام بالكامل، وأصبح الطابور فارغاً وجاهزاً للبدء من جديد."
+          result,
+          `تمت إعادة تعيين أرقام التذاكر لتبدأ من 001 بنجاح لجميع سكاشن النظام، وإشعار الطلاب المتبقين في الطابور (${result.notifiedCount} طالب) على التيليجرام بحالة سكاشنهم.`
         );
       }
 

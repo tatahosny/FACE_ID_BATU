@@ -76,9 +76,9 @@ export async function POST(req: NextRequest) {
       response.cookies.set(AUTH_COOKIE_NAME, token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
+        sameSite: "strict",
         path: "/",
-        maxAge: 7 * 24 * 60 * 60, // 7 days
+        maxAge: 24 * 60 * 60, // 24 hours — aligned with JWT expiry
       });
 
       return response;
@@ -140,9 +140,9 @@ export async function POST(req: NextRequest) {
       response.cookies.set(AUTH_COOKIE_NAME, token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
+        sameSite: "strict",
         path: "/",
-        maxAge: 7 * 24 * 60 * 60,
+        maxAge: 24 * 60 * 60, // 24 hours — aligned with JWT expiry
       });
 
       return response;
