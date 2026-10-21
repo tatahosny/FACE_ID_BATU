@@ -404,8 +404,8 @@ export default function AdminLayout({
               </div>
               <Landmark className="w-5 h-5 text-blue-400" />
             </div>
-            <div className="text-[10px] text-slate-400 text-center">
-              نظام بصمة الوجه الذكي v2.0
+            <div className="text-[10px] text-slate-400 text-center font-mono">
+              نظام بصمة الوجه الذكي v3.1
             </div>
           </div>
         </aside>
