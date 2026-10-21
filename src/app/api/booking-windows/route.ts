@@ -31,6 +31,7 @@ export async function GET(req: NextRequest) {
       })
       .from(bookingWindows)
       .innerJoin(groups, eq(bookingWindows.groupId, groups.id))
+      .innerJoin(sections, eq(bookingWindows.sectionId, sections.id))
       .orderBy(asc(groups.code), asc(sections.code));
 
     if (sectionId) {
