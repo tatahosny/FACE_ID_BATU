@@ -6,6 +6,7 @@ import {
   telegramLinkTokens,
   notificationOutbox,
   bookingWindows,
+  feedbackRatings,
 } from "../src/db/schema";
 import { inArray, sql } from "drizzle-orm";
 
@@ -67,6 +68,11 @@ async function cleanupTestStudents() {
 
   // Execute cleanup inside an atomic database transaction
   await db.transaction(async (tx) => {
+    // A0. Delete feedback ratings for test students
+    await tx
+      .delete(feedbackRatings)
+      .where(inArray(feedbackRatings.studentId, testStudentIds));
+
     // A. Delete fingerprint activations for test students
     const deletedActivations = await tx
       .delete(fingerprintActivations)

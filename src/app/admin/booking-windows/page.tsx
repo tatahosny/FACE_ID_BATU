@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { formatCairoDateTime } from "@/lib/utils/datetime";
 import {
@@ -33,6 +33,7 @@ export default function AdminBookingWindowsPage() {
   // Bulk Selection State
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  const [filterGroupId, setFilterGroupId] = useState<string>("ALL");
 
   // Form State
   const [formGroupId, setFormGroupId] = useState("");
@@ -100,10 +101,10 @@ export default function AdminBookingWindowsPage() {
   };
 
   const handleSelectAll = () => {
-    if (selectedIds.length === windows.length) {
+    if (selectedIds.length === displayedWindows.length) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(windows.map((w) => w.id));
+      setSelectedIds(displayedWindows.map((w) => w.id));
     }
   };
 
@@ -231,8 +232,12 @@ export default function AdminBookingWindowsPage() {
     }
   };
 
-  const allSelected = windows.length > 0 && selectedIds.length === windows.length;
-  const isIndeterminate = selectedIds.length > 0 && selectedIds.length < windows.length;
+  const displayedWindows = filterGroupId === "ALL"
+    ? windows
+    : windows.filter((w) => w.groupId === filterGroupId);
+
+  const allSelected = displayedWindows.length > 0 && selectedIds.length === displayedWindows.length;
+  const isIndeterminate = selectedIds.length > 0 && selectedIds.length < displayedWindows.length;
 
   return (
     <div className="space-y-6">
@@ -358,6 +363,41 @@ export default function AdminBookingWindowsPage() {
         </div>
       )}
 
+      {/* Group Navigation Tabs */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          onClick={() => setFilterGroupId("ALL")}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+            filterGroupId === "ALL"
+              ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 ring-1 ring-blue-400"
+              : "bg-slate-900 border border-slate-800 text-slate-400 hover:text-white"
+          }`}
+        >
+          <Layers className="w-3.5 h-3.5" />
+          <span>جميع المجموعات ({windows.length} سكشن)</span>
+        </button>
+        {groups.map((g) => {
+          const groupCount = windows.filter((w) => w.groupId === g.id).length;
+          const isCurrent = filterGroupId === g.id;
+          return (
+            <button
+              key={g.id}
+              onClick={() => setFilterGroupId(g.id)}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+                isCurrent
+                  ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 ring-1 ring-blue-400"
+                  : "bg-slate-900 border border-slate-800 text-slate-400 hover:text-white"
+              }`}
+            >
+              <span>{g.name}</span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono ${isCurrent ? "bg-white/20 text-white" : "bg-slate-800 text-slate-400"}`}>
+                {groupCount} سكاشن
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Windows Table */}
       <div className="bg-slate-900/90 rounded-2xl border border-slate-800 shadow-xl overflow-hidden backdrop-blur-xl">
         {loading ? (
@@ -400,16 +440,31 @@ export default function AdminBookingWindowsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80">
-                {windows.map((w) => {
+                {displayedWindows.map((w, idx) => {
                   const isSelected = selectedIds.includes(w.id);
+                  const prevWindow = idx > 0 ? displayedWindows[idx - 1] : null;
+                  const isNewGroup = !prevWindow || prevWindow.groupId !== w.groupId;
 
                   return (
-                    <tr
-                      key={w.id}
-                      className={`transition ${
-                        isSelected ? "bg-blue-950/30" : "hover:bg-slate-800/40"
-                      }`}
-                    >
+                    <React.Fragment key={w.id}>
+                      {isNewGroup && filterGroupId === "ALL" && (
+                        <tr className="bg-slate-950/90 border-y border-slate-800/90">
+                          <td colSpan={7} className="py-2.5 px-4">
+                            <div className="flex items-center gap-2 text-xs font-black text-amber-400">
+                              <Layers className="w-3.5 h-3.5" />
+                              <span>{w.groupName}</span>
+                              <span className="text-[11px] text-slate-500 font-normal">
+                                (4 سكاشن: سكشن 1، 2، 3، 4)
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      <tr
+                        className={`transition ${
+                          isSelected ? "bg-blue-950/30" : "hover:bg-slate-800/40"
+                        }`}
+                      >
                       {/* Checkbox */}
                       <td className="py-4 px-4 text-center">
                         <button
@@ -639,8 +694,9 @@ export default function AdminBookingWindowsPage() {
                         </div>
                       </td>
                     </tr>
-                  );
-                })}
+                  </React.Fragment>
+                );
+              })}
               </tbody>
             </table>
           </div>

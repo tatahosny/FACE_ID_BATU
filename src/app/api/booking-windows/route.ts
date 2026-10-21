@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { bookingWindows, groups, sections, bookings } from "@/db/schema";
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc, asc } from "drizzle-orm";
 import { requireRole } from "@/lib/security/auth";
 import { USER_ROLES } from "@/lib/constants/statuses";
 import { createBookingWindowSchema } from "@/lib/validation/booking";
@@ -31,8 +31,7 @@ export async function GET(req: NextRequest) {
       })
       .from(bookingWindows)
       .innerJoin(groups, eq(bookingWindows.groupId, groups.id))
-      .innerJoin(sections, eq(bookingWindows.sectionId, sections.id))
-      .orderBy(desc(bookingWindows.createdAt));
+      .orderBy(asc(groups.code), asc(sections.code));
 
     if (sectionId) {
       query.where(eq(bookingWindows.sectionId, sectionId));
@@ -78,16 +77,11 @@ export async function POST(req: NextRequest) {
 
     const subSec = parsed.data.subSection || "ALL";
 
-    // Prevent creating duplicate windows for the exact same section and subsection
+    // Enforce exactly one canonical booking window per section
     const [existingWindow] = await db
       .select({ id: bookingWindows.id })
       .from(bookingWindows)
-      .where(
-        and(
-          eq(bookingWindows.sectionId, parsed.data.sectionId),
-          eq(bookingWindows.subSection, subSec)
-        )
-      )
+      .where(eq(bookingWindows.sectionId, parsed.data.sectionId))
       .limit(1);
 
     if (existingWindow) {
@@ -95,6 +89,7 @@ export async function POST(req: NextRequest) {
         .update(bookingWindows)
         .set({
           groupId: parsed.data.groupId,
+          subSection: subSec,
           startsAt: new Date(parsed.data.startsAt),
           endsAt: new Date(parsed.data.endsAt),
           capacity: parsed.data.capacity,
