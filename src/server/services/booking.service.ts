@@ -929,10 +929,10 @@ ${notes ? `<b>السبب:</b> ${notes}\n` : ""}
         newQueueNumber = queueNumbers[countToShift];
         newTurn = currentIndex + countToShift + 1;
 
-        // Perform atomic update using CASE statement to avoid any unique constraint conflicts
+        // Perform atomic update using CASE statement with explicit UUID casting
         const idCases = affected.map((item, idx) => {
           const assignedQ = idx === 0 ? queueNumbers[countToShift] : queueNumbers[idx - 1];
-          return sql`WHEN ${bookings.id} = ${item.id} THEN ${assignedQ}`;
+          return sql`WHEN id = ${item.id}::uuid THEN ${assignedQ}`;
         });
 
         const targetNotes = `تم تأخير الدور 10 أدوار لعدم الحضور عند النداء (تذكرة #${originalTicketNumber}، أصبح دوره #${formatQueueNumber(newTurn)})`;
@@ -945,19 +945,19 @@ ${notes ? `<b>السبب:</b> ${notes}\n` : ""}
               ELSE queue_number
             END,
             status = CASE
-              WHEN id = ${bookingId} THEN 'WAITING'
+              WHEN id = ${bookingId}::uuid THEN 'WAITING'
               ELSE status
             END,
             called_at = CASE
-              WHEN id = ${bookingId} THEN NULL
+              WHEN id = ${bookingId}::uuid THEN NULL
               ELSE called_at
             END,
             notes = CASE
-              WHEN id = ${bookingId} THEN ${targetNotes}
+              WHEN id = ${bookingId}::uuid THEN ${targetNotes}
               ELSE notes
             END,
             updated_at = NOW()
-          WHERE id IN (${sql.join(affected.map((b) => sql`${b.id}`), sql`, `)})
+          WHERE id IN (${sql.join(affected.map((b) => sql`${b.id}::uuid`), sql`, `)})
         `);
       }
 

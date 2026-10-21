@@ -164,8 +164,8 @@ export const bookings = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({
-    // Concurrency guarantee: Unique queue number per window and per desk
-    windowDeskQueueIdx: uniqueIndex("bookings_window_desk_queue_idx").on(
+    // Desk queue index for fast ordering
+    windowDeskQueueIdx: index("bookings_window_desk_queue_idx").on(
       table.bookingWindowId,
       table.desk,
       table.queueNumber

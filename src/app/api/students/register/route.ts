@@ -32,7 +32,11 @@ export async function POST(req: NextRequest) {
       role: "STUDENT",
     });
 
-    const response = apiSuccess(result, "تم تسجيل بياناتك بنجاح. يرجى ربط حسابك بالتيليجرام لمتابعة الحجز.", 201);
+    const successMsg = (result.student as any).isExistingUpdated
+      ? "تم التحقق من بياناتك وتحديث السكشن والمجموعة بنجاح. يرجى إتمام ربط التيليجرام لمتابعة حجز دورك."
+      : "تم تسجيل بياناتك بنجاح. يرجى ربط حسابك بالتيليجرام لمتابعة الحجز.";
+
+    const response = apiSuccess(result, successMsg, 201);
 
     response.cookies.set(AUTH_COOKIE_NAME, sessionToken, {
       httpOnly: true,

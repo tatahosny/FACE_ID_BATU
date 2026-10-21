@@ -29,7 +29,17 @@ export class StudentService {
    * Register a new student with transaction safety, National ID encryption, and duplicate checking.
    */
   static async registerStudent(input: StudentRegistrationInput) {
-    const { fullName, academicNumber, nationalId, groupId, sectionId, subSection } = input;
+    const rawFullName = input.fullName.trim();
+    // Normalize any Arabic-Indic digits (٠-٩) to standard English digits
+    const rawAcademicNumber = input.academicNumber
+      .trim()
+      .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632))
+      .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 1776));
+    const rawNationalId = input.nationalId
+      .trim()
+      .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632))
+      .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 1776));
+    const { groupId, sectionId, subSection } = input;
 
     // 1. Verify that selected section belongs to the selected group
     const [section] = await db
@@ -42,47 +52,104 @@ export class StudentService {
     }
 
     // 2. Compute keyed HMAC-SHA256 of national ID for zero-knowledge uniqueness check
-    const nationalIdHash = computeNationalIdHash(nationalId);
+    const nationalIdHash = computeNationalIdHash(rawNationalId);
 
     // 3. Execute atomic transaction for duplicate prevention and registration
     return await db.transaction(async (tx) => {
-      // Check existing academic number
+      // Check existing by academic number (case and whitespace insensitive)
       const [existingByAcademic] = await tx
         .select()
         .from(students)
-        .where(eq(students.academicNumber, academicNumber));
+        .where(sql`LOWER(TRIM(${students.academicNumber})) = LOWER(TRIM(${rawAcademicNumber}))`);
 
-      if (existingByAcademic) {
-        if (
-          existingByAcademic.groupId !== groupId ||
-          existingByAcademic.sectionId !== sectionId
-        ) {
-          throw new Error(
-            "البيانات مسجلة بالفعل، يرجى مراجعة إدارة الكلية لتعديل القيد الأكاديمي."
-          );
-        }
-        throw new Error("الرقم الأكاديمي مسجل بالفعل في النظام.");
-      }
-
-      // Check existing national ID
+      // Check existing by national ID hash
       const [existingByNationalId] = await tx
         .select()
         .from(students)
         .where(eq(students.nationalIdHash, nationalIdHash));
 
-      if (existingByNationalId) {
-        throw new Error("الرقم القومي مسجل بالفعل لطالب آخر.");
+      // CASE 1: Student is already registered in the system AND both Academic Number & National ID match!
+      // This is the student reclaiming/updating their account or linking Telegram!
+      const isOwnerReclaiming =
+        (existingByAcademic && existingByAcademic.nationalIdHash === nationalIdHash) ||
+        (existingByNationalId && existingByAcademic && existingByNationalId.id === existingByAcademic.id);
+
+      if (isOwnerReclaiming && existingByAcademic) {
+        // Update student's group, section, and subSection to their current selection
+        const [updatedStudent] = await tx
+          .update(students)
+          .set({
+            fullName: rawFullName,
+            groupId,
+            sectionId,
+            subSection: subSection || existingByAcademic.subSection || "A",
+            updatedAt: new Date(),
+          })
+          .where(eq(students.id, existingByAcademic.id))
+          .returning();
+
+        // Generate fresh single-use Telegram link token (valid for 15 minutes)
+        const rawToken = generateSecureToken(32);
+        const tokenHash = hashToken(rawToken);
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+        await tx.insert(telegramLinkTokens).values({
+          studentId: updatedStudent.id,
+          tokenHash,
+          expiresAt,
+        });
+
+        // Record audit log
+        await tx.insert(auditLogs).values({
+          action: "STUDENT_PROFILE_UPDATED",
+          entityType: "STUDENT",
+          entityId: updatedStudent.id,
+          safeMetadata: {
+            academicNumber: rawAcademicNumber,
+            groupId,
+            sectionId,
+            subSection: subSection || "A",
+            updatedViaRegistrationForm: true,
+          },
+        });
+
+        return {
+          student: {
+            id: updatedStudent.id,
+            fullName: updatedStudent.fullName,
+            academicNumber: updatedStudent.academicNumber,
+            groupId: updatedStudent.groupId,
+            sectionId: updatedStudent.sectionId,
+            createdAt: updatedStudent.createdAt,
+            isExistingUpdated: true,
+          },
+          telegramLinkToken: rawToken,
+          telegramDeepLink: `https://t.me/${process.env.TELEGRAM_BOT_USERNAME || "batu_face_id_bot"}?start=${rawToken}`,
+        };
       }
 
-      // Encrypt sensitive Egyptian National ID with AES-256-GCM
-      const nationalIdEncrypted = encryptNationalId(nationalId);
+      // CASE 2: Academic Number is taken, but National ID does NOT match
+      if (existingByAcademic && existingByAcademic.nationalIdHash !== nationalIdHash) {
+        throw new Error(
+          "الرقم الأكاديمي مسجل بالفعل في المنظومة برقم قومي مختلف. يرجى مراجعة إدارة الكلية لتصحيح القيد أو التأكد من الأرقام المدخلة."
+        );
+      }
 
-      // Insert new student
+      // CASE 3: National ID is taken by another academic number
+      if (existingByNationalId && existingByNationalId.academicNumber !== rawAcademicNumber) {
+        throw new Error(
+          `الرقم القومي المدخل مسجل بالفعل لطالب آخر برقم أكاديمي (${existingByNationalId.academicNumber}). يرجى التأكد من الرقم القومي الخاص بك.`
+        );
+      }
+
+      // CASE 4: Completely brand new student registration
+      const nationalIdEncrypted = encryptNationalId(rawNationalId);
+
       const [createdStudent] = await tx
         .insert(students)
         .values({
-          fullName,
-          academicNumber,
+          fullName: rawFullName,
+          academicNumber: rawAcademicNumber,
           nationalIdEncrypted,
           nationalIdHash,
           groupId,
@@ -102,13 +169,13 @@ export class StudentService {
         expiresAt,
       });
 
-      // Record audit log (NEVER store national ID)
+      // Record audit log
       await tx.insert(auditLogs).values({
         action: "STUDENT_REGISTERED",
         entityType: "STUDENT",
         entityId: createdStudent.id,
         safeMetadata: {
-          academicNumber,
+          academicNumber: rawAcademicNumber,
           groupId,
           sectionId,
           subSection: subSection || "A",
@@ -123,6 +190,7 @@ export class StudentService {
           groupId: createdStudent.groupId,
           sectionId: createdStudent.sectionId,
           createdAt: createdStudent.createdAt,
+          isExistingUpdated: false,
         },
         telegramLinkToken: rawToken,
         telegramDeepLink: `https://t.me/${process.env.TELEGRAM_BOT_USERNAME || "batu_face_id_bot"}?start=${rawToken}`,
