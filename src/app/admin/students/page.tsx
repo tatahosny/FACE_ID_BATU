@@ -25,6 +25,16 @@ import {
   Trash2,
   CheckSquare,
   Square,
+  UserPlus,
+  ArrowRightLeft,
+  Sparkles,
+  Edit3,
+  Copy,
+  Check,
+  Info,
+  Calendar,
+  Layers,
+  Fingerprint,
 } from "lucide-react";
 
 export default function AdminStudentsPage() {
@@ -38,6 +48,7 @@ export default function AdminStudentsPage() {
   const [authError, setAuthError] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Bulk Selection State
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
@@ -66,6 +77,44 @@ export default function AdminStudentsPage() {
     filteredStaffDateCount: null,
   });
 
+  // Manual Student Entry / Overwrite Modal State
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [manualLoading, setManualLoading] = useState(false);
+  const [manualSections, setManualSections] = useState<any[]>([]);
+  const [manualForm, setManualForm] = useState({
+    fullName: "",
+    nationalId: "",
+    academicNumber: "",
+    groupId: "",
+    sectionId: "",
+    subSection: "A",
+    isFingerprintActivated: false,
+  });
+
+  const [conflictData, setConflictData] = useState<null | {
+    message: string;
+    existingStudent: {
+      id: string;
+      fullName: string;
+      academicNumber: string;
+      nationalId: string;
+      groupName: string;
+      sectionName: string;
+      subSection: string;
+      isActivated: boolean;
+      activatedAt: string | null;
+    };
+    newData: {
+      fullName: string;
+      academicNumber: string;
+      nationalId: string;
+      groupName: string;
+      sectionName: string;
+      subSection: string;
+      isFingerprintActivated: boolean;
+    };
+  }>(null);
+
   // Load user session, groups, and staff on mount
   useEffect(() => {
     fetch("/api/auth/me")
@@ -86,7 +135,7 @@ export default function AdminStudentsPage() {
 
   const isSuperAdmin = sessionUser?.role === "SUPER_ADMIN";
 
-  // Load sections when group changes
+  // Load sections when filter group changes
   useEffect(() => {
     if (!selectedGroup) {
       setSelectedSection("");
@@ -97,6 +146,25 @@ export default function AdminStudentsPage() {
       .then((r) => r.json())
       .then((j) => j.success && setSections(j.data.sections || []));
   }, [selectedGroup]);
+
+  // Load sections when manual modal group changes
+  useEffect(() => {
+    if (!manualForm.groupId) {
+      setManualSections([]);
+      return;
+    }
+    fetch(`/api/sections?groupId=${manualForm.groupId}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.success) {
+          const list = j.data.sections || [];
+          setManualSections(list);
+          if (list.length > 0 && (!manualForm.sectionId || !list.some((s: any) => s.id === manualForm.sectionId))) {
+            setManualForm((prev) => ({ ...prev, sectionId: list[0].id }));
+          }
+        }
+      });
+  }, [manualForm.groupId]);
 
   const fetchStudents = async () => {
     try {
@@ -349,66 +417,167 @@ export default function AdminStudentsPage() {
   const allSelected = students.length > 0 && selectedStudentIds.length === students.length;
   const isIndeterminate = selectedStudentIds.length > 0 && selectedStudentIds.length < students.length;
 
-  return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-blue-400" />
-            <span className="text-xs font-mono text-blue-400 font-bold uppercase tracking-wider">
-              STUDENT REPOSITORY • كشف الطلاب المركزي
-            </span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-            دليل الطلاب وسجل حالة البصمة
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            كشف معتمد لجميع الطلاب المسجلين بالفرقة الثانية، مع إمكانية التفعيل المباشر للبصمة أو إلغائها وإعادة فتح الحجز (إجمالي المسجلين: {total} طالب).
-          </p>
-        </div>
+  const handleCopyNationalId = (id: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
-        <div className="grid grid-cols-1 sm:flex sm:items-center gap-2 self-stretch sm:self-auto flex-wrap w-full md:w-auto">
-          <button
-            onClick={handleExportExcel}
-            disabled={exportLoading}
-            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-md shadow-emerald-600/30 transition flex items-center justify-center gap-2 disabled:opacity-50 text-center"
-            title="تصدير كشف الطلاب الحالي كاملاً مع الأرقام القومية والأكاديمية والسكاشن لشيت Excel"
-          >
-            <FileSpreadsheet className={`w-4 h-4 ${exportLoading ? "animate-bounce" : ""}`} />
-            <span>{exportLoading ? "جاري تجهيز الشيت..." : "تصدير شيت إكسيل (Excel)"}</span>
-          </button>
-          <button
-            onClick={fetchStudents}
-            disabled={loading}
-            className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold border border-slate-700 shadow-md transition flex items-center justify-center gap-2 text-center"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-blue-400" : ""}`} />
-            <span>تحديث القائمة</span>
-          </button>
+  // Open modal for brand new student
+  const handleOpenNewStudentModal = () => {
+    setConflictData(null);
+    const defaultGroup = groups[0]?.id || "";
+    setManualForm({
+      fullName: "",
+      nationalId: "",
+      academicNumber: "",
+      groupId: defaultGroup,
+      sectionId: "",
+      subSection: "A",
+      isFingerprintActivated: false,
+    });
+    setIsManualModalOpen(true);
+  };
+
+  // Open modal prefilled with existing student data for edit
+  const handleOpenEditStudentModal = (student: any) => {
+    setConflictData(null);
+    setManualForm({
+      fullName: student.fullName || "",
+      nationalId: student.nationalId || "",
+      academicNumber: student.academicNumber || "",
+      groupId: student.groupId || groups[0]?.id || "",
+      sectionId: student.sectionId || "",
+      subSection: student.subSection || "A",
+      isFingerprintActivated: Boolean(student.isFingerprintActivated || student.isActivated),
+    });
+    setIsManualModalOpen(true);
+  };
+
+  // Submit manual form (either initial check or with overwrite approved)
+  const handleManualSubmit = async (overwrite = false) => {
+    try {
+      setManualLoading(true);
+      setFeedback(null);
+
+      const res = await fetch("/api/admin/students/manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...manualForm,
+          overwrite,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setFeedback({ message: json.error || "فشل تسجيل بيانات الطالب", type: "error" });
+        return;
+      }
+
+      // If backend detected an existing student conflict and we didn't send overwrite:
+      if (json.data?.conflict) {
+        setConflictData(json.data);
+        return;
+      }
+
+      // Successful insert or overwrite
+      setFeedback({
+        message: json.message || "تم حفظ وتحديث بيانات الطالب بنجاح!",
+        type: "success",
+      });
+      setIsManualModalOpen(false);
+      setConflictData(null);
+      await fetchStudents();
+    } catch (err: any) {
+      setFeedback({ message: err.message || "حدث خطأ غير متوقع", type: "error" });
+    } finally {
+      setManualLoading(false);
+    }
+  };
+
+  const activationPercentage = stats.totalRegistered > 0
+    ? Math.round((stats.totalActivated / stats.totalRegistered) * 100)
+    : 0;
+
+  return (
+    <div className="space-y-6 pb-12" dir="rtl">
+      {/* Page Header */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-[#0d1627] to-slate-900 border border-slate-800 p-6 md:p-8 shadow-2xl">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono font-bold tracking-wider">
+              <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+              <span>CENTRAL BIOMETRICS DIRECTORY • سجل البصمة المركزي</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-tight flex items-center gap-3">
+              <span>دليل الطلاب وسجل حالة البصمة</span>
+              <Sparkles className="w-6 h-6 text-amber-400 hidden sm:inline-block" />
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
+              السجل الرسمي المعتمد لجميع طلاب الفرقة الثانية، يتيح استعراض حالة بصمة الوجه، التفعيل أو الإلغاء، التصدير، وإدخال أو استبدال بيانات الطلاب يدوياً.
+            </p>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {isSuperAdmin && (
+              <button
+                onClick={handleOpenNewStudentModal}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-blue-600/30 transition transform active:scale-95 flex items-center gap-2"
+                title="إدخال بيانات طالب جديد أو استبدال بيانات طالب مسجل يدوياً"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>إضافة طالب يدوياً</span>
+              </button>
+            )}
+
+            <button
+              onClick={handleExportExcel}
+              disabled={exportLoading}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/25 transition flex items-center gap-2 disabled:opacity-50"
+              title="تصدير كشف الطلاب الحالي كاملاً مع الأرقام القومية والأكاديمية لشيت Excel"
+            >
+              <FileSpreadsheet className={`w-4 h-4 ${exportLoading ? "animate-bounce" : ""}`} />
+              <span>{exportLoading ? "جاري التصدير..." : "تصدير شيت Excel"}</span>
+            </button>
+
+            <button
+              onClick={fetchStudents}
+              disabled={loading}
+              className="px-3.5 py-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 text-xs font-bold border border-slate-700 shadow-md transition flex items-center gap-2"
+              title="تحديث البيانات الآن"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-blue-400" : ""}`} />
+              <span>تحديث</span>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Feedback Message */}
       {feedback && (
         <div
-          className={`p-4 rounded-2xl border text-sm font-medium flex items-center justify-between animate-fade-in ${
+          className={`p-4 rounded-2xl border text-sm font-semibold flex items-center justify-between shadow-xl transition-all ${
             feedback.type === "success"
-              ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300"
-              : "bg-red-950/40 border-red-500/40 text-red-300"
+              ? "bg-emerald-950/60 border-emerald-500/50 text-emerald-200"
+              : "bg-red-950/60 border-red-500/50 text-red-200"
           }`}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {feedback.type === "success" ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
             ) : (
-              <AlertTriangle className="w-4 h-4 text-red-400" />
+              <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
             )}
             <span>{feedback.message}</span>
           </div>
           <button
             onClick={() => setFeedback(null)}
-            className="text-xs underline text-slate-400 hover:text-white"
+            className="text-xs font-bold px-2 py-1 rounded-lg bg-black/20 hover:bg-black/40 text-slate-300 hover:text-white"
           >
             إغلاق
           </button>
@@ -416,16 +585,21 @@ export default function AdminStudentsPage() {
       )}
 
       {/* Operational Protocol Notice */}
-      <div className="bg-blue-950/30 border border-blue-900/40 rounded-2xl p-4 flex items-center gap-3 text-xs text-blue-300">
-        <ShieldCheck className="w-5 h-5 text-blue-400 flex-shrink-0" />
-        <div>
+      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 flex items-center gap-3.5 text-xs text-slate-300 backdrop-blur-md">
+        <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 flex-shrink-0">
+          <ShieldCheck className="w-5 h-5" />
+        </div>
+        <div className="leading-relaxed">
           {isSuperAdmin ? (
             <>
-              <span className="font-bold">تحكم ثنائي الاتجاه بالبصمة:</span> يمكنك <b>تفعيل البصمة</b> مباشرة لأي طالب غير مفعل ليتم توثيقه وإرسال إشعار التيليجرام له، أو <b>إلغاء البصمة وإعادة الحجز</b> لأي طالب مفعل ليتمكن من حجز دور جديد من الصفر.
+              <span className="font-bold text-white">صلاحيات كاملة للمشرف العام (Super Admin):</span> يمكنك{" "}
+              <b className="text-emerald-400">تفعيل البصمة</b> مباشرة لأي طالب لاعتمادها فوراً، أو{" "}
+              <b className="text-amber-400">إلغاء البصمة وإعادة فتح الحجز</b> للبدء من جديد، أو{" "}
+              <b className="text-blue-400">إدخال واستبدال بيانات الطلاب يدوياً</b> مع مراجعة التعارض قبل الاعتماد.
             </>
           ) : (
             <>
-              <span className="font-bold">سجل حالة البصمة (صلاحية استعراض فقط):</span> يمكنك تصفح بيانات الطلاب والتصفية وتصدير كشوف الإكسيل. إجراءات تفعيل وإلغاء واعتماد البصمة وحذف الطلاب مقتصرة حصرياً على المشرف العام (Super Admin).
+              <span className="font-bold text-white">سجل حالة البصمة (صلاحية استعراض):</span> يمكنك تصفح بيانات الطلاب والتصفية وتصدير كشوف الإكسيل. إجراءات التفعيل والإلغاء وتعديل البيانات مقتصرة على المشرف العام.
             </>
           )}
         </div>
@@ -433,13 +607,13 @@ export default function AdminStudentsPage() {
 
       {/* Auth Error Banner if logged out */}
       {authError && (
-        <div className="bg-amber-950/40 border border-amber-500/40 rounded-2xl p-6 text-center space-y-3">
+        <div className="bg-amber-950/40 border border-amber-500/40 rounded-3xl p-6 text-center space-y-3">
           <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/30">
             <AlertTriangle className="w-6 h-6 text-amber-400" />
           </div>
           <h3 className="text-base font-bold text-white">انتهت جلسة تسجيل الدخول أو يلزم تسجيل دخول المشرف</h3>
           <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
-            سجلات الطلاب مشفرة ومحمية بصلاحيات المشرف العام. يرجى تسجيل الدخول بحساب المشرف (admin@batu.edu.eg) لتتمكن من استعراض كشف الطلاب.
+            سجلات الطلاب مشفرة ومحمية بصلاحيات المشرف العام. يرجى تسجيل الدخول بحساب المشرف لتتمكن من استعراض كشف الطلاب.
           </p>
           <div className="pt-2">
             <Link
@@ -456,73 +630,81 @@ export default function AdminStudentsPage() {
       {/* Statistics Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Registered */}
-        <div className="bg-gradient-to-br from-blue-950/40 via-slate-900 to-slate-900 border border-blue-500/30 rounded-2xl p-4 shadow-xl backdrop-blur-xl relative overflow-hidden group">
+        <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 border border-slate-800 hover:border-blue-500/40 rounded-2xl p-5 shadow-xl transition-all group relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400">إجمالي الطلاب المسجلين</span>
-            <div className="w-8 h-8 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400">
+            <span className="text-xs font-bold text-slate-400">إجمالي المقيدين بالدليل</span>
+            <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400 group-hover:scale-110 transition-transform">
               <Users className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-3 text-2xl font-black text-white font-mono">
+          <div className="mt-3 text-3xl font-black text-white font-mono">
             {stats.totalRegistered.toLocaleString()}
           </div>
-          <div className="mt-1 text-[11px] text-blue-400 font-medium">
-            طالب مقيد بالمنظومة المركزية
+          <div className="mt-2 flex items-center gap-1.5 text-[11px] text-blue-400 font-semibold">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+            <span>طلاب الفرقة الثانية المقيدين</span>
           </div>
         </div>
 
         {/* Total Biometrics Activated */}
-        <div className="bg-gradient-to-br from-emerald-950/40 via-slate-900 to-slate-900 border border-emerald-500/30 rounded-2xl p-4 shadow-xl backdrop-blur-xl relative overflow-hidden group">
+        <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950/20 border border-slate-800 hover:border-emerald-500/40 rounded-2xl p-5 shadow-xl transition-all group relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400">البصمة مفعلة (تم التوثيق)</span>
-            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+            <span className="text-xs font-bold text-slate-400">تمت البصمة (موثقين)</span>
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-110 transition-transform">
               <CheckCircle2 className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-3 text-2xl font-black text-emerald-400 font-mono">
-            {stats.totalActivated.toLocaleString()}
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-black text-emerald-400 font-mono">
+              {stats.totalActivated.toLocaleString()}
+            </span>
+            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+              {activationPercentage}%
+            </span>
           </div>
-          <div className="mt-1 text-[11px] text-emerald-400/80 font-medium">
-            طالب تم تفعيل بصمة الوجه لهم بنجاح
+          <div className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-400/90 font-semibold">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <span>تم تفعيل بصمة الوجه بنجاح</span>
           </div>
         </div>
 
         {/* Total Not Activated */}
-        <div className="bg-gradient-to-br from-amber-950/40 via-slate-900 to-slate-900 border border-amber-500/30 rounded-2xl p-4 shadow-xl backdrop-blur-xl relative overflow-hidden group">
+        <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-amber-950/20 border border-slate-800 hover:border-amber-500/40 rounded-2xl p-5 shadow-xl transition-all group relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400">غير المفعلين (قيد الانتظار)</span>
-            <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+            <span className="text-xs font-bold text-slate-400">قيد الانتظار (لم تبصم)</span>
+            <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-110 transition-transform">
               <Clock className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-3 text-2xl font-black text-amber-400 font-mono">
+          <div className="mt-3 text-3xl font-black text-amber-400 font-mono">
             {stats.totalNotActivated.toLocaleString()}
           </div>
-          <div className="mt-1 text-[11px] text-amber-400/80 font-medium">
-            طالب بانتظار توثيق وتفعيل البصمة
+          <div className="mt-2 flex items-center gap-1.5 text-[11px] text-amber-400/90 font-semibold">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+            <span>بانتظار توثيق وتفعيل البصمة</span>
           </div>
         </div>
 
         {/* Filter-specific Counter (Staff and/or Date) */}
         <div
-          className={`border rounded-2xl p-4 shadow-xl backdrop-blur-xl relative overflow-hidden transition ${
+          className={`border rounded-2xl p-5 shadow-xl transition-all relative overflow-hidden ${
             selectedStaff || selectedDate
-              ? "bg-gradient-to-br from-purple-950/50 via-slate-900 to-slate-900 border-purple-500/40 ring-1 ring-purple-500/30"
-              : "bg-slate-900/60 border-slate-800"
+              ? "bg-gradient-to-br from-purple-950/40 via-slate-900 to-slate-950 border-purple-500/40 ring-1 ring-purple-500/30"
+              : "bg-slate-900 border-slate-800"
           }`}
         >
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-400">
               {selectedStaff && selectedDate
-                ? "تفعيل الموظف بالتاريخ المختار"
+                ? "تفعيل الموظف بالتاريخ"
                 : selectedStaff
-                ? "إجمالي تفعيل الموظف المختار"
+                ? "إجمالي تفعيل الموظف"
                 : selectedDate
-                ? "إجمالي التفعيل بالتاريخ المختار"
+                ? "إجمالي التفعيل بالتاريخ"
                 : "تخصيص الفرز (موظف / تاريخ)"}
             </span>
             <div
-              className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+              className={`w-9 h-9 rounded-xl flex items-center justify-center ${
                 selectedStaff || selectedDate
                   ? "bg-purple-500/20 border border-purple-500/40 text-purple-300"
                   : "bg-slate-800 border border-slate-700 text-slate-500"
@@ -531,12 +713,12 @@ export default function AdminStudentsPage() {
               <UserCheck className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-3 text-2xl font-black font-mono text-purple-300">
+          <div className="mt-3 text-3xl font-black font-mono text-purple-300">
             {selectedStaff || selectedDate
               ? (stats.filteredStaffDateCount ?? 0).toLocaleString()
               : "—"}
           </div>
-          <div className="mt-1 text-[11px] text-purple-300/80 font-medium truncate">
+          <div className="mt-2 text-[11px] text-purple-300/80 font-medium truncate">
             {selectedStaff || selectedDate
               ? `${
                   selectedStaff
@@ -548,21 +730,101 @@ export default function AdminStudentsPage() {
         </div>
       </div>
 
+      {/* Quick Filter Status Tabs */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs font-bold">
+        <button
+          onClick={() => {
+            setActivationFilter("");
+            setPage(1);
+          }}
+          className={`px-4 py-2 rounded-xl transition flex items-center gap-2 border ${
+            activationFilter === ""
+              ? "bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-600/30"
+              : "bg-slate-900 text-slate-400 border-slate-800 hover:text-white"
+          }`}
+        >
+          <Users className="w-3.5 h-3.5" />
+          <span>الكل ({stats.totalRegistered})</span>
+        </button>
+
+        <button
+          onClick={() => {
+            setActivationFilter("ACTIVATED");
+            setPage(1);
+          }}
+          className={`px-4 py-2 rounded-xl transition flex items-center gap-2 border ${
+            activationFilter === "ACTIVATED"
+              ? "bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/30"
+              : "bg-slate-900 text-slate-400 border-slate-800 hover:text-white"
+          }`}
+        >
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+          <span>تمت البصمة ({stats.totalActivated})</span>
+        </button>
+
+        <button
+          onClick={() => {
+            setActivationFilter("NOT_ACTIVATED");
+            setPage(1);
+          }}
+          className={`px-4 py-2 rounded-xl transition flex items-center gap-2 border ${
+            activationFilter === "NOT_ACTIVATED"
+              ? "bg-amber-600 text-white border-amber-500 shadow-md shadow-amber-600/30"
+              : "bg-slate-900 text-slate-400 border-slate-800 hover:text-white"
+          }`}
+        >
+          <Clock className="w-3.5 h-3.5 text-amber-400" />
+          <span>لم تبصم بعد ({stats.totalNotActivated})</span>
+        </button>
+      </div>
+
       {/* Filters Bar */}
-      <div className="bg-slate-900/90 rounded-2xl border border-slate-800 shadow-xl p-4 sm:p-5 space-y-4 backdrop-blur-xl">
+      <div className="bg-slate-900/95 rounded-3xl border border-slate-800 shadow-xl p-5 space-y-4 backdrop-blur-xl">
+        <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
+            <Filter className="w-4 h-4 text-blue-400" />
+            <span>أدوات التصفية والبحث المتقدم</span>
+          </div>
+
+          {(selectedGroup ||
+            selectedSection ||
+            selectedSubSection ||
+            activationFilter ||
+            selectedStaff ||
+            selectedDate ||
+            search) && (
+            <button
+              onClick={() => {
+                setSelectedGroup("");
+                setSelectedSection("");
+                setSelectedSubSection("");
+                setActivationFilter("");
+                setSelectedStaff("");
+                setSelectedDate("");
+                setSearch("");
+                setPage(1);
+              }}
+              className="text-xs font-bold text-rose-400 hover:text-rose-300 flex items-center gap-1 transition"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>إعادة ضبط الفلاتر</span>
+            </button>
+          )}
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
           {/* Group Filter */}
           <div>
-            <label className="block text-xs font-bold text-slate-300 mb-1">المجموعة:</label>
+            <label className="block text-[11px] font-bold text-slate-400 mb-1">المجموعة:</label>
             <select
               value={selectedGroup}
               onChange={(e) => {
                 setSelectedGroup(e.target.value);
                 setPage(1);
               }}
-              className="w-full px-3 py-2 rounded-xl border border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white"
+              className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white"
             >
-              <option value="">جميع المجموعات (الكل)</option>
+              <option value="">جميع المجموعات</option>
               {groups.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.name}
@@ -573,7 +835,7 @@ export default function AdminStudentsPage() {
 
           {/* Section Filter */}
           <div>
-            <label className="block text-xs font-bold text-slate-300 mb-1">السكشن:</label>
+            <label className="block text-[11px] font-bold text-slate-400 mb-1">السكشن:</label>
             <select
               value={selectedSection}
               onChange={(e) => {
@@ -581,9 +843,9 @@ export default function AdminStudentsPage() {
                 setPage(1);
               }}
               disabled={!selectedGroup || sections.length === 0}
-              className="w-full px-3 py-2 rounded-xl border border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white disabled:opacity-50"
+              className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white disabled:opacity-40"
             >
-              <option value="">جميع السكاشن (الكل)</option>
+              <option value="">جميع السكاشن</option>
               {sections.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -594,14 +856,14 @@ export default function AdminStudentsPage() {
 
           {/* Sub-Section Filter */}
           <div>
-            <label className="block text-xs font-bold text-slate-300 mb-1">القسم الفرعي:</label>
+            <label className="block text-[11px] font-bold text-slate-400 mb-1">القسم الفرعي:</label>
             <select
               value={selectedSubSection}
               onChange={(e) => {
                 setSelectedSubSection(e.target.value);
                 setPage(1);
               }}
-              className="w-full px-3 py-2 rounded-xl border border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white"
+              className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white"
             >
               <option value="">جميع الأقسام (A و B)</option>
               <option value="A">قسم A فقط</option>
@@ -611,33 +873,33 @@ export default function AdminStudentsPage() {
 
           {/* Activation Status Filter */}
           <div>
-            <label className="block text-xs font-bold text-slate-300 mb-1">حالة البصمة:</label>
+            <label className="block text-[11px] font-bold text-slate-400 mb-1">حالة البصمة:</label>
             <select
               value={activationFilter}
               onChange={(e) => {
                 setActivationFilter(e.target.value);
                 setPage(1);
               }}
-              className="w-full px-3 py-2 rounded-xl border border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white"
+              className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white"
             >
-              <option value="">جميع الحالات (الكل)</option>
-              <option value="ACTIVATED">تمت البصمة (مفعل رسمياً)</option>
-              <option value="NOT_ACTIVATED">لم تفعل بعد (قيد الانتظار)</option>
+              <option value="">جميع الحالات</option>
+              <option value="ACTIVATED">تمت البصمة (مفعل)</option>
+              <option value="NOT_ACTIVATED">لم تفعل بعد (انتظار)</option>
             </select>
           </div>
 
           {/* Staff Member Filter */}
           <div>
-            <label className="block text-xs font-bold text-slate-300 mb-1">الموظف المعتمد للبصمة:</label>
+            <label className="block text-[11px] font-bold text-slate-400 mb-1">الموظف المعتمد:</label>
             <select
               value={selectedStaff}
               onChange={(e) => {
                 setSelectedStaff(e.target.value);
                 setPage(1);
               }}
-              className="w-full px-3 py-2 rounded-xl border border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-950 text-white"
+              className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-950 text-white"
             >
-              <option value="">جميع الموظفين (الكل)</option>
+              <option value="">جميع الموظفين</option>
               {staffList.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.fullName} ({s.role === "SUPER_ADMIN" ? "مدير" : "موظف"})
@@ -648,7 +910,7 @@ export default function AdminStudentsPage() {
 
           {/* Activation Date Filter */}
           <div>
-            <label className="block text-xs font-bold text-slate-300 mb-1">تاريخ توثيق البصمة:</label>
+            <label className="block text-[11px] font-bold text-slate-400 mb-1">تاريخ التوثيق:</label>
             <div className="relative">
               <input
                 type="date"
@@ -657,7 +919,7 @@ export default function AdminStudentsPage() {
                   setSelectedDate(e.target.value);
                   setPage(1);
                 }}
-                className="w-full px-3 py-2 rounded-xl border border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-950 text-white"
+                className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-950 text-white"
               />
               {selectedDate && (
                 <button
@@ -677,18 +939,18 @@ export default function AdminStudentsPage() {
 
           {/* Search Input */}
           <div>
-            <label className="block text-xs font-bold text-slate-300 mb-1">بحث سريع:</label>
+            <label className="block text-[11px] font-bold text-slate-400 mb-1">بحث سريع:</label>
             <form onSubmit={handleSearchSubmit} className="flex gap-1.5">
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="اسم أو رقم..."
-                className="w-full px-3 py-2 rounded-xl border border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white placeholder-slate-500"
+                className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white placeholder-slate-500"
               />
               <button
                 type="submit"
-                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 flex items-center gap-1"
+                className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center justify-center transition"
                 title="تنفيذ البحث"
               >
                 <Search className="w-3.5 h-3.5" />
@@ -696,40 +958,11 @@ export default function AdminStudentsPage() {
             </form>
           </div>
         </div>
-
-        {/* Clear Filters Helper */}
-        {(selectedGroup ||
-          selectedSection ||
-          selectedSubSection ||
-          activationFilter ||
-          selectedStaff ||
-          selectedDate ||
-          search) && (
-          <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
-            <span className="text-slate-400">الفلاتر النشطة تطبق على القائمة حالياً.</span>
-            <button
-              onClick={() => {
-                setSelectedGroup("");
-                setSelectedSection("");
-                setSelectedSubSection("");
-                setActivationFilter("");
-                setSelectedStaff("");
-                setSelectedDate("");
-                setSearch("");
-                setPage(1);
-              }}
-              className="text-blue-400 hover:underline font-bold flex items-center gap-1"
-            >
-              <X className="w-3.5 h-3.5" />
-              <span>إلغاء جميع الفلاتر</span>
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Bulk Action Toolbar for Students - Super Admin Only */}
       {isSuperAdmin && selectedStudentIds.length > 0 && (
-        <div className="bg-gradient-to-r from-red-950/80 via-slate-900/90 to-slate-950/90 border border-red-500/40 rounded-2xl p-4 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-4 backdrop-blur-xl animate-fade-in">
+        <div className="bg-gradient-to-r from-red-950/80 via-slate-900 to-slate-950 border border-red-500/40 rounded-2xl p-4 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-4 backdrop-blur-xl animate-fade-in">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-red-600/30 border border-red-400/40 flex items-center justify-center text-red-300 font-bold text-sm font-mono">
               {selectedStudentIds.length}
@@ -739,7 +972,7 @@ export default function AdminStudentsPage() {
                 تم تحديد ({selectedStudentIds.length}) من أصل ({students.length}) طالب في الصفحة الحالية
               </div>
               <div className="text-xs text-red-300">
-                يمكنك الآن حذف وإلغاء تسجيل الطلاب المحددين دفعة واحدة من المنظومة:
+                يمكنك حذف وإلغاء تسجيل الطلاب المحددين دفعة واحدة من المنظومة:
               </div>
             </div>
           </div>
@@ -768,25 +1001,27 @@ export default function AdminStudentsPage() {
       )}
 
       {/* Students Data Table */}
-      <div className="bg-slate-900/90 rounded-2xl border border-slate-800 shadow-xl overflow-hidden backdrop-blur-xl">
+      <div className="bg-slate-900/90 rounded-3xl border border-slate-800 shadow-2xl overflow-hidden backdrop-blur-xl">
         {loading ? (
-          <div className="p-16 text-center text-slate-400 text-sm space-y-3">
-            <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
-            <p>جاري استرجاع وفك تشفير سجلات كشف الطلاب...</p>
+          <div className="p-20 text-center text-slate-400 text-sm space-y-4">
+            <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
+            <p className="font-semibold text-slate-300">جاري استرجاع وفك تشفير سجلات كشف الطلاب...</p>
           </div>
         ) : authError ? (
-          <div className="p-12 text-center text-slate-400 text-sm">
+          <div className="p-16 text-center text-slate-400 text-sm">
             يرجى تسجيل الدخول بحساب المشرف لعرض محتويات الجدول.
           </div>
         ) : students.length === 0 ? (
-          <div className="p-16 text-center text-slate-400 text-sm">
-            لا توجد سجلات طلاب تطابق خيارات التصفية الحالية.
+          <div className="p-20 text-center text-slate-400 text-sm space-y-3">
+            <Users className="w-12 h-12 text-slate-600 mx-auto" />
+            <p className="font-bold text-slate-300">لا توجد سجلات طلاب تطابق خيارات التصفية الحالية.</p>
+            <p className="text-xs text-slate-500">جرب تغيير الفلاتر أو البحث باسم أو رقم آخر.</p>
           </div>
         ) : (
           <div className="overflow-x-auto custom-scrollbar">
-            <table className="w-full text-right border-collapse min-w-[860px]">
+            <table className="w-full text-right border-collapse min-w-[900px]">
               <thead>
-                <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-400 text-xs font-bold">
+                <tr className="bg-[#090d18] border-b border-slate-800/90 text-slate-400 text-xs font-bold tracking-wide">
                   {isSuperAdmin && (
                     <th className="p-4 w-12 text-center">
                       <button
@@ -810,26 +1045,31 @@ export default function AdminStudentsPage() {
                   <th className="p-4">الرقم القومي</th>
                   <th className="p-4">الرقم الأكاديمي</th>
                   <th className="p-4">المجموعة والسكشن</th>
-                  <th className="p-4">القسم الفرعي</th>
+                  <th className="p-4">القسم</th>
                   <th className="p-4">التيليجرام</th>
                   <th className="p-4">حالة البصمة</th>
-                  <th className="p-4">بيانات التوثيق والاعتماد</th>
+                  <th className="p-4">بيانات التوثيق</th>
                   <th className="p-4 text-center">
-                    {isSuperAdmin ? "التحكم بالبصمة وإلغاء القيد" : "إجراءات التحكم"}
+                    {isSuperAdmin ? "إجراءات التحكم والتعديل" : "حالة السجل"}
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/80 text-sm">
+              <tbody className="divide-y divide-slate-800/60 text-sm">
                 {students.map((student) => {
                   const isDone = Boolean(student.isFingerprintActivated || student.isActivated);
                   const staffName = student.activatedByName || student.activatedByStaffName;
                   const isSelected = selectedStudentIds.includes(student.id);
 
+                  // Extract initial letter for avatar
+                  const initial = student.fullName?.trim()?.charAt(0) || "ط";
+
                   return (
                     <tr
                       key={student.id}
-                      className={`transition ${
-                        isSelected ? "bg-red-950/20" : "hover:bg-slate-800/40"
+                      className={`transition-colors ${
+                        isSelected
+                          ? "bg-red-950/20"
+                          : "hover:bg-slate-800/35"
                       }`}
                     >
                       {/* Checkbox - Super Admin Only */}
@@ -848,27 +1088,56 @@ export default function AdminStudentsPage() {
                         </td>
                       )}
 
-                      {/* Student Name */}
-                      <td className="p-4 font-bold text-white">
-                        {student.fullName}
+                      {/* Student Name & Avatar */}
+                      <td className="p-4">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs flex-shrink-0 ${
+                            isDone
+                              ? "bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"
+                              : "bg-blue-500/10 text-blue-300 border border-blue-500/20"
+                          }`}>
+                            {initial}
+                          </div>
+                          <div>
+                            <div className="font-bold text-white text-sm leading-tight">
+                              {student.fullName}
+                            </div>
+                            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                              قيد: {formatCairoDateTime(student.createdAt).split(" ")[0]}
+                            </div>
+                          </div>
+                        </div>
                       </td>
 
-                      {/* Decrypted 14-digit National ID */}
+                      {/* Decrypted 14-digit National ID with copy */}
                       <td className="p-4 font-mono font-bold text-slate-200">
-                        <span className="bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800 text-xs tracking-wider">
-                          {student.nationalId}
-                        </span>
+                        <div className="inline-flex items-center gap-1.5 bg-slate-950/80 px-2.5 py-1 rounded-lg border border-slate-800 text-xs tracking-wider">
+                          <span>{student.nationalId}</span>
+                          <button
+                            onClick={() => handleCopyNationalId(student.id, student.nationalId)}
+                            className="text-slate-500 hover:text-slate-200 transition"
+                            title="نسخ الرقم القومي"
+                          >
+                            {copiedId === student.id ? (
+                              <Check className="w-3 h-3 text-emerald-400" />
+                            ) : (
+                              <Copy className="w-3 h-3" />
+                            )}
+                          </button>
+                        </div>
                       </td>
 
                       {/* Academic Number */}
-                      <td className="p-4 font-mono text-slate-300 text-xs">
-                        {student.academicNumber}
+                      <td className="p-4 font-mono text-slate-300 text-xs font-semibold">
+                        <span className="bg-slate-950/40 px-2 py-0.5 rounded border border-slate-800/80">
+                          {student.academicNumber}
+                        </span>
                       </td>
 
                       {/* Group & Section */}
                       <td className="p-4 text-xs">
-                        <div className="font-semibold text-slate-200">{student.groupName}</div>
-                        <div className="text-slate-400 text-[11px]">{student.sectionName}</div>
+                        <div className="font-bold text-slate-200">{student.groupName}</div>
+                        <div className="text-slate-400 text-[11px] mt-0.5">{student.sectionName}</div>
                       </td>
 
                       {/* Sub-Section */}
@@ -892,14 +1161,14 @@ export default function AdminStudentsPage() {
                             <span>@{student.telegramUsername || "مرتبط"}</span>
                           </span>
                         ) : (
-                          <span className="text-[11px] text-slate-400">غير مرتبط</span>
+                          <span className="text-[11px] text-slate-500">غير مرتبط</span>
                         )}
                       </td>
 
                       {/* Fingerprint Status Badge */}
                       <td className="p-4">
                         {isDone ? (
-                          <span className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                          <span className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-sm shadow-emerald-500/10">
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                             <span>تمت البصمة</span>
                           </span>
@@ -917,7 +1186,7 @@ export default function AdminStudentsPage() {
                           <div className="space-y-0.5">
                             <div className="font-semibold text-slate-200 flex items-center gap-1">
                               <span className="text-slate-400 text-[10px]">بواسطة:</span>
-                              <span className="text-emerald-300">{staffName || "المشرف المعتمد"}</span>
+                              <span className="text-emerald-300 font-bold">{staffName || "المشرف المعتمد"}</span>
                             </div>
                             {student.activatedAt && (
                               <div className="text-[10px] text-slate-400 font-mono">
@@ -926,11 +1195,11 @@ export default function AdminStudentsPage() {
                             )}
                           </div>
                         ) : (
-                          <span className="text-slate-500 text-xs">قيد انتظار الحضور والدور</span>
+                          <span className="text-slate-500 text-xs">قيد انتظار الدور</span>
                         )}
                       </td>
 
-                      {/* Actions: Direct Activation / Revoke Activation / Delete (Super Admin) or View Only (Staff) */}
+                      {/* Actions: Direct Activation / Revoke Activation / Edit / Delete */}
                       <td className="p-4 text-center">
                         {isSuperAdmin ? (
                           <div className="flex items-center justify-center gap-1.5 flex-wrap">
@@ -955,6 +1224,15 @@ export default function AdminStudentsPage() {
                                 <span>تفعيل البصمة</span>
                               </button>
                             )}
+
+                            {/* Edit / Overwrite Student Button */}
+                            <button
+                              onClick={() => handleOpenEditStudentModal(student)}
+                              title="تعديل أو استبدال بيانات الطالب"
+                              className="p-1.5 rounded-xl bg-blue-950/40 hover:bg-blue-900/60 text-blue-400 border border-blue-800/40 transition hover:text-blue-200"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
 
                             {/* Delete Student Button */}
                             <button
@@ -982,15 +1260,15 @@ export default function AdminStudentsPage() {
 
         {/* Pagination */}
         {total > 25 && (
-          <div className="p-4 border-t border-slate-800 bg-[#0b101d] flex items-center justify-between text-xs">
-            <span className="text-slate-400">
+          <div className="p-4 border-t border-slate-800/80 bg-[#090d18] flex items-center justify-between text-xs">
+            <span className="text-slate-400 font-medium">
               عرض {(page - 1) * 25 + 1} - {Math.min(page * 25, total)} من أصل {total} طالب
             </span>
             <div className="flex gap-2">
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 disabled:opacity-40 flex items-center gap-1"
+                className="px-3.5 py-1.5 rounded-xl border border-slate-700 bg-slate-900 text-slate-300 disabled:opacity-40 flex items-center gap-1 font-bold hover:bg-slate-800 transition"
               >
                 <ChevronRight className="w-3.5 h-3.5" />
                 <span>السابق</span>
@@ -998,7 +1276,7 @@ export default function AdminStudentsPage() {
               <button
                 onClick={() => setPage((p) => p + 1)}
                 disabled={page * 25 >= total}
-                className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 disabled:opacity-40 flex items-center gap-1"
+                className="px-3.5 py-1.5 rounded-xl border border-slate-700 bg-slate-900 text-slate-300 disabled:opacity-40 flex items-center gap-1 font-bold hover:bg-slate-800 transition"
               >
                 <span>التالي</span>
                 <ChevronLeft className="w-3.5 h-3.5" />
@@ -1007,6 +1285,293 @@ export default function AdminStudentsPage() {
           </div>
         )}
       </div>
+
+      {/* Manual Student Entry / Overwrite Modal */}
+      {isManualModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="relative w-full max-w-xl bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto custom-scrollbar">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                  <UserPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-white">إدخال / تحديث بيانات طالب يدوياً</h3>
+                  <p className="text-xs text-slate-400">إدخال مباشر لبيانات الطالب بواسطة المشرف مع معالجة التعارض</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setIsManualModalOpen(false);
+                  setConflictData(null);
+                }}
+                className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* CONFLICT DETECTED VIEW (زر أوافق على استبدال البيانات) */}
+            {conflictData ? (
+              <div className="space-y-5 animate-fade-in">
+                <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs space-y-2">
+                  <div className="flex items-center gap-2 font-black text-amber-300 text-sm">
+                    <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />
+                    <span>تنبيه: الطالب مسجل بالفعل مسبقاً في المنظومة!</span>
+                  </div>
+                  <p className="leading-relaxed">
+                    تم العثور على سجل مسبق يتطابق مع الرقم الأكاديمي أو الرقم القومي المدخل. يمكنك مراجعة الفروقات بالأسفل واختيار استبدال البيانات الحالية بالبيانات الجديدة.
+                  </p>
+                </div>
+
+                {/* Side-by-Side Comparison */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  {/* Existing Student Data */}
+                  <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2.5">
+                    <div className="font-bold text-slate-400 pb-1.5 border-b border-slate-800 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-slate-500" />
+                      <span>البيانات الحالية بالمنظومة:</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">الاسم:</span>
+                      <span className="font-bold text-white text-sm">{conflictData.existingStudent.fullName}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">الرقم القومي:</span>
+                      <span className="font-mono text-slate-300">{conflictData.existingStudent.nationalId}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">الرقم الأكاديمي:</span>
+                      <span className="font-mono text-slate-300">{conflictData.existingStudent.academicNumber}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">المجموعة والسكشن:</span>
+                      <span className="text-slate-300">
+                        {conflictData.existingStudent.groupName} • {conflictData.existingStudent.sectionName} (قسم {conflictData.existingStudent.subSection})
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">حالة البصمة:</span>
+                      <span className={conflictData.existingStudent.isActivated ? "text-emerald-400 font-bold" : "text-amber-400 font-bold"}>
+                        {conflictData.existingStudent.isActivated ? "مفعلة رسمياً" : "غير مفعلة"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* New Data To Replace */}
+                  <div className="p-4 rounded-2xl bg-blue-950/20 border border-blue-500/30 space-y-2.5">
+                    <div className="font-bold text-blue-300 pb-1.5 border-b border-blue-500/20 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-blue-400" />
+                      <span>البيانات الجديدة المراد استبدالها:</span>
+                    </div>
+                    <div>
+                      <span className="text-blue-400/80 block">الاسم الجديد:</span>
+                      <span className="font-bold text-white text-sm">{conflictData.newData.fullName}</span>
+                    </div>
+                    <div>
+                      <span className="text-blue-400/80 block">الرقم القومي الجديد:</span>
+                      <span className="font-mono text-blue-200">{conflictData.newData.nationalId}</span>
+                    </div>
+                    <div>
+                      <span className="text-blue-400/80 block">الرقم الأكاديمي الجديد:</span>
+                      <span className="font-mono text-blue-200">{conflictData.newData.academicNumber}</span>
+                    </div>
+                    <div>
+                      <span className="text-blue-400/80 block">المجموعة والسكشن:</span>
+                      <span className="text-blue-200">
+                        {conflictData.newData.groupName} • {conflictData.newData.sectionName} (قسم {conflictData.newData.subSection})
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-blue-400/80 block">تفعيل البصمة:</span>
+                      <span className={conflictData.newData.isFingerprintActivated ? "text-emerald-400 font-bold" : "text-slate-400 font-bold"}>
+                        {conflictData.newData.isFingerprintActivated ? "تفعيل واعتماد مباشر" : "بدون تفعيل مباشر"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Overwrite Confirmation Buttons */}
+                <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleManualSubmit(true)}
+                    disabled={manualLoading}
+                    className="w-full sm:flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-amber-600 via-emerald-600 to-teal-600 hover:from-amber-500 hover:to-teal-500 text-white font-bold text-sm shadow-xl shadow-emerald-900/30 transition flex items-center justify-center gap-2"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>{manualLoading ? "جاري الاستبدال..." : "أوافق على استبدال وتحديث البيانات"}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setConflictData(null)}
+                    disabled={manualLoading}
+                    className="w-full sm:w-auto py-3 px-5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-sm transition"
+                  >
+                    تعديل البيانات المدخلة
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* STANDARD MANUAL FORM */
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleManualSubmit(false);
+                }}
+                className="space-y-4 text-xs font-semibold"
+              >
+                {/* Full Name */}
+                <div>
+                  <label className="block text-slate-300 mb-1">اسم الطالب رباعي بالكامل *</label>
+                  <input
+                    type="text"
+                    required
+                    value={manualForm.fullName}
+                    onChange={(e) => setManualForm({ ...manualForm, fullName: e.target.value })}
+                    placeholder="مثال: أحمد محمد علي حسن"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700/80 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                {/* National ID & Academic Number */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-300 mb-1">الرقم القومي (14 رقم) *</label>
+                    <input
+                      type="text"
+                      required
+                      maxLength={14}
+                      value={manualForm.nationalId}
+                      onChange={(e) => setManualForm({ ...manualForm, nationalId: e.target.value })}
+                      placeholder="14 رقماً"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700/80 text-white font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 mb-1">الرقم الأكاديمي *</label>
+                    <input
+                      type="text"
+                      required
+                      value={manualForm.academicNumber}
+                      onChange={(e) => setManualForm({ ...manualForm, academicNumber: e.target.value })}
+                      placeholder="مثال: 2520111"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700/80 text-white font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Group & Section */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-300 mb-1">المجموعة الدراسية *</label>
+                    <select
+                      required
+                      value={manualForm.groupId}
+                      onChange={(e) => setManualForm({ ...manualForm, groupId: e.target.value })}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700/80 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">اختر المجموعة...</option>
+                      {groups.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 mb-1">السكشن *</label>
+                    <select
+                      required
+                      value={manualForm.sectionId}
+                      onChange={(e) => setManualForm({ ...manualForm, sectionId: e.target.value })}
+                      disabled={!manualForm.groupId || manualSections.length === 0}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700/80 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-40"
+                    >
+                      <option value="">اختر السكشن...</option>
+                      {manualSections.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* SubSection & Biometric Option */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center pt-1">
+                  <div>
+                    <label className="block text-slate-300 mb-1">القسم الفرعي *</label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setManualForm({ ...manualForm, subSection: "A" })}
+                        className={`flex-1 py-2 rounded-xl font-bold border transition ${
+                          manualForm.subSection === "A"
+                            ? "bg-blue-600 text-white border-blue-500"
+                            : "bg-slate-950 text-slate-400 border-slate-800"
+                        }`}
+                      >
+                        قسم A
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setManualForm({ ...manualForm, subSection: "B" })}
+                        className={`flex-1 py-2 rounded-xl font-bold border transition ${
+                          manualForm.subSection === "B"
+                            ? "bg-purple-600 text-white border-purple-500"
+                            : "bg-slate-950 text-slate-400 border-slate-800"
+                        }`}
+                      >
+                        قسم B
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Fingerprint immediate activation checkbox */}
+                  <div className="pt-4 sm:pt-6">
+                    <label className="flex items-center gap-2.5 cursor-pointer bg-slate-950/60 p-2.5 rounded-xl border border-slate-800 hover:border-slate-700 transition">
+                      <input
+                        type="checkbox"
+                        checked={manualForm.isFingerprintActivated}
+                        onChange={(e) => setManualForm({ ...manualForm, isFingerprintActivated: e.target.checked })}
+                        className="w-4 h-4 rounded border-slate-700 text-emerald-600 focus:ring-emerald-500 bg-slate-900"
+                      />
+                      <span className="text-slate-200 text-xs">
+                        تفعيل واعتماد بصمة الوجه فورياً
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Modal Actions */}
+                <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setIsManualModalOpen(false)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition text-xs"
+                  >
+                    إلغاء
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={manualLoading}
+                    className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold shadow-lg shadow-blue-600/30 transition text-xs flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    <span>{manualLoading ? "جاري الفحص والحفظ..." : "حفظ بيانات الطالب"}</span>
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

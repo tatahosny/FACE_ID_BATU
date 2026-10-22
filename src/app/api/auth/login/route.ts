@@ -1,9 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { users, students } from "@/db/schema";
-import { eq, or } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { comparePassword, createSessionToken, AUTH_COOKIE_NAME } from "@/lib/security/auth";
-import { computeNationalIdHash } from "@/lib/security/crypto";
 import { checkRateLimit } from "@/lib/security/rate-limit";
 import { formatCairoDateTime } from "@/lib/utils/datetime";
 import { apiError, apiSuccess } from "@/lib/utils/response";
@@ -12,10 +11,8 @@ import { z } from "zod";
 export const dynamic = "force-dynamic";
 
 const loginSchema = z.object({
-  // Can be email (for staff/admin) or academicNumber (for student)
-  identifier: z.string().trim().min(3, "يرجى إدخال البريد الإلكتروني أو الرقم الأكاديمي"),
-  // Password for staff/admin OR nationalId/password for student
-  secret: z.string().trim().min(6, "يرجى إدخال كلمة المرور أو الرقم القومي"),
+  identifier: z.string().trim().min(3, "يرجى إدخال البريد الإلكتروني"),
+  secret: z.string().trim().min(6, "يرجى إدخال كلمة المرور"),
 });
 
 export async function POST(req: NextRequest) {
@@ -34,7 +31,7 @@ export async function POST(req: NextRequest) {
 
     const { identifier, secret } = parsed.data;
 
-    // 1. Check if identifier is an administrative or staff user (by email)
+    // Check if user is staff or admin
     const [adminUser] = await db
       .select()
       .from(users)
@@ -80,74 +77,24 @@ export async function POST(req: NextRequest) {
         secure: process.env.NODE_ENV === "production",
         sameSite: "strict",
         path: "/",
-        maxAge: 24 * 60 * 60, // 24 hours — aligned with JWT expiry
+        maxAge: 24 * 60 * 60, // 24 hours
       });
 
       return response;
     }
 
-    // 2. Check if identifier is a student academic number
+    // Check if this was a student trying to login by academic number
     const [student] = await db
-      .select()
+      .select({ id: students.id })
       .from(students)
-      .where(eq(students.academicNumber, identifier.trim()));
+      .where(eq(students.academicNumber, identifier.trim()))
+      .limit(1);
 
     if (student) {
-      // Validate custom password if set, otherwise validate National ID using HMAC hash
-      let isStudentMatch = false;
-      if (student.passwordHash) {
-        isStudentMatch = await comparePassword(secret, student.passwordHash);
-      }
-      if (!isStudentMatch) {
-        const secretHash = computeNationalIdHash(secret);
-        isStudentMatch = student.nationalIdHash === secretHash;
-      }
-
-      if (!isStudentMatch) {
-        return apiError("بيانات الدخول غير صحيحة", 401);
-      }
-      if (!student.isActive) {
-        return apiError("حساب الطالب مغلق / معطل حالياً، يرجى مراجعة إدارة الكلية", 403);
-      }
-      if (student.bannedUntil && new Date(student.bannedUntil) > new Date()) {
-        const reasonPart = student.banReason ? ` - سبب الحظر: ${student.banReason}` : "";
-        return apiError(`تم حظر حسابك مؤقتاً حتى ${formatCairoDateTime(student.bannedUntil)}${reasonPart}`, 403);
-      }
-
-      const token = await createSessionToken({
-        userId: student.id,
-        studentId: student.id,
-        academicNumber: student.academicNumber,
-        fullName: student.fullName,
-        groupId: student.groupId,
-        sectionId: student.sectionId,
-        role: "STUDENT",
-      });
-
-      const response = apiSuccess(
-        {
-          user: {
-            id: student.id,
-            studentId: student.id,
-            academicNumber: student.academicNumber,
-            fullName: student.fullName,
-            role: "STUDENT",
-            groupId: student.groupId,
-            sectionId: student.sectionId,
-          },
-        },
-        "تم تسجيل الدخول بنجاح"
+      return apiError(
+        "بوابة تسجيل الدخول مخصصة لمشرفي وموظفي المنظومة فقط. لا توجد حسابات دخول للطلاب — متابعة حالة البصمة والدور متاحة مباشرة عبر بوت تيليجرام.",
+        403
       );
-
-      response.cookies.set(AUTH_COOKIE_NAME, token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
-        path: "/",
-        maxAge: 24 * 60 * 60, // 24 hours — aligned with JWT expiry
-      });
-
-      return response;
     }
 
     return apiError("بيانات الدخول غير صحيحة", 401);

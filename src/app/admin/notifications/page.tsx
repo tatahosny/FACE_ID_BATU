@@ -285,7 +285,7 @@ export default function AdminNotificationsPage() {
               ({deliveredPercentage}%)
             </span>
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">وصلت لحسابات الطلاب فوراً</div>
+          <div className="text-[11px] text-slate-500 mt-1">وصلت لهواتف الطلاب عبر تيليجرام فوراً</div>
         </div>
 
         <div className="bg-slate-900/90 rounded-2xl border border-slate-800 p-4 shadow-lg backdrop-blur-xl">

@@ -155,11 +155,16 @@ function LoginForm() {
           </div>
         </form>
 
-        <div className="text-center text-xs text-slate-500 pt-2 border-t border-slate-800">
-          هل أنت طالب؟{" "}
-          <Link href="/booking" className="text-blue-400 hover:underline font-bold">
-            حجز موعد البصمة برقمك الأكاديمي مباشرة
-          </Link>
+        <div className="text-center text-xs text-slate-500 pt-3 border-t border-slate-800 space-y-1">
+          <div>
+            هل أنت طالب؟{" "}
+            <Link href="/booking" className="text-blue-400 hover:underline font-bold">
+              حجز موعد البصمة برقمك الأكاديمي مباشرة
+            </Link>
+          </div>
+          <p className="text-[11px] text-slate-500">
+            لا توجد حسابات دخول للطلاب — متابعة الدور وموعد البصمة تتم مباشرة عبر بوت تيليجرام.
+          </p>
         </div>
       </div>
     </div>

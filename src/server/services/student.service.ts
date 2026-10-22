@@ -245,6 +245,246 @@ export class StudentService {
   }
 
   /**
+   * Manual student creation/update by Super Admin with optional overwrite approval.
+   */
+  static async manualUpsertStudent(input: {
+    fullName: string;
+    nationalId: string;
+    academicNumber: string;
+    groupId: string;
+    sectionId: string;
+    subSection: string;
+    isFingerprintActivated?: boolean;
+    overwrite?: boolean;
+    performedByUserId?: string;
+  }) {
+    const rawFullName = input.fullName.trim();
+    const rawAcademicNumber = input.academicNumber
+      .trim()
+      .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632))
+      .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 1776));
+    const rawNationalId = input.nationalId
+      .trim()
+      .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632))
+      .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 1776));
+    const { groupId, sectionId, subSection, overwrite, isFingerprintActivated, performedByUserId } = input;
+
+    if (!rawFullName || rawFullName.length < 3) {
+      throw new Error("يرجى إدخال اسم الطالب ثلاثي أو رباعي بشكل صحيح");
+    }
+    if (!/^\d{14}$/.test(rawNationalId)) {
+      throw new Error("الرقم القومي يجب أن يتكون من 14 رقماً بالضبط");
+    }
+    if (!rawAcademicNumber || rawAcademicNumber.length < 3) {
+      throw new Error("يرجى إدخال الرقم الأكاديمي بشكل صحيح");
+    }
+
+    // Verify section belongs to group
+    const [section] = await db
+      .select({ id: sections.id, name: sections.name, groupId: sections.groupId })
+      .from(sections)
+      .where(and(eq(sections.id, sectionId), eq(sections.groupId, groupId)));
+
+    if (!section) {
+      throw new Error("السكشن المختار لا ينتمي للمجموعة المحددة");
+    }
+
+    const [group] = await db
+      .select({ id: groups.id, name: groups.name })
+      .from(groups)
+      .where(eq(groups.id, groupId));
+
+    const nationalIdHash = computeNationalIdHash(rawNationalId);
+
+    return await db.transaction(async (tx) => {
+      // Find existing by academic number OR by nationalIdHash
+      const [existingByAcademic] = await tx
+        .select({
+          student: students,
+          groupName: groups.name,
+          sectionName: sections.name,
+        })
+        .from(students)
+        .leftJoin(groups, eq(students.groupId, groups.id))
+        .leftJoin(sections, eq(students.sectionId, sections.id))
+        .where(sql`LOWER(TRIM(${students.academicNumber})) = LOWER(TRIM(${rawAcademicNumber}))`);
+
+      const [existingByNationalId] = await tx
+        .select({
+          student: students,
+          groupName: groups.name,
+          sectionName: sections.name,
+        })
+        .from(students)
+        .leftJoin(groups, eq(students.groupId, groups.id))
+        .leftJoin(sections, eq(students.sectionId, sections.id))
+        .where(eq(students.nationalIdHash, nationalIdHash));
+
+      const existingRecord = existingByAcademic || existingByNationalId;
+
+      // If existing student found and NOT confirmed for overwrite yet:
+      if (existingRecord && !overwrite) {
+        // Fetch if fingerprint is currently activated for this existing student
+        const [act] = await tx
+          .select({ id: fingerprintActivations.id, activatedAt: fingerprintActivations.activatedAt })
+          .from(fingerprintActivations)
+          .where(and(eq(fingerprintActivations.studentId, existingRecord.student.id), eq(fingerprintActivations.status, "ACTIVATED")));
+
+        let existingDecryptedNid = "—";
+        try {
+          existingDecryptedNid = decryptNationalId(existingRecord.student.nationalIdEncrypted);
+        } catch {}
+
+        return {
+          conflict: true,
+          message: "يوجد طالب مسجل بالفعل بنفس الرقم الأكاديمي أو الرقم القومي في المنظومة",
+          existingStudent: {
+            id: existingRecord.student.id,
+            fullName: existingRecord.student.fullName,
+            academicNumber: existingRecord.student.academicNumber,
+            nationalId: existingDecryptedNid,
+            groupName: existingRecord.groupName || "—",
+            sectionName: existingRecord.sectionName || "—",
+            subSection: existingRecord.student.subSection || "A",
+            isActivated: Boolean(act),
+            activatedAt: act?.activatedAt ? formatCairoDateTime(act.activatedAt) : null,
+          },
+          newData: {
+            fullName: rawFullName,
+            academicNumber: rawAcademicNumber,
+            nationalId: rawNationalId,
+            groupName: group?.name || "—",
+            sectionName: section.name,
+            subSection: subSection || "A",
+            isFingerprintActivated: Boolean(isFingerprintActivated),
+          },
+        };
+      }
+
+      const nationalIdEncrypted = encryptNationalId(rawNationalId);
+
+      // If overwrite approved on existing student
+      if (existingRecord && overwrite) {
+        const studentIdToUpdate = existingRecord.student.id;
+
+        // If another student record has this national ID or academic number, resolve conflict
+        if (existingByNationalId && existingByNationalId.student.id !== studentIdToUpdate) {
+          await tx.delete(fingerprintActivations).where(eq(fingerprintActivations.studentId, existingByNationalId.student.id));
+          await tx.delete(bookings).where(eq(bookings.studentId, existingByNationalId.student.id));
+          await tx.delete(telegramLinkTokens).where(eq(telegramLinkTokens.studentId, existingByNationalId.student.id));
+          await tx.delete(students).where(eq(students.id, existingByNationalId.student.id));
+        }
+
+        const [updatedStudent] = await tx
+          .update(students)
+          .set({
+            fullName: rawFullName,
+            academicNumber: rawAcademicNumber,
+            nationalIdEncrypted,
+            nationalIdHash,
+            groupId,
+            sectionId,
+            subSection: subSection || "A",
+            updatedAt: new Date(),
+          })
+          .where(eq(students.id, studentIdToUpdate))
+          .returning();
+
+        // Handle fingerprint activation status if specified
+        if (isFingerprintActivated !== undefined) {
+          if (isFingerprintActivated) {
+            const [existingAct] = await tx
+              .select({ id: fingerprintActivations.id })
+              .from(fingerprintActivations)
+              .where(and(eq(fingerprintActivations.studentId, updatedStudent.id), eq(fingerprintActivations.status, "ACTIVATED")));
+
+            if (!existingAct && performedByUserId) {
+              await tx.insert(fingerprintActivations).values({
+                studentId: updatedStudent.id,
+                activatedBy: performedByUserId,
+                status: "ACTIVATED",
+                notes: "تم التفعيل المباشر أثناء الإدخال اليدوي للبيانات",
+              });
+            }
+          } else {
+            await tx.delete(fingerprintActivations).where(eq(fingerprintActivations.studentId, updatedStudent.id));
+          }
+        }
+
+        if (performedByUserId) {
+          await tx.insert(auditLogs).values({
+            actorId: performedByUserId,
+            action: "MANUAL_STUDENT_OVERWRITE",
+            entityType: "student",
+            entityId: updatedStudent.id,
+            safeMetadata: {
+              fullName: rawFullName,
+              academicNumber: rawAcademicNumber,
+              groupId,
+              sectionId,
+              subSection,
+              overwritten: true,
+            },
+          });
+        }
+
+        return {
+          conflict: false,
+          action: "UPDATED",
+          student: updatedStudent,
+          message: `تم استبدال وتحديث بيانات الطالب "${updatedStudent.fullName}" بنجاح!`,
+        };
+      }
+
+      // Brand new student insertion
+      const [newStudent] = await tx
+        .insert(students)
+        .values({
+          fullName: rawFullName,
+          academicNumber: rawAcademicNumber,
+          nationalIdEncrypted,
+          nationalIdHash,
+          groupId,
+          sectionId,
+          subSection: subSection || "A",
+        })
+        .returning();
+
+      if (isFingerprintActivated && performedByUserId) {
+        await tx.insert(fingerprintActivations).values({
+          studentId: newStudent.id,
+          activatedBy: performedByUserId,
+          status: "ACTIVATED",
+          notes: "تم التفعيل المباشر أثناء الإدخال اليدوي",
+        });
+      }
+
+      if (performedByUserId) {
+        await tx.insert(auditLogs).values({
+          actorId: performedByUserId,
+          action: "MANUAL_STUDENT_CREATED",
+          entityType: "student",
+          entityId: newStudent.id,
+          safeMetadata: {
+            fullName: rawFullName,
+            academicNumber: rawAcademicNumber,
+            groupId,
+            sectionId,
+            subSection,
+          },
+        });
+      }
+
+      return {
+        conflict: false,
+        action: "CREATED",
+        student: newStudent,
+        message: `تم إضافة الطالب الجديد "${newStudent.fullName}" إلى دليل الطلاب بنجاح!`,
+      };
+    });
+  }
+
+  /**
    * Delete student record and clean up associated bookings, tokens, campaign recipients, and activations.
    */
   static async deleteStudent(studentId: string, performedByUserId?: string) {
