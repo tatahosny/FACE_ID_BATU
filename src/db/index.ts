@@ -13,7 +13,8 @@ const connectionString = rawConn
   .replace("&channel_binding=require", "")
   .replace("channel_binding=require&", "")
   .replace("?channel_binding=require", "?")
-  .replace("channel_binding=require", "");
+  .replace("channel_binding=require", "")
+  .replace("sslmode=require", "sslmode=verify-full");
 
 declare global {
   // eslint-disable-next-line no-var
