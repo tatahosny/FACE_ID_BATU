@@ -31,8 +31,13 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
               />
             </div>
             <div>
-              <div className="text-xs sm:text-sm font-black text-white group-hover:text-blue-400 transition leading-tight">
-                جامعة برج العرب التكنولوجية
+              <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm font-black text-white group-hover:text-blue-400 transition leading-tight">
+                  جامعة برج العرب التكنولوجية
+                </span>
+                <span className="px-1.5 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 font-mono text-[9px] font-bold">
+                  v3.1
+                </span>
               </div>
               <div className="text-[10px] sm:text-[11px] text-slate-400 font-medium">
                 منظومة تسجيل بصمة الوجه • قسم تكنولوجيا المعلومات

@@ -131,6 +131,7 @@ export default function PublicSchedulesPage() {
               <div className="space-y-2">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs font-mono font-semibold">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="px-1.5 py-0.2 rounded bg-blue-500/20 font-bold text-[10px]">v3.1</span>
                   <span>الجدول الرسمي المعتمد • جامعة برج العرب التكنولوجية (BATU)</span>
                 </div>
 
@@ -141,7 +142,7 @@ export default function PublicSchedulesPage() {
                 <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-xl">
                   مواعيد حضور سكاشن الفرقة الثانية (قسم تكنولوجيا المعلومات) لتسجيل بصمة الوجه المعتمدة،
                   مقسمة بدقة حسب المجموعات والسكاشن وتقسيمتي <b className="text-blue-400">قسم A</b> و{" "}
-                  <b className="text-purple-400">قسم B</b> لتنظيم الحضور ومنع التكدس.
+                  <b className="text-purple-400">قسم B</b> لتنظيم الحضور ومنع التكدس مع ميزة التصدير والطباعة الرسمية الفورية.
                 </p>
               </div>
             </div>

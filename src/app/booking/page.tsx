@@ -140,7 +140,7 @@ export default function BookingPage() {
 
       <div className="max-w-2xl w-full space-y-8 relative z-10">
         {/* Top Quick Navigation */}
-        <div className="flex items-center justify-between pb-1">
+        <div className="flex items-center justify-between pb-1 flex-wrap gap-2">
           <Link
             href="/"
             className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 hover:text-white transition px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-800"
@@ -149,13 +149,22 @@ export default function BookingPage() {
             <span>الرئيسية</span>
           </Link>
 
-          <Link
-            href="/settings"
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-cyan-300 hover:text-white transition px-3.5 py-1.5 rounded-xl bg-cyan-950/40 border border-cyan-800/40 hover:bg-cyan-900/40 shadow-sm"
-          >
-            <KeyRound className="w-3.5 h-3.5 text-cyan-400" />
-            <span>إعدادات الحساب وكلمة المرور</span>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/schedules"
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-purple-300 hover:text-white transition px-3.5 py-1.5 rounded-xl bg-purple-950/40 border border-purple-800/40 hover:bg-purple-900/40 shadow-sm"
+            >
+              <Clock className="w-3.5 h-3.5 text-purple-400" />
+              <span>جدول المواعيد</span>
+            </Link>
+
+            <Link
+              href="/register"
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-300 hover:text-white transition px-3.5 py-1.5 rounded-xl bg-blue-950/40 border border-blue-800/40 hover:bg-blue-900/40 shadow-sm"
+            >
+              <span>تسجيل بيانات طالب</span>
+            </Link>
+          </div>
         </div>
 
         {/* Header Title */}
@@ -168,17 +177,18 @@ export default function BookingPage() {
             />
           </div>
 
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs font-mono">
-            <Ticket className="w-3.5 h-3.5 text-blue-400" />
-            <span>نظام حجز الأدوار البيومترية المعتمد</span>
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-blue-900/40 via-indigo-900/40 to-emerald-900/40 border border-blue-500/30 text-blue-300 text-xs font-mono">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="px-1.5 py-0.2 rounded bg-blue-500/20 font-bold text-[10px]">v3.1</span>
+            <span>نظام حجز الأدوار والنداء الآلي المعتمد</span>
           </div>
 
           <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
             حجز دور بصمة الوجه بالرقم الأكاديمي
           </h1>
 
-          <p className="text-xs sm:text-sm text-slate-400 max-w-lg mx-auto leading-relaxed">
-            أدخل رقمك الأكاديمي للتحقق من بياناتك ومطابقة سكشنك، ثم اضغط على زر الحجز لتصلك تفاصيل دورك فوراً على التيليجرام.
+          <p className="text-xs sm:text-sm text-slate-300 max-w-lg mx-auto leading-relaxed">
+            أدخل رقمك الأكاديمي للتحقق من بياناتك ومطابقة سكشنك، ثم اضغط على زر الحجز لتصلك تفاصيل دورك فوراً على التيليجرام دون الحاجة لأي كلمات مرور.
           </p>
         </div>
 

@@ -16,6 +16,8 @@ import {
   Building,
   GraduationCap,
   Sparkles,
+  ArrowRight,
+  ChevronLeft,
 } from "lucide-react";
 
 interface Group {
@@ -186,22 +188,101 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="flex-1 py-12 px-4 sm:px-6 lg:px-8 max-w-2xl mx-auto w-full">
+    <div className="flex-1 py-10 px-4 sm:px-6 lg:px-8 max-w-2xl mx-auto w-full relative">
+      {/* Background glow effects */}
+      <div className="absolute top-10 right-0 w-80 h-80 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-20 left-0 w-80 h-80 bg-cyan-600/10 rounded-full blur-3xl pointer-events-none" />
+
+      {/* Top Quick Navigation */}
+      <div className="flex items-center justify-between pb-6 flex-wrap gap-2 relative z-10">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 hover:text-white transition px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-800"
+        >
+          <ArrowRight className="w-3.5 h-3.5" />
+          <span>الرئيسية</span>
+        </Link>
+
+        <div className="flex items-center gap-2">
+          <Link
+            href="/schedules"
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-purple-300 hover:text-white transition px-3.5 py-1.5 rounded-xl bg-purple-950/40 border border-purple-800/40 hover:bg-purple-900/40 shadow-sm"
+          >
+            <span>جدول المواعيد</span>
+          </Link>
+
+          <Link
+            href="/booking"
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-300 hover:text-white transition px-3.5 py-1.5 rounded-xl bg-emerald-950/40 border border-emerald-500/30 hover:bg-emerald-900/40 shadow-sm"
+          >
+            <span>حجز الدور</span>
+          </Link>
+        </div>
+      </div>
+
       {/* Page Header */}
-      <div className="text-center mb-8">
-        <div className="w-16 h-16 sm:w-20 sm:h-20 mx-auto rounded-2xl bg-white p-2 mb-3 shadow-xl shadow-blue-500/20 border border-slate-700 flex items-center justify-center">
+      <div className="text-center mb-8 relative z-10 space-y-3">
+        <div className="w-16 h-16 sm:w-20 sm:h-20 mx-auto rounded-2xl bg-white p-2 shadow-xl shadow-blue-500/20 border border-slate-700 flex items-center justify-center">
           <img
             src="/images/batu-logo.png"
             alt="جامعة برج العرب التكنولوجية"
             className="w-full h-full object-contain"
           />
         </div>
+
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-blue-900/40 via-cyan-900/40 to-indigo-900/40 border border-blue-500/30 text-blue-300 text-xs font-mono shadow-sm">
+          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+          <span className="px-1.5 py-0.2 rounded bg-blue-500/20 font-bold text-[10px]">v3.1</span>
+          <span>منظومة القيد الذاتي وتأكيد البصمة الرقمية</span>
+        </div>
+
         <h1 className="text-2xl sm:text-3xl font-extrabold text-white">
           تسجيل بيانات الطالب الأكاديمية
         </h1>
-        <p className="mt-2 text-sm text-slate-400">
+        <p className="text-xs sm:text-sm text-slate-300 max-w-md mx-auto leading-relaxed">
           جامعة برج العرب التكنولوجية • قسم تكنولوجيا المعلومات (الفرقة الثانية)
         </p>
+
+        {/* 3-Step Flow Visual Guide */}
+        <div className="grid grid-cols-3 gap-2 pt-2 text-right">
+          <div className={`p-2.5 rounded-xl border text-xs transition ${
+            !successResult
+              ? "bg-blue-600/20 border-blue-500/60 text-blue-200 shadow-sm"
+              : "bg-slate-900/50 border-slate-800 text-slate-400"
+          }`}>
+            <div className="font-bold text-[11px] flex items-center gap-1">
+              <span className="w-4 h-4 rounded-full bg-blue-500 text-white flex items-center justify-center text-[10px] font-mono">1</span>
+              <span>البيانات الأكاديمية</span>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-0.5 hidden sm:block">الاسم والرقم والسكشن</p>
+          </div>
+
+          <div className={`p-2.5 rounded-xl border text-xs transition ${
+            successResult && !isLinked
+              ? "bg-blue-600/20 border-blue-500/60 text-blue-200 shadow-sm"
+              : isLinked
+              ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300"
+              : "bg-slate-900/50 border-slate-800 text-slate-400"
+          }`}>
+            <div className="font-bold text-[11px] flex items-center gap-1">
+              <span className="w-4 h-4 rounded-full bg-cyan-500 text-white flex items-center justify-center text-[10px] font-mono">2</span>
+              <span>ربط التيليجرام</span>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-0.5 hidden sm:block">تأكيد البوت الفوري</p>
+          </div>
+
+          <div className={`p-2.5 rounded-xl border text-xs transition ${
+            isLinked
+              ? "bg-emerald-600/20 border-emerald-500/60 text-emerald-200 shadow-sm"
+              : "bg-slate-900/50 border-slate-800 text-slate-400"
+          }`}>
+            <div className="font-bold text-[11px] flex items-center gap-1">
+              <span className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px] font-mono">3</span>
+              <span>حجز رقم الدور</span>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-0.5 hidden sm:block">بالرقم الأكاديمي مباشرة</p>
+          </div>
+        </div>
       </div>
 
       {/* Success / Mandatory Linking State Screen */}
