@@ -12,6 +12,7 @@ export async function GET(req: NextRequest) {
     await requireRole([USER_ROLES.SUPER_ADMIN, USER_ROLES.STAFF]);
 
     const { searchParams } = new URL(req.url);
+    const mode = searchParams.get("mode") || undefined;
     const groupId = searchParams.get("groupId") || undefined;
     const sectionId = searchParams.get("sectionId") || undefined;
     const subSection = searchParams.get("subSection") || undefined;
@@ -20,18 +21,31 @@ export async function GET(req: NextRequest) {
     const activationDate = searchParams.get("activationDate") || undefined;
     const search = searchParams.get("search") || undefined;
 
-    const buffer = await StudentService.exportStudentsToExcel({
-      groupId,
-      sectionId,
-      subSection,
-      activationStatus,
-      staffId,
-      activationDate,
-      search,
-    });
+    const isActivatedOnly = mode === "activated_only" || searchParams.get("onlyActivated") === "true";
+
+    const buffer = isActivatedOnly
+      ? await StudentService.exportActivatedStudentsOnlyToExcel({
+          groupId,
+          sectionId,
+          subSection,
+          staffId,
+          activationDate,
+          search,
+        })
+      : await StudentService.exportStudentsToExcel({
+          groupId,
+          sectionId,
+          subSection,
+          activationStatus,
+          staffId,
+          activationDate,
+          search,
+        });
 
     const dateStr = new Date().toISOString().split("T")[0];
-    const filename = `BATU_Students_Directory_${dateStr}.xlsx`;
+    const filename = isActivatedOnly
+      ? `BATU_Activated_Students_${dateStr}.xlsx`
+      : `BATU_Students_Directory_${dateStr}.xlsx`;
 
     return new NextResponse(buffer as any, {
       status: 200,

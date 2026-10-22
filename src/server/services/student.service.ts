@@ -988,4 +988,105 @@ export class StudentService {
 
     return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
   }
+
+  /**
+   * Export ONLY students with activated biometrics to Excel.
+   * Specific columns strictly requested by administration:
+   * [الاسم, الرقم الأكاديمي, المجموعة, السكشن, الرقم القومي]
+   */
+  static async exportActivatedStudentsOnlyToExcel(params: {
+    groupId?: string;
+    sectionId?: string;
+    subSection?: string;
+    staffId?: string;
+    activationDate?: string;
+    search?: string;
+  } = {}) {
+    const conditions = [];
+
+    // Strictly students with activated biometrics
+    conditions.push(
+      sql`EXISTS (SELECT 1 FROM ${fingerprintActivations} WHERE ${fingerprintActivations.studentId} = ${students.id} AND ${fingerprintActivations.status} = 'ACTIVATED')`
+    );
+
+    if (params.groupId) {
+      conditions.push(eq(students.groupId, params.groupId));
+    }
+    if (params.sectionId) {
+      conditions.push(eq(students.sectionId, params.sectionId));
+    }
+    if (params.subSection && params.subSection !== "ALL") {
+      conditions.push(eq(students.subSection, params.subSection));
+    }
+    if (params.search) {
+      const term = `%${params.search.trim()}%`;
+      conditions.push(
+        or(
+          sql`${students.fullName} ILIKE ${term}`,
+          sql`${students.academicNumber} ILIKE ${term}`
+        )
+      );
+    }
+    if (params.staffId) {
+      conditions.push(
+        sql`EXISTS (SELECT 1 FROM ${fingerprintActivations} WHERE ${fingerprintActivations.studentId} = ${students.id} AND ${fingerprintActivations.status} = 'ACTIVATED' AND ${fingerprintActivations.activatedBy} = ${params.staffId})`
+      );
+    }
+    if (params.activationDate) {
+      conditions.push(
+        sql`EXISTS (SELECT 1 FROM ${fingerprintActivations} WHERE ${fingerprintActivations.studentId} = ${students.id} AND ${fingerprintActivations.status} = 'ACTIVATED' AND to_char(${fingerprintActivations.activatedAt} AT TIME ZONE 'Africa/Cairo', 'YYYY-MM-DD') = ${params.activationDate})`
+      );
+    }
+
+    const whereClause = and(...conditions);
+
+    const activatedList = await db
+      .select({
+        id: students.id,
+        fullName: students.fullName,
+        academicNumber: students.academicNumber,
+        nationalIdEncrypted: students.nationalIdEncrypted,
+        groupName: groups.name,
+        sectionName: sections.name,
+      })
+      .from(students)
+      .innerJoin(groups, eq(students.groupId, groups.id))
+      .innerJoin(sections, eq(students.sectionId, sections.id))
+      .where(whereClause)
+      .orderBy(sql`${groups.name} ASC`, sql`${sections.name} ASC`, sql`${students.fullName} ASC`);
+
+    const rows = activatedList.map((s, index) => {
+      let nationalId = "غير متوفر";
+      try {
+        nationalId = decryptNationalId(s.nationalIdEncrypted);
+      } catch {
+        nationalId = "خطأ في فك التشفير";
+      }
+
+      return {
+        "م": index + 1,
+        "الاسم": s.fullName,
+        "الرقم الأكاديمي": s.academicNumber,
+        "المجموعة": s.groupName,
+        "السكشن": s.sectionName,
+        "الرقم القومي": nationalId,
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    worksheet["!views"] = [{ RTL: true }];
+    worksheet["!cols"] = [
+      { wch: 6 },  // م
+      { wch: 34 }, // الاسم
+      { wch: 18 }, // الرقم الأكاديمي
+      { wch: 16 }, // المجموعة
+      { wch: 14 }, // السكشن
+      { wch: 22 }, // الرقم القومي
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "الطلاب المفعلين للبصمة");
+
+    return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+  }
 }

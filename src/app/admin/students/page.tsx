@@ -46,6 +46,7 @@ export default function AdminStudentsPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [exportLoading, setExportLoading] = useState(false);
+  const [exportActivatedLoading, setExportActivatedLoading] = useState(false);
   const [authError, setAuthError] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -259,6 +260,42 @@ export default function AdminStudentsPage() {
       setFeedback({ message: err.message || "حدث خطأ أثناء تصدير شيت الإكسيل", type: "error" });
     } finally {
       setExportLoading(false);
+    }
+  };
+
+  const handleExportActivatedExcel = async () => {
+    try {
+      setExportActivatedLoading(true);
+      const params = new URLSearchParams();
+      params.set("mode", "activated_only");
+      if (selectedGroup) params.set("groupId", selectedGroup);
+      if (selectedSection) params.set("sectionId", selectedSection);
+      if (selectedSubSection) params.set("subSection", selectedSubSection);
+      if (selectedStaff) params.set("staffId", selectedStaff);
+      if (selectedDate) params.set("activationDate", selectedDate);
+      if (search) params.set("search", search);
+
+      const res = await fetch(`/api/admin/students/export?${params.toString()}`);
+      if (!res.ok) {
+        throw new Error("فشل تصدير ملف إكسيل للطلاب المفعلين");
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `BATU_Activated_Students_${new Date().toISOString().split("T")[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setFeedback({
+        message: "تم تصدير كشف الطلاب المفعلين للبصمة فقط بنجاح بصيغة Excel (الاسم، الرقم الأكاديمي، المجموعة، السكشن، الرقم القومي)!",
+        type: "success",
+      });
+    } catch (err: any) {
+      setFeedback({ message: err.message || "حدث خطأ أثناء تصدير شيت إكسيل الطلاب المفعلين", type: "error" });
+    } finally {
+      setExportActivatedLoading(false);
     }
   };
 
@@ -555,14 +592,26 @@ export default function AdminStudentsPage() {
               </button>
             )}
 
+            {/* Export Activated Students Only (Special Request) */}
+            <button
+              onClick={handleExportActivatedExcel}
+              disabled={exportActivatedLoading}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 transition flex items-center gap-2 disabled:opacity-50 active:scale-95 border border-emerald-400/30"
+              title="تصدير شيت إكسيل خاص للطلاب أصحاب البصمة المفعلة فقط (الاسم، الرقم الأكاديمي، المجموعة، السكشن، الرقم القومي)"
+            >
+              <CheckCircle2 className={`w-4 h-4 text-emerald-200 ${exportActivatedLoading ? "animate-spin" : ""}`} />
+              <span>{exportActivatedLoading ? "جاري تجهيز الكشف..." : "تصدير كشف المفعلين فقط (Excel)"}</span>
+            </button>
+
+            {/* Export Full Directory */}
             <button
               onClick={handleExportExcel}
               disabled={exportLoading}
-              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/25 transition flex items-center gap-2 disabled:opacity-50"
-              title="تصدير كشف الطلاب الحالي كاملاً مع الأرقام القومية والأكاديمية لشيت Excel"
+              className="px-3.5 py-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 text-slate-200 text-xs font-bold border border-slate-700 shadow-md transition flex items-center gap-2 disabled:opacity-50"
+              title="تصدير كشف الطلاب كاملاً مع الأرقام القومية والأكاديمية لشيت Excel"
             >
-              <FileSpreadsheet className={`w-4 h-4 ${exportLoading ? "animate-bounce" : ""}`} />
-              <span>{exportLoading ? "جاري التصدير..." : "تصدير شيت Excel"}</span>
+              <FileSpreadsheet className={`w-4 h-4 text-teal-400 ${exportLoading ? "animate-bounce" : ""}`} />
+              <span>{exportLoading ? "جاري التصدير..." : "الكشف الشامل"}</span>
             </button>
 
             <button
