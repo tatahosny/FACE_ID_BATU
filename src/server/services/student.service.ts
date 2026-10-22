@@ -1089,4 +1089,282 @@ export class StudentService {
 
     return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
   }
+
+  /**
+   * Generates a downloadable blank/sample Excel template for importing activated students.
+   */
+  static generateImportTemplate(): Buffer {
+    const sampleRows = [
+      {
+        "الاسم": "أحمد محمد عبد الله حسن",
+        "الرقم الأكاديمي": "20241001",
+        "الرقم القومي": "30401011234567",
+        "المجموعة (اختياري)": "",
+        "السكشن (اختياري)": "",
+      },
+      {
+        "الاسم": "سارة إبراهيم محمود السيد",
+        "الرقم الأكاديمي": "20241002",
+        "الرقم القومي": "30402021234568",
+        "المجموعة (اختياري)": "",
+        "السكشن (اختياري)": "",
+      },
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(sampleRows);
+    worksheet["!views"] = [{ RTL: true }];
+    worksheet["!cols"] = [
+      { wch: 32 }, // الاسم
+      { wch: 20 }, // الرقم الأكاديمي
+      { wch: 22 }, // الرقم القومي
+      { wch: 20 }, // المجموعة
+      { wch: 18 }, // السكشن
+    ];
+
+    const instructions = [
+      { "تعليمات مهمة": "1. الأعمدة الأساسية الإلزامية هي: [الاسم]، [الرقم الأكاديمي]، و [الرقم القومي]." },
+      { "تعليمات مهمة": "2. بمجرد رفع هذا الملف، سيتم تفعيل بصمة الوجه للطلاب تلقائياً واعتمادهم بالمنظومة فوراً." },
+      { "تعليمات مهمة": "3. إذا كان الطالب موجوداً بالمنظومة وبصمته مفعلة بالفعل، سيتم تجاهله دون تكرار أو تعديل." },
+      { "تعليمات مهمة": "4. إذا كان الطالب مسجلاً مسبقاً ولكن بصمته غير مفعلة، سيتم تفعيل بصمته فوراً." },
+      { "تعليمات مهمة": "5. إذا لم يكن الطالب مسجلاً بالمنظومة، ستتم إضافته إلى دليل الطلاب وتفعيل بصمته مباشرة." },
+      { "تعليمات مهمة": "6. في حال ترك خانة المجموعة أو السكشن فارغة، سيتم تسكين الطالب تلقائياً في المجموعة الافتراضية المحددة." },
+    ];
+
+    const instructionsSheet = XLSX.utils.json_to_sheet(instructions);
+    instructionsSheet["!views"] = [{ RTL: true }];
+    instructionsSheet["!cols"] = [{ wch: 90 }];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "بيانات تفعيل البصمة");
+    XLSX.utils.book_append_sheet(workbook, instructionsSheet, "إرشادات الاستيراد");
+
+    return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+  }
+
+  /**
+   * Imports students from an uploaded Excel file, adding new students and activating their biometrics,
+   * activating biometrics for unactivated existing students, and skipping already-activated students.
+   */
+  static async importActivatedStudentsFromExcel(params: {
+    buffer: Buffer;
+    performedByUserId: string;
+    defaultGroupId?: string;
+    defaultSectionId?: string;
+  }) {
+    const workbook = XLSX.read(params.buffer, { type: "buffer" });
+    const sheetName = workbook.SheetNames[0];
+    if (!sheetName) {
+      throw new Error("ملف الإكسيل فارغ ولا يحتوي على أي أوراق عمل (Sheets).");
+    }
+
+    const rawRows = XLSX.utils.sheet_to_json<Record<string, any>>(workbook.Sheets[sheetName], {
+      defval: "",
+    });
+
+    if (!rawRows || rawRows.length === 0) {
+      throw new Error("ملف الإكسيل لا يحتوي على أي صفوف بيانات.");
+    }
+
+    // Helper to normalize digits
+    const normalizeDigits = (val: any): string => {
+      if (val === null || val === undefined) return "";
+      return String(val)
+        .trim()
+        .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632))
+        .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 1776));
+    };
+
+    const getField = (row: Record<string, any>, possibleKeys: string[]): string => {
+      for (const k of Object.keys(row)) {
+        const cleanK = k.trim().toLowerCase().replace(/[\s_\-]/g, "");
+        for (const pk of possibleKeys) {
+          const cleanPk = pk.trim().toLowerCase().replace(/[\s_\-]/g, "");
+          if (cleanK === cleanPk || cleanK.includes(cleanPk)) {
+            return String(row[k] || "").trim();
+          }
+        }
+      }
+      return "";
+    };
+
+    // Preload groups and sections for fallback
+    const allGroups = await db.select().from(groups).where(eq(groups.isActive, true));
+    const allSections = await db.select().from(sections).where(eq(sections.isActive, true));
+
+    let fallbackGroupId = params.defaultGroupId;
+    if (!fallbackGroupId || !allGroups.some((g) => g.id === fallbackGroupId)) {
+      fallbackGroupId = allGroups[0]?.id;
+    }
+
+    let fallbackSectionId = params.defaultSectionId;
+    if (!fallbackSectionId || !allSections.some((s) => s.id === fallbackSectionId)) {
+      fallbackSectionId = allSections.find((s) => s.groupId === fallbackGroupId)?.id || allSections[0]?.id;
+    }
+
+    if (!fallbackGroupId || !fallbackSectionId) {
+      throw new Error("يجب توفر مجموعة وسكشن واحدة على الأقل في النظام لتسكين الطلاب الجدد.");
+    }
+
+    let insertedAndActivated = 0;
+    let activatedExisting = 0;
+    let skippedAlreadyActivated = 0;
+    const errors: Array<{ rowNumber: number; reason: string }> = [];
+
+    // Process rows sequentially
+    for (let i = 0; i < rawRows.length; i++) {
+      const row = rawRows[i];
+      const rowNum = i + 2; // header is row 1
+
+      const rawFullName = getField(row, ["الاسم", "اسم الطالب", "اسم الطالب بالكامل", "الاسم بالكامل", "name", "fullname"]);
+      const rawAcademicNumber = normalizeDigits(
+        getField(row, ["الرقم الأكاديمي", "الرقم الاكاديمي", "رقم الجلوس", "كود الطالب", "academicnumber", "academic_number"])
+      );
+      const rawNationalId = normalizeDigits(
+        getField(row, ["الرقم القومي", "الرقم القومى", "بطاقة الرقم القومي", "nationalid", "national_id"])
+      );
+
+      // Skip completely empty rows
+      if (!rawFullName && !rawAcademicNumber && !rawNationalId) {
+        continue;
+      }
+
+      if (!rawFullName || rawFullName.length < 3) {
+        errors.push({ rowNumber: rowNum, reason: `اسم الطالب غير صحيح أو مفقود: "${rawFullName}"` });
+        continue;
+      }
+
+      if (!rawAcademicNumber || rawAcademicNumber.length < 3) {
+        errors.push({ rowNumber: rowNum, reason: `الرقم الأكاديمي مفقود أو غير صالح للطالب: "${rawFullName}"` });
+        continue;
+      }
+
+      if (!rawNationalId || rawNationalId.length < 10) {
+        errors.push({ rowNumber: rowNum, reason: `الرقم القومي غير صالح (يجب أن يكون 14 رقماً أو رقم هوية سليم): "${rawNationalId}"` });
+        continue;
+      }
+
+      try {
+        const nationalIdHash = computeNationalIdHash(rawNationalId);
+
+        // Check if student exists by academicNumber or nationalIdHash
+        const [existingStudent] = await db
+          .select()
+          .from(students)
+          .where(or(eq(students.academicNumber, rawAcademicNumber), eq(students.nationalIdHash, nationalIdHash)));
+
+        if (existingStudent) {
+          // Check if biometrics is already activated
+          const [activeBiometric] = await db
+            .select({ id: fingerprintActivations.id })
+            .from(fingerprintActivations)
+            .where(
+              and(
+                eq(fingerprintActivations.studentId, existingStudent.id),
+                eq(fingerprintActivations.status, "ACTIVATED")
+              )
+            );
+
+          if (activeBiometric) {
+            // Already activated -> skip as per user rule
+            skippedAlreadyActivated++;
+          } else {
+            // Student exists but biometrics not activated -> activate now!
+            await db.insert(fingerprintActivations).values({
+              studentId: existingStudent.id,
+              activatedBy: params.performedByUserId,
+              status: "ACTIVATED",
+              notes: "تم التفعيل عبر استيراد شيت إكسيل للبصمات المسبقة",
+            });
+
+            await db.insert(auditLogs).values({
+              actorId: params.performedByUserId,
+              action: "EXCEL_STUDENT_BIOMETRIC_ACTIVATED",
+              entityType: "student",
+              entityId: existingStudent.id,
+              safeMetadata: {
+                academicNumber: existingStudent.academicNumber,
+                fullName: existingStudent.fullName,
+              },
+            });
+
+            activatedExisting++;
+          }
+        } else {
+          // Student does not exist -> insert new student and activate biometric!
+          const nationalIdEncrypted = encryptNationalId(rawNationalId);
+
+          // Resolve group and section if specified in row, else fallback
+          const rowGroupName = getField(row, ["المجموعة", "المجموعة الدراسية", "group"]);
+          const rowSectionName = getField(row, ["السكشن", "القسم", "section"]);
+
+          let targetGroupId = fallbackGroupId;
+          let targetSectionId = fallbackSectionId;
+
+          if (rowGroupName) {
+            const matchedG = allGroups.find(
+              (g) => g.name.toLowerCase().includes(rowGroupName.toLowerCase()) || rowGroupName.includes(g.name)
+            );
+            if (matchedG) {
+              targetGroupId = matchedG.id;
+              const matchedSec = allSections.find((s) => s.groupId === targetGroupId);
+              if (matchedSec) targetSectionId = matchedSec.id;
+            }
+          }
+
+          if (rowSectionName) {
+            const matchedS = allSections.find(
+              (s) => s.groupId === targetGroupId && (s.name.includes(rowSectionName) || rowSectionName.includes(s.name))
+            );
+            if (matchedS) targetSectionId = matchedS.id;
+          }
+
+          const [newStudent] = await db
+            .insert(students)
+            .values({
+              fullName: rawFullName,
+              academicNumber: rawAcademicNumber,
+              nationalIdEncrypted,
+              nationalIdHash,
+              groupId: targetGroupId,
+              sectionId: targetSectionId,
+              subSection: "A",
+            })
+            .returning();
+
+          await db.insert(fingerprintActivations).values({
+            studentId: newStudent.id,
+            activatedBy: params.performedByUserId,
+            status: "ACTIVATED",
+            notes: "تم تسجيل الطالب وتفعيل البصمة مباشرة عبر استيراد شيت الإكسيل",
+          });
+
+          await db.insert(auditLogs).values({
+            actorId: params.performedByUserId,
+            action: "EXCEL_STUDENT_CREATED_AND_ACTIVATED",
+            entityType: "student",
+            entityId: newStudent.id,
+            safeMetadata: {
+              academicNumber: newStudent.academicNumber,
+              fullName: newStudent.fullName,
+            },
+          });
+
+          insertedAndActivated++;
+        }
+      } catch (rowErr: any) {
+        errors.push({
+          rowNumber: rowNum,
+          reason: rowErr.message || "حدث خطأ أثناء معالجة صف الطالب",
+        });
+      }
+    }
+
+    return {
+      totalRows: rawRows.length,
+      insertedAndActivated,
+      activatedExisting,
+      skippedAlreadyActivated,
+      errors,
+    };
+  }
 }

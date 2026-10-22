@@ -36,6 +36,8 @@ import {
   Layers,
   Fingerprint,
   SlidersHorizontal,
+  Upload,
+  Download,
 } from "lucide-react";
 
 export default function AdminStudentsPage() {
@@ -117,6 +119,22 @@ export default function AdminStudentsPage() {
     };
   }>(null);
 
+  // Excel Bulk Import Modal State
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importDefaultGroup, setImportDefaultGroup] = useState("");
+  const [importDefaultSection, setImportDefaultSection] = useState("");
+  const [importSections, setImportSections] = useState<any[]>([]);
+  const [importLoading, setImportLoading] = useState(false);
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    totalRows: number;
+    insertedAndActivated: number;
+    activatedExisting: number;
+    skippedAlreadyActivated: number;
+    errors: Array<{ rowNumber: number; reason: string }>;
+  } | null>(null);
+
   // Load user session, groups, and staff on mount
   useEffect(() => {
     fetch("/api/auth/me")
@@ -167,6 +185,25 @@ export default function AdminStudentsPage() {
         }
       });
   }, [manualForm.groupId]);
+
+  // Load sections when import default group changes
+  useEffect(() => {
+    if (!importDefaultGroup) {
+      setImportSections([]);
+      return;
+    }
+    fetch(`/api/sections?groupId=${importDefaultGroup}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.success) {
+          const list = j.data.sections || [];
+          setImportSections(list);
+          if (list.length > 0 && (!importDefaultSection || !list.some((s: any) => s.id === importDefaultSection))) {
+            setImportDefaultSection(list[0].id);
+          }
+        }
+      });
+  }, [importDefaultGroup]);
 
   const fetchStudents = async (overrideSearch?: string | unknown) => {
     try {
@@ -296,6 +333,63 @@ export default function AdminStudentsPage() {
       setFeedback({ message: err.message || "حدث خطأ أثناء تصدير شيت إكسيل الطلاب المفعلين", type: "error" });
     } finally {
       setExportActivatedLoading(false);
+    }
+  };
+
+  const handleDownloadTemplate = async () => {
+    try {
+      setDownloadingTemplate(true);
+      const res = await fetch("/api/admin/students/import-template");
+      if (!res.ok) throw new Error("فشل تحميل قالب الإكسيل");
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "BATU_Fingerprint_Import_Template.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      setFeedback({ message: err.message || "حدث خطأ أثناء تحميل قالب الإكسيل", type: "error" });
+    } finally {
+      setDownloadingTemplate(false);
+    }
+  };
+
+  const handleUploadImportExcel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!importFile) {
+      setFeedback({ message: "يرجى اختيار ملف الإكسيل أولاً", type: "error" });
+      return;
+    }
+
+    try {
+      setImportLoading(true);
+      setImportResult(null);
+
+      const formData = new FormData();
+      formData.append("file", importFile);
+      if (importDefaultGroup) formData.append("groupId", importDefaultGroup);
+      if (importDefaultSection) formData.append("sectionId", importDefaultSection);
+
+      const res = await fetch("/api/admin/students/import", {
+        method: "POST",
+        body: formData,
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "فشل استيراد واعتماد كشف الإكسيل");
+      }
+
+      setImportResult(json.data);
+      setFeedback({ message: json.message || "تمت معالجة كشف الإكسيل وتفعيل البصمات بنجاح!", type: "success" });
+      fetchStudents();
+    } catch (err: any) {
+      setFeedback({ message: err.message || "حدث خطأ غير متوقع أثناء معالجة الملف", type: "error" });
+    } finally {
+      setImportLoading(false);
     }
   };
 
@@ -581,6 +675,20 @@ export default function AdminStudentsPage() {
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2.5 flex-wrap">
+            {/* Import Activated Students Excel Button */}
+            <button
+              onClick={() => {
+                setIsImportModalOpen(true);
+                setImportResult(null);
+                setImportFile(null);
+              }}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-teal-600 via-emerald-600 to-teal-500 hover:from-teal-500 hover:to-emerald-500 text-white text-xs font-bold shadow-lg shadow-teal-600/30 transition transform active:scale-95 flex items-center gap-2 border border-teal-400/30"
+              title="تنزيل قالب إكسيل وتعبئته ورفعه لتسجيل الطلاب وتفعيل البصمة تلقائياً"
+            >
+              <Upload className="w-4 h-4" />
+              <span>استيراد كشف وتفعيل البصمة (Excel)</span>
+            </button>
+
             {isSuperAdmin && (
               <button
                 onClick={handleOpenNewStudentModal}
@@ -1861,6 +1969,224 @@ export default function AdminStudentsPage() {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+      {/* EXCEL IMPORT & FINGERPRINT ACTIVATION MODAL */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-3xl max-w-2xl w-full p-6 sm:p-8 space-y-6 shadow-2xl my-8 text-right max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400 shadow-inner">
+                  <Upload className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-white">
+                    استيراد كشف وتفعيل البصمة التلقائي (Excel)
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    رفع بيانات الطلاب (الاسم، الرقم الأكاديمي، الرقم القومي) لتسجيلهم واعتماد بصمتهم فوراً
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setIsImportModalOpen(false);
+                  setImportResult(null);
+                }}
+                className="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Step 1: Download Template */}
+            <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="space-y-1 text-right">
+                <div className="text-xs font-bold text-white flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-[10px] font-mono">1</span>
+                  <span>قالب الإكسيل المعتمد للإدخال</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  حمّل القالب الجاهز واملأ فيه بيانات الطلاب (الاسم، الرقم الأكاديمي، الرقم القومي).
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleDownloadTemplate}
+                disabled={downloadingTemplate}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-blue-300 hover:text-white border border-blue-500/30 text-xs font-bold transition flex items-center justify-center gap-2 flex-shrink-0 active:scale-95 disabled:opacity-50"
+              >
+                <Download className={`w-4 h-4 ${downloadingTemplate ? "animate-bounce" : ""}`} />
+                <span>{downloadingTemplate ? "جاري التحميل..." : "تحميل قالب الإكسيل (Template)"}</span>
+              </button>
+            </div>
+
+            {/* Results Alert if any */}
+            {importResult && (
+              <div className="bg-slate-950 border border-teal-500/40 rounded-2xl p-5 space-y-4 animate-fade-in">
+                <div className="flex items-center gap-2 text-xs font-bold text-teal-400">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>نتيجة معالجة واعتماد كشف البصمة:</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-xl p-3 text-center">
+                    <div className="text-xl font-black text-emerald-400 font-mono">
+                      {importResult.insertedAndActivated}
+                    </div>
+                    <div className="text-[11px] text-emerald-300/80 font-bold mt-1">
+                      جدد تمت إضافتهم وتفعيلهم
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-950/40 border border-blue-500/30 rounded-xl p-3 text-center">
+                    <div className="text-xl font-black text-blue-400 font-mono">
+                      {importResult.activatedExisting}
+                    </div>
+                    <div className="text-[11px] text-blue-300/80 font-bold mt-1">
+                      مسجلين تم تفعيل بصمتهم
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center">
+                    <div className="text-xl font-black text-slate-300 font-mono">
+                      {importResult.skippedAlreadyActivated}
+                    </div>
+                    <div className="text-[11px] text-slate-400 font-bold mt-1">
+                      تم تجاهلهم (مفعلين مسبقاً)
+                    </div>
+                  </div>
+                </div>
+
+                {importResult.errors.length > 0 && (
+                  <div className="p-3 bg-red-950/30 border border-red-500/30 rounded-xl space-y-1.5 text-xs text-red-300">
+                    <div className="font-bold flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4 text-red-400" />
+                      <span>تنبيهات على بعض الصفوف ({importResult.errors.length}):</span>
+                    </div>
+                    <div className="max-h-32 overflow-y-auto space-y-1 pr-1 font-mono text-[11px]">
+                      {importResult.errors.map((err, idx) => (
+                        <div key={idx} className="text-red-300/90">
+                          • الصف {err.rowNumber}: {err.reason}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Form */}
+            <form onSubmit={handleUploadImportExcel} className="space-y-4 text-xs font-semibold">
+              {/* Step 2: Default Placement */}
+              <div className="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-4 space-y-3">
+                <div className="text-xs font-bold text-white flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-[10px] font-mono">2</span>
+                  <span>التسكين التلقائي للطلاب الجدد (في حال عدم تحديدها داخل الملف)</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-300 mb-1">المجموعة التلقائية:</label>
+                    <select
+                      value={importDefaultGroup}
+                      onChange={(e) => setImportDefaultGroup(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    >
+                      <option value="">تسكين تلقائي في أول مجموعة</option>
+                      {groups.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 mb-1">السكشن التلقائي:</label>
+                    <select
+                      value={importDefaultSection}
+                      onChange={(e) => setImportDefaultSection(e.target.value)}
+                      disabled={!importDefaultGroup || importSections.length === 0}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-40"
+                    >
+                      <option value="">تسكين تلقائي في أول سكشن</option>
+                      {importSections.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 3: Choose File */}
+              <div className="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-4 space-y-3">
+                <div className="text-xs font-bold text-white flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-[10px] font-mono">3</span>
+                  <span>اختيار ملف الإكسيل المكتمل (.xlsx / .xls)</span>
+                </div>
+
+                <label className="border-2 border-dashed border-slate-700 hover:border-teal-500/80 rounded-2xl p-6 flex flex-col items-center justify-center gap-2.5 cursor-pointer bg-slate-900/50 hover:bg-slate-900 transition text-center group">
+                  <input
+                    type="file"
+                    accept=".xlsx, .xls, .csv"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setImportFile(e.target.files[0]);
+                        setImportResult(null);
+                      }
+                    }}
+                    className="hidden"
+                  />
+                  <div className="w-12 h-12 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400 group-hover:scale-110 transition-transform shadow-inner">
+                    <FileSpreadsheet className="w-6 h-6" />
+                  </div>
+                  {importFile ? (
+                    <div>
+                      <div className="text-sm font-bold text-white font-mono">{importFile.name}</div>
+                      <div className="text-[11px] text-teal-400 mt-0.5">
+                        جاهز للرفع والمعالجة ({(importFile.size / 1024).toFixed(1)} KB) — انقر للتغيير
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="text-xs font-bold text-slate-300">
+                        اسحب ملف الإكسيل هنا أو انقر لاختياره من جهازك
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-1">
+                        الملفات المدعومة: Excel Workbook (.xlsx, .xls)
+                      </div>
+                    </div>
+                  )}
+                </label>
+              </div>
+
+              {/* Actions */}
+              <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsImportModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition text-xs"
+                >
+                  إغلاق
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={importLoading || !importFile}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-teal-600 via-emerald-600 to-teal-500 hover:from-teal-500 hover:to-emerald-500 text-white font-bold shadow-lg shadow-teal-600/30 transition text-xs flex items-center gap-2 disabled:opacity-50 active:scale-95"
+                >
+                  <Upload className={`w-4 h-4 ${importLoading ? "animate-spin" : ""}`} />
+                  <span>{importLoading ? "جاري معالجة الكشف وتفعيل البصمات..." : "بدء المعالجة والتفعيل التلقائي"}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
