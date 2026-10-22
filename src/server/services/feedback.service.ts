@@ -395,16 +395,16 @@ export class FeedbackService {
     return {
       inline_keyboard: [
         [
-          { text: "⭐ 1", callback_data: `rate:${campaignId}:1` },
-          { text: "⭐⭐ 2", callback_data: `rate:${campaignId}:2` },
-          { text: "⭐⭐⭐ 3", callback_data: `rate:${campaignId}:3` },
+          { text: "⭐ 1", callback_data: `rate:1:${campaignId}` },
+          { text: "⭐⭐ 2", callback_data: `rate:2:${campaignId}` },
+          { text: "⭐⭐⭐ 3", callback_data: `rate:3:${campaignId}` },
         ],
         [
-          { text: "⭐⭐⭐⭐ 4", callback_data: `rate:${campaignId}:4` },
-          { text: "⭐⭐⭐⭐⭐ 5", callback_data: `rate:${campaignId}:5` },
+          { text: "⭐⭐⭐⭐ 4", callback_data: `rate:4:${campaignId}` },
+          { text: "⭐⭐⭐⭐⭐ 5", callback_data: `rate:5:${campaignId}` },
         ],
         [
-          { text: "⚠️ واجهت مشكلة؟ (إبلاغ الإدارة)", callback_data: `rate:${campaignId}:issue` },
+          { text: "⚠️ واجهت مشكلة؟ (إبلاغ الإدارة)", callback_data: `issue:${campaignId}` },
         ],
       ],
     };

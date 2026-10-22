@@ -34,6 +34,24 @@ export async function POST(req: NextRequest) {
       return apiError("الطالب غير موجود", 404);
     }
 
+    // Check if student already rated for this campaign or system
+    const [existingRating] = await db
+      .select({ id: feedbackRatings.id })
+      .from(feedbackRatings)
+      .where(
+        requestCampaignId
+          ? and(
+              eq(feedbackRatings.studentId, studentId),
+              eq(feedbackRatings.requestCampaignId, requestCampaignId)
+            )
+          : eq(feedbackRatings.studentId, studentId)
+      )
+      .limit(1);
+
+    if (existingRating) {
+      return apiError("لقد قمت بتسجيل تقييمك مسبقاً، لا يمكن تكرار التقييم", 409);
+    }
+
     const [newRating] = await db
       .insert(feedbackRatings)
       .values({

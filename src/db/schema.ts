@@ -352,6 +352,10 @@ export const feedbackRatings = pgTable(
     studentIdx: index("feedback_ratings_student_idx").on(table.studentId),
     createdIdx: index("feedback_ratings_created_idx").on(table.createdAt),
     campaignIdx: index("feedback_ratings_campaign_idx").on(table.requestCampaignId),
+    studentCampaignIdx: uniqueIndex("feedback_ratings_student_campaign_idx").on(
+      table.studentId,
+      table.requestCampaignId
+    ),
   })
 );
 

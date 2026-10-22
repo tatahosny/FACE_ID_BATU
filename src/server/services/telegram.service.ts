@@ -133,14 +133,19 @@ export class TelegramService {
         text,
         parse_mode: parseMode,
       };
-      if (replyMarkup) {
+      if (replyMarkup !== undefined) {
         payload.reply_markup = replyMarkup;
       }
-      await fetch(`${getTelegramApiBase()}/editMessageText`, {
+      const response = await fetch(`${getTelegramApiBase()}/editMessageText`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      const data = await response.json();
+      if (!response.ok && !data.description?.includes("message is not modified")) {
+        console.warn("[TelegramService] editMessageText returned non-ok:", data.description);
+      }
+      return data;
     } catch (err: any) {
       console.error("[TelegramService] Failed to edit message text:", err.message);
     }
@@ -452,6 +457,45 @@ export class TelegramService {
         }
 
         if (issueContent.length > 0) {
+          // Check if an existing rating/issue is already registered
+          const [existingFeedback] = await db
+            .select({ id: feedbackRatings.id })
+            .from(feedbackRatings)
+            .where(
+              campaignId
+                ? and(
+                    eq(feedbackRatings.studentId, studentForRating.id),
+                    eq(feedbackRatings.requestCampaignId, campaignId)
+                  )
+                : eq(feedbackRatings.studentId, studentForRating.id)
+            )
+            .limit(1);
+
+          if (existingFeedback) {
+            await db
+              .update(feedbackRatings)
+              .set({
+                message: issueContent,
+                type: "ISSUE",
+              })
+              .where(eq(feedbackRatings.id, existingFeedback.id));
+
+            TelegramService.pendingIssues.delete(telegramUserId);
+
+            const responseText = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
+قسم تكنولوجيا المعلومات — نظام بصمة الوجه
+
+✅ <b>تم تحديث بلاغك بالملاحظات الجديدة بنجاح!</b>
+تفاصيل البلاغ:
+<i>"${issueContent}"</i>
+
+<b>شكراً لاستخدامك منصة البصمة 🙏</b>
+سيتم مراجعة المشكلة والعمل على حلها فوراً.`;
+
+            await this.sendMessage(telegramUserId, responseText);
+            return { handled: true, issueUpdated: true };
+          }
+
           await db.insert(feedbackRatings).values({
             studentId: studentForRating.id,
             rating: 1, // Default rating for reported issues
@@ -526,7 +570,7 @@ export class TelegramService {
     text: string,
     student: { id: string; fullName: string },
     replyToMessageText?: string
-  ): Promise<{ handled: boolean; rating?: number }> {
+  ): Promise<{ handled: boolean; rating?: number; alreadyRated?: boolean }> {
     // Extract campaign ID from the message being replied to
     let campaignId: string | null = null;
     if (replyToMessageText) {
@@ -561,6 +605,29 @@ export class TelegramService {
 
     if (ratingNum === null) {
       return { handled: false };
+    }
+
+    // Check if student already rated for this campaign or system
+    const [existingRating] = await db
+      .select({ id: feedbackRatings.id, rating: feedbackRatings.rating })
+      .from(feedbackRatings)
+      .where(
+        campaignId
+          ? and(
+              eq(feedbackRatings.studentId, student.id),
+              eq(feedbackRatings.requestCampaignId, campaignId)
+            )
+          : eq(feedbackRatings.studentId, student.id)
+      )
+      .limit(1);
+
+    if (existingRating) {
+      const stars = "⭐".repeat(existingRating.rating);
+      await this.sendMessage(
+        telegramUserId,
+        `<b>[جامعة برج العرب التكنولوجية - BATU]</b>\n\n✅ <b>لقد قمت بتسجيل تقييمك مسبقاً! ${stars}</b>\n\nشكراً لمشاركتك رأيك، ولا يمكن تسجيل التقييم أكثر من مرة 🙏`
+      );
+      return { handled: true, alreadyRated: true, rating: existingRating.rating };
     }
 
     // Save rating
@@ -607,66 +674,104 @@ export class TelegramService {
       return { handled: true, studentNotFound: true };
     }
 
-    // Case 1: Star Rating (rate:1:campaignId ... rate:5:campaignId)
-    if (data.startsWith("rate:")) {
+    // Parse callback data: support both rate:1:campaignId, rate:campaignId:1, rate:campaignId:issue, issue:campaignId
+    let isIssue = false;
+    let ratingNum: number | null = null;
+    let campaignId: string | null = null;
+
+    if (data.startsWith("issue:")) {
+      isIssue = true;
+      const raw = data.slice("issue:".length).trim();
+      campaignId = raw && raw !== "none" ? raw : null;
+    } else if (data.startsWith("rate:")) {
       const parts = data.split(":");
-      const ratingNum = parseInt(parts[1], 10);
-      const rawCampaign = parts[2] || "";
-      const campaignId = rawCampaign && rawCampaign !== "none" ? rawCampaign : null;
-
-      if (ratingNum >= 1 && ratingNum <= 5) {
-        const [savedRating] = await db
-          .insert(feedbackRatings)
-          .values({
-            studentId: student.id,
-            rating: ratingNum,
-            type: "SERVICE",
-            requestCampaignId: campaignId,
-            telegramMessageId: messageId || null,
-          })
-          .returning();
-
-        // Track pending comment so if they send a text next, it attaches to this rating
-        TelegramService.pendingComments.set(telegramUserId, {
-          ratingId: savedRating.id,
-          campaignId,
-          timestamp: Date.now(),
-        });
-
-        const stars = "⭐".repeat(ratingNum);
-        await this.answerCallbackQuery(callbackQueryId, `تم تسجيل تقييمك: ${stars} بنجاح!`);
-
-        if (chatId && messageId) {
-          const confirmationText = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
-قسم تكنولوجيا المعلومات — نظام بصمة الوجه
-
-✅ <b>تم تسجيل تقييمك بنجاح!</b> ${stars} (${ratingNum} من 5)
-
-<b>شكراً لاستخدامك منصة البصمة 🙏</b>
-رأيك يهمنا ويساعدنا دائماً في تقديم أفضل خدمة.
-
-<i>(إذا كان لديك أي تعليق أو ملاحظة إضافية، يمكنك كتابتها وإرسالها في رسالة الآن وسنضيفها إلى تقييمك).</i>`;
-
-          await this.editMessageText(chatId, messageId, confirmationText, "HTML", {
-            inline_keyboard: [],
-          });
+      if (parts[1] === "issue" || parts[2] === "issue") {
+        isIssue = true;
+        const raw = parts[1] === "issue" ? parts[2] : parts[1];
+        campaignId = raw && raw !== "none" ? raw : null;
+      } else {
+        const num1 = parseInt(parts[1], 10);
+        const num2 = parseInt(parts[2], 10);
+        if (!isNaN(num1) && num1 >= 1 && num1 <= 5) {
+          ratingNum = num1;
+          const raw = parts[2] || "";
+          campaignId = raw && raw !== "none" ? raw : null;
+        } else if (!isNaN(num2) && num2 >= 1 && num2 <= 5) {
+          ratingNum = num2;
+          const raw = parts[1] || "";
+          campaignId = raw && raw !== "none" ? raw : null;
         }
-
-        return { handled: true, ratingSaved: true, rating: ratingNum };
       }
+    } else {
+      await this.answerCallbackQuery(callbackQueryId);
+      return { handled: true };
     }
 
-    // Case 2: Report an Issue (issue:campaignId)
-    if (data.startsWith("issue:")) {
-      const rawCampaign = data.split(":")[1] || "";
-      const campaignId = rawCampaign && rawCampaign !== "none" ? rawCampaign : null;
+    // 1. Strict Duplicate Check: Has this student already rated for this campaign (or in general)?
+    const [existingRating] = await db
+      .select({
+        id: feedbackRatings.id,
+        rating: feedbackRatings.rating,
+        type: feedbackRatings.type,
+        message: feedbackRatings.message,
+      })
+      .from(feedbackRatings)
+      .where(
+        campaignId
+          ? and(
+              eq(feedbackRatings.studentId, student.id),
+              eq(feedbackRatings.requestCampaignId, campaignId)
+            )
+          : eq(feedbackRatings.studentId, student.id)
+      )
+      .limit(1);
 
+    if (existingRating) {
+      // Show Telegram alert modal so user immediately sees they already submitted
+      await this.answerCallbackQuery(
+        callbackQueryId,
+        "لقد قمت بتسجيل تقييمك مسبقاً! شكراً لك 🙏",
+        true
+      );
+
+      // Instantly remove inline keyboard buttons from Telegram chat
+      if (chatId && messageId) {
+        const stars = "⭐".repeat(existingRating.rating);
+        const alreadyRatedText = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
+قسم تكنولوجيا المعلومات — نظام بصمة الوجه
+
+✅ <b>لقد قمت بتسجيل تقييمك مسبقاً!</b> ${stars} (${existingRating.rating} من 5)
+${existingRating.message ? `\n<i>"${existingRating.message}"</i>\n` : ""}
+<b>شكراً لمشاركتك رأيك، لا يمكن تكرار التقييم 🙏</b>
+<i>(تم إغلاق أزرار التقييم لمنع تكرار التسجيل).</i>`;
+
+        await this.editMessageText(chatId, messageId, alreadyRatedText, "HTML", {
+          inline_keyboard: [],
+        });
+      }
+
+      return { handled: true, alreadyRated: true };
+    }
+
+    // 2. Case: Report an Issue
+    if (isIssue) {
       TelegramService.pendingIssues.set(telegramUserId, {
         campaignId,
         timestamp: Date.now(),
       });
 
       await this.answerCallbackQuery(callbackQueryId);
+
+      // Disable/remove buttons from the original message so they cannot be clicked repeatedly
+      if (chatId && messageId) {
+        await this.editMessageText(
+          chatId,
+          messageId,
+          `<b>[جامعة برج العرب التكنولوجية - BATU]</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n⚠️ <i>جارٍ تسجيل بلاغ عن مشكلة... يرجى كتابة التفاصيل في الرد بالأسفل.</i>`,
+          "HTML",
+          { inline_keyboard: [] }
+        );
+      }
 
       const issuePrompt = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
 ⚠️ <b>الإبلاغ عن مشكلة في المنظومة:</b>
@@ -681,6 +786,68 @@ export class TelegramService {
       });
 
       return { handled: true, issuePromptSent: true };
+    }
+
+    // 3. Case: Star Rating (1 to 5)
+    if (ratingNum !== null && ratingNum >= 1 && ratingNum <= 5) {
+      let savedRating: any;
+      try {
+        const [inserted] = await db
+          .insert(feedbackRatings)
+          .values({
+            studentId: student.id,
+            rating: ratingNum,
+            type: "SERVICE",
+            requestCampaignId: campaignId,
+            telegramMessageId: messageId || null,
+          })
+          .returning();
+        savedRating = inserted;
+      } catch (err: any) {
+        // Unique constraint violation in case of rapid concurrent clicks
+        console.warn("[TelegramService] Duplicate rating insert prevented:", err.message);
+        await this.answerCallbackQuery(callbackQueryId, "لقد قمت بتسجيل تقييمك مسبقاً!", true);
+
+        if (chatId && messageId) {
+          await this.editMessageText(
+            chatId,
+            messageId,
+            `<b>[جامعة برج العرب التكنولوجية - BATU]</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n✅ <b>تم استلام تقييمك مسبقاً، شكراً لمشاركتك رأيك 🙏</b>`,
+            "HTML",
+            { inline_keyboard: [] }
+          );
+        }
+        return { handled: true, alreadyRated: true };
+      }
+
+      // Track pending comment so if they send an optional text next, it attaches to this rating
+      TelegramService.pendingComments.set(telegramUserId, {
+        ratingId: savedRating.id,
+        campaignId,
+        timestamp: Date.now(),
+      });
+
+      const stars = "⭐".repeat(ratingNum);
+      await this.answerCallbackQuery(callbackQueryId, `تم تسجيل تقييمك: ${stars} بنجاح!`);
+
+      // Remove keyboard buttons and update text so buttons disappear from user client
+      if (chatId && messageId) {
+        const confirmationText = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
+قسم تكنولوجيا المعلومات — نظام بصمة الوجه
+
+✅ <b>تم تسجيل تقييمك بنجاح!</b> ${stars} (${ratingNum} من 5)
+
+<b>شكراً لاستخدامك منصة البصمة 🙏</b>
+رأيك يهمنا ويساعدنا دائماً في تقديم أفضل خدمة.
+
+<i>(إذا كان لديك أي تعليق أو ملاحظة إضافية، يمكنك كتابتها وإرسالها في رسالة الآن وسنضيفها إلى تقييمك).</i>`;
+
+        await this.editMessageText(chatId, messageId, confirmationText, "HTML", {
+          inline_keyboard: [],
+        });
+      }
+
+      return { handled: true, ratingSaved: true, rating: ratingNum };
     }
 
     await this.answerCallbackQuery(callbackQueryId);
