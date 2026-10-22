@@ -5,16 +5,7 @@ import {
   ArrowLeft,
   Send,
   Calendar,
-  Clock,
   Sparkles,
-  ShieldCheck,
-  Zap,
-  CheckCircle2,
-  FileSpreadsheet,
-  Layers,
-  ChevronLeft,
-  Flame,
-  Award,
 } from "lucide-react";
 
 export default function HomePage() {
@@ -78,97 +69,6 @@ export default function HomePage() {
               <Calendar className="w-4 h-4 text-purple-400" />
               <span>جدول المواعيد المعتمد</span>
             </Link>
-          </div>
-        </div>
-
-        {/* What's New in v3.1 Highlight Section */}
-        <div className="bg-gradient-to-b from-slate-900/90 via-[#0c1424] to-slate-950/90 rounded-3xl border border-slate-800 p-6 sm:p-8 text-right shadow-2xl backdrop-blur-xl space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shadow-inner">
-                <Sparkles className="w-5 h-5 text-amber-400" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-base sm:text-lg font-black text-white">
-                    أبرز تحديثات وميزات الإصدار 3.1
-                  </h2>
-                  <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 text-[10px] font-bold border border-emerald-500/20 font-mono">
-                    NEW UPDATE
-                  </span>
-                </div>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  تم تطوير المنظومة هندسياً لتقديم تجربة فائقة السرعة، آمنة ومريحة لجميع الطلاب والمشرفين
-                </p>
-              </div>
-            </div>
-
-            <span className="text-xs font-mono font-bold text-slate-400 px-3 py-1 rounded-xl bg-slate-950 border border-slate-800">
-              BUILD: 2026.10.v3.1
-            </span>
-          </div>
-
-          {/* Feature Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 hover:border-blue-500/30 transition space-y-2 group">
-              <div className="flex items-center gap-2.5 text-blue-400 font-bold text-xs">
-                <Zap className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                <span>حجز واستعلام فوري بدون كلمات مرور</span>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                لا حاجة لحسابات أو كلمات مرور معقدة؛ يكفي رقمك الأكاديمي للاستعلام عن دورك، تأكيد الحجز، ومعرفة حالة البصمة فورياً.
-              </p>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 hover:border-emerald-500/30 transition space-y-2 group">
-              <div className="flex items-center gap-2.5 text-emerald-400 font-bold text-xs">
-                <Send className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                <span>تكامل ذكي مع بوت تيليجرام الرسمي</span>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                إشعار فوري برقم تذكرتك، تنبيه حي قبل دورك بـ 5 طلاب لمنع التكدس، ورابط مباشر لاستقبال كافة الإعلانات الرسمية.
-              </p>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 hover:border-purple-500/30 transition space-y-2 group">
-              <div className="flex items-center gap-2.5 text-purple-400 font-bold text-xs">
-                <ShieldCheck className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                <span>تشفير عالي الأمان (AES-256 + HMAC)</span>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                تأمين وحماية الأرقام القومية وبيانات الطلاب بأحدث المعايير البرمجية لضمان الخصوصية وسرية السجلات الأكاديمية.
-              </p>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 hover:border-amber-500/30 transition space-y-2 group">
-              <div className="flex items-center gap-2.5 text-amber-400 font-bold text-xs">
-                <Calendar className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                <span>جدول معتمد مقسم لقسمي (A و B)</span>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                توزيع السكاشن على تقسيمات زمنية متوازنة مع مقرات اللجان ومواعيد دقيقة لتسهيل عملية أخذ البصمة.
-              </p>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 hover:border-teal-500/30 transition space-y-2 group">
-              <div className="flex items-center gap-2.5 text-teal-400 font-bold text-xs">
-                <FileSpreadsheet className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                <span>طباعة وتصدير كشوف PDF والإكسيل</span>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                إمكانية استعراض وطباعة جدول المواعيد بصيغة PDF معتمدة، وتحديثات متقدمة لدليل الطلاب المركزي.
-              </p>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 hover:border-rose-500/30 transition space-y-2 group">
-              <div className="flex items-center gap-2.5 text-rose-400 font-bold text-xs">
-                <Award className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                <span>منظومة تقييم المستخدمين الفورية</span>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                تقييم خدمة أخذ البصمة بنقرة واحدة عبر التيليجرام لضمان استمرار الجودة وتقديم أفضل تجربة طلابية.
-              </p>
-            </div>
           </div>
         </div>
 
