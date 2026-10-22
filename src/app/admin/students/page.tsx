@@ -35,6 +35,7 @@ import {
   Calendar,
   Layers,
   Fingerprint,
+  SlidersHorizontal,
 } from "lucide-react";
 
 export default function AdminStudentsPage() {
@@ -166,7 +167,7 @@ export default function AdminStudentsPage() {
       });
   }, [manualForm.groupId]);
 
-  const fetchStudents = async () => {
+  const fetchStudents = async (overrideSearch?: string | unknown) => {
     try {
       setLoading(true);
       setAuthError(false);
@@ -179,7 +180,8 @@ export default function AdminStudentsPage() {
       if (activationFilter) params.set("activationStatus", activationFilter);
       if (selectedStaff) params.set("staffId", selectedStaff);
       if (selectedDate) params.set("activationDate", selectedDate);
-      if (search) params.set("search", search);
+      const effectiveSearch = typeof overrideSearch === "string" ? overrideSearch : search;
+      if (effectiveSearch) params.set("search", effectiveSearch);
 
       const res = await fetch(`/api/students?${params.toString()}`);
 
@@ -207,6 +209,24 @@ export default function AdminStudentsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleClearSearch = () => {
+    setSearch("");
+    setPage(1);
+    fetchStudents("");
+  };
+
+  const handleResetAllFilters = () => {
+    setSelectedGroup("");
+    setSelectedSection("");
+    setSelectedSubSection("");
+    setActivationFilter("");
+    setSelectedStaff("");
+    setSelectedDate("");
+    setSearch("");
+    setPage(1);
+    fetchStudents("");
   };
 
   const handleExportExcel = async () => {
@@ -546,7 +566,7 @@ export default function AdminStudentsPage() {
             </button>
 
             <button
-              onClick={fetchStudents}
+              onClick={() => fetchStudents()}
               disabled={loading}
               className="px-3.5 py-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 text-xs font-bold border border-slate-700 shadow-md transition flex items-center gap-2"
               title="تحديث البيانات الآن"
@@ -730,234 +750,457 @@ export default function AdminStudentsPage() {
         </div>
       </div>
 
-      {/* Quick Filter Status Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs font-bold">
-        <button
-          onClick={() => {
-            setActivationFilter("");
-            setPage(1);
-          }}
-          className={`px-4 py-2 rounded-xl transition flex items-center gap-2 border ${
-            activationFilter === ""
-              ? "bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-600/30"
-              : "bg-slate-900 text-slate-400 border-slate-800 hover:text-white"
-          }`}
-        >
-          <Users className="w-3.5 h-3.5" />
-          <span>الكل ({stats.totalRegistered})</span>
-        </button>
-
-        <button
-          onClick={() => {
-            setActivationFilter("ACTIVATED");
-            setPage(1);
-          }}
-          className={`px-4 py-2 rounded-xl transition flex items-center gap-2 border ${
-            activationFilter === "ACTIVATED"
-              ? "bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/30"
-              : "bg-slate-900 text-slate-400 border-slate-800 hover:text-white"
-          }`}
-        >
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-          <span>تمت البصمة ({stats.totalActivated})</span>
-        </button>
-
-        <button
-          onClick={() => {
-            setActivationFilter("NOT_ACTIVATED");
-            setPage(1);
-          }}
-          className={`px-4 py-2 rounded-xl transition flex items-center gap-2 border ${
-            activationFilter === "NOT_ACTIVATED"
-              ? "bg-amber-600 text-white border-amber-500 shadow-md shadow-amber-600/30"
-              : "bg-slate-900 text-slate-400 border-slate-800 hover:text-white"
-          }`}
-        >
-          <Clock className="w-3.5 h-3.5 text-amber-400" />
-          <span>لم تبصم بعد ({stats.totalNotActivated})</span>
-        </button>
-      </div>
-
-      {/* Filters Bar */}
-      <div className="bg-slate-900/95 rounded-3xl border border-slate-800 shadow-xl p-5 space-y-4 backdrop-blur-xl">
-        <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
-            <Filter className="w-4 h-4 text-blue-400" />
-            <span>أدوات التصفية والبحث المتقدم</span>
-          </div>
-
-          {(selectedGroup ||
-            selectedSection ||
-            selectedSubSection ||
-            activationFilter ||
-            selectedStaff ||
-            selectedDate ||
-            search) && (
-            <button
-              onClick={() => {
-                setSelectedGroup("");
-                setSelectedSection("");
-                setSelectedSubSection("");
-                setActivationFilter("");
-                setSelectedStaff("");
-                setSelectedDate("");
-                setSearch("");
-                setPage(1);
-              }}
-              className="text-xs font-bold text-rose-400 hover:text-rose-300 flex items-center gap-1 transition"
-            >
-              <X className="w-3.5 h-3.5" />
-              <span>إعادة ضبط الفلاتر</span>
-            </button>
-          )}
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
-          {/* Group Filter */}
-          <div>
-            <label className="block text-[11px] font-bold text-slate-400 mb-1">المجموعة:</label>
-            <select
-              value={selectedGroup}
-              onChange={(e) => {
-                setSelectedGroup(e.target.value);
-                setPage(1);
-              }}
-              className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white"
-            >
-              <option value="">جميع المجموعات</option>
-              {groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Section Filter */}
-          <div>
-            <label className="block text-[11px] font-bold text-slate-400 mb-1">السكشن:</label>
-            <select
-              value={selectedSection}
-              onChange={(e) => {
-                setSelectedSection(e.target.value);
-                setPage(1);
-              }}
-              disabled={!selectedGroup || sections.length === 0}
-              className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white disabled:opacity-40"
-            >
-              <option value="">جميع السكاشن</option>
-              {sections.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Sub-Section Filter */}
-          <div>
-            <label className="block text-[11px] font-bold text-slate-400 mb-1">القسم الفرعي:</label>
-            <select
-              value={selectedSubSection}
-              onChange={(e) => {
-                setSelectedSubSection(e.target.value);
-                setPage(1);
-              }}
-              className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white"
-            >
-              <option value="">جميع الأقسام (A و B)</option>
-              <option value="A">قسم A فقط</option>
-              <option value="B">قسم B فقط</option>
-            </select>
-          </div>
-
-          {/* Activation Status Filter */}
-          <div>
-            <label className="block text-[11px] font-bold text-slate-400 mb-1">حالة البصمة:</label>
-            <select
-              value={activationFilter}
-              onChange={(e) => {
-                setActivationFilter(e.target.value);
-                setPage(1);
-              }}
-              className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white"
-            >
-              <option value="">جميع الحالات</option>
-              <option value="ACTIVATED">تمت البصمة (مفعل)</option>
-              <option value="NOT_ACTIVATED">لم تفعل بعد (انتظار)</option>
-            </select>
-          </div>
-
-          {/* Staff Member Filter */}
-          <div>
-            <label className="block text-[11px] font-bold text-slate-400 mb-1">الموظف المعتمد:</label>
-            <select
-              value={selectedStaff}
-              onChange={(e) => {
-                setSelectedStaff(e.target.value);
-                setPage(1);
-              }}
-              className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-950 text-white"
-            >
-              <option value="">جميع الموظفين</option>
-              {staffList.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.fullName} ({s.role === "SUPER_ADMIN" ? "مدير" : "موظف"})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Activation Date Filter */}
-          <div>
-            <label className="block text-[11px] font-bold text-slate-400 mb-1">تاريخ التوثيق:</label>
-            <div className="relative">
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => {
-                  setSelectedDate(e.target.value);
-                  setPage(1);
-                }}
-                className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-950 text-white"
-              />
-              {selectedDate && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedDate("");
-                    setPage(1);
-                  }}
-                  className="absolute left-2 top-2 text-slate-400 hover:text-white"
-                  title="مسح التاريخ"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
+      {/* Search & Advanced Filters Master Hub */}
+      <div className="bg-gradient-to-b from-slate-900/95 via-slate-900/90 to-slate-950/95 rounded-3xl border border-slate-800 shadow-2xl p-5 sm:p-7 space-y-6 backdrop-blur-2xl">
+        
+        {/* Hub Header & Status Tabs */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shadow-inner">
+              <SlidersHorizontal className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base sm:text-lg font-black text-white">
+                  أدوات التصفية والبحث المتقدم
+                </h2>
+                <span className="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 text-[10px] font-bold border border-blue-500/20">
+                  فرز فوري
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                تصفية الطلاب حسب الأبعاد الأكاديمية وحالة البصمة والتوثيق مع شريط بحث فوري وموسع
+              </p>
             </div>
           </div>
 
-          {/* Search Input */}
-          <div>
-            <label className="block text-[11px] font-bold text-slate-400 mb-1">بحث سريع:</label>
-            <form onSubmit={handleSearchSubmit} className="flex gap-1.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Quick Filter Status Tabs */}
+            <div className="flex rounded-xl bg-slate-950/80 p-1 border border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setActivationFilter("");
+                  setPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  activationFilter === ""
+                    ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>الكل ({stats.totalRegistered})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActivationFilter("ACTIVATED");
+                  setPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  activationFilter === "ACTIVATED"
+                    ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
+                <span>تمت البصمة ({stats.totalActivated})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActivationFilter("NOT_ACTIVATED");
+                  setPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  activationFilter === "NOT_ACTIVATED"
+                    ? "bg-amber-600 text-white shadow-md shadow-amber-600/30"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5 text-amber-300" />
+                <span>لم تبصم بعد ({stats.totalNotActivated})</span>
+              </button>
+            </div>
+
+            {/* Reset All Button */}
+            {(selectedGroup ||
+              selectedSection ||
+              selectedSubSection ||
+              activationFilter ||
+              selectedStaff ||
+              selectedDate ||
+              search) && (
+              <button
+                type="button"
+                onClick={handleResetAllFilters}
+                className="px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/20 text-xs font-bold flex items-center gap-1.5 transition active:scale-95"
+                title="إعادة ضبط جميع الفلاتر وحقول البحث"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>إلغاء كل الفلاتر</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Big Prominent Search Bar (البحث الموسع) */}
+        <div className="space-y-2">
+          <form
+            onSubmit={handleSearchSubmit}
+            className="relative flex flex-col sm:flex-row items-stretch gap-2.5 p-2 rounded-2xl bg-slate-950/90 border border-slate-700/80 shadow-xl focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all"
+          >
+            <div className="flex-1 flex items-center gap-3 px-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 flex-shrink-0 shadow-inner">
+                <Search className="w-5 h-5" />
+              </div>
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="اسم أو رقم..."
-                className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-950 text-white placeholder-slate-500"
+                placeholder="ابحث بالاسم الكامل للطالب، أو الرقم الأكاديمي، أو الرقم القومي..."
+                className="w-full bg-transparent text-sm sm:text-base text-white placeholder-slate-400 focus:outline-none font-medium py-2"
               />
-              <button
-                type="submit"
-                className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center justify-center transition"
-                title="تنفيذ البحث"
-              >
-                <Search className="w-3.5 h-3.5" />
-              </button>
-            </form>
+              {search && (
+                <button
+                  type="button"
+                  onClick={handleClearSearch}
+                  className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition flex-shrink-0"
+                  title="مسح نص البحث"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-7 py-3 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-blue-600/30 transition flex items-center justify-center gap-2 flex-shrink-0 active:scale-95 disabled:opacity-50"
+            >
+              <Search className="w-4 h-4" />
+              <span>بحث في السجلات</span>
+            </button>
+          </form>
+
+          <div className="flex items-center justify-between text-[11px] text-slate-400 px-2 flex-wrap gap-2">
+            <span>
+              💡 يمكنك كتابة جزء من اسم الطالب، رقمه الجامعي، أو بطاقة الرقم القومي ثم الضغط على زر البحث أو Enter.
+            </span>
+            {search && (
+              <span className="text-blue-400 font-bold font-mono">
+                نتائج مطابقة للبحث: &quot;{search}&quot;
+              </span>
+            )}
           </div>
         </div>
+
+        {/* Distributed Filter Sections (موزعة ومريحة للعين) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          
+          {/* Section 1: Academic Dimensions */}
+          <div className="bg-slate-950/50 border border-slate-800/90 rounded-2xl p-4 sm:p-5 space-y-3.5 shadow-md">
+            <div className="flex items-center gap-2 text-xs font-bold text-indigo-300 pb-2 border-b border-slate-800/70">
+              <Folder className="w-4 h-4 text-indigo-400" />
+              <span>الأبعاد الأكاديمية والتسكين الدراسي</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Group */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                  <span>المجموعة الدراسية:</span>
+                </label>
+                <select
+                  value={selectedGroup}
+                  onChange={(e) => {
+                    setSelectedGroup(e.target.value);
+                    setPage(1);
+                  }}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-700/80 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-900 text-white transition hover:border-slate-600"
+                >
+                  <option value="">جميع المجموعات</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Section */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                  <span>السكشن:</span>
+                </label>
+                <select
+                  value={selectedSection}
+                  onChange={(e) => {
+                    setSelectedSection(e.target.value);
+                    setPage(1);
+                  }}
+                  disabled={!selectedGroup || sections.length === 0}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-700/80 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-900 text-white disabled:opacity-40 transition hover:border-slate-600"
+                >
+                  <option value="">جميع السكاشن</option>
+                  {sections.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Sub-Section */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                  <span>القسم الفرعي:</span>
+                </label>
+                <select
+                  value={selectedSubSection}
+                  onChange={(e) => {
+                    setSelectedSubSection(e.target.value);
+                    setPage(1);
+                  }}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-700/80 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-900 text-white transition hover:border-slate-600"
+                >
+                  <option value="">جميع الأقسام (A و B)</option>
+                  <option value="A">قسم A فقط</option>
+                  <option value="B">قسم B فقط</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 2: Biometrics & Audit Tracking */}
+          <div className="bg-slate-950/50 border border-slate-800/90 rounded-2xl p-4 sm:p-5 space-y-3.5 shadow-md">
+            <div className="flex items-center gap-2 text-xs font-bold text-emerald-300 pb-2 border-b border-slate-800/70">
+              <Fingerprint className="w-4 h-4 text-emerald-400" />
+              <span>محددات البصمة والاعتماد المكتبي</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Activation Status */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span>حالة تفعيل البصمة:</span>
+                </label>
+                <select
+                  value={activationFilter}
+                  onChange={(e) => {
+                    setActivationFilter(e.target.value);
+                    setPage(1);
+                  }}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-700/80 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-900 text-white transition hover:border-slate-600"
+                >
+                  <option value="">جميع الحالات</option>
+                  <option value="ACTIVATED">تمت البصمة (مفعل)</option>
+                  <option value="NOT_ACTIVATED">لم تفعل بعد (انتظار)</option>
+                </select>
+              </div>
+
+              {/* Staff Member */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span>الموظف الموثّق:</span>
+                </label>
+                <select
+                  value={selectedStaff}
+                  onChange={(e) => {
+                    setSelectedStaff(e.target.value);
+                    setPage(1);
+                  }}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-700/80 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-900 text-white transition hover:border-slate-600"
+                >
+                  <option value="">جميع الموظفين</option>
+                  {staffList.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.fullName} ({s.role === "SUPER_ADMIN" ? "مشرف عام" : "موظف بصمة"})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Date */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span>تاريخ التوثيق:</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => {
+                      setSelectedDate(e.target.value);
+                      setPage(1);
+                    }}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-700/80 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-900 text-white transition hover:border-slate-600"
+                  />
+                  {selectedDate && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedDate("");
+                        setPage(1);
+                      }}
+                      className="absolute left-2.5 top-2.5 text-slate-400 hover:text-white"
+                      title="مسح التاريخ"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Active Filter Chips Bar */}
+        {(selectedGroup ||
+          selectedSection ||
+          selectedSubSection ||
+          activationFilter ||
+          selectedStaff ||
+          selectedDate ||
+          search) && (
+          <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between flex-wrap gap-2.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold text-slate-400 flex items-center gap-1">
+                <Filter className="w-3.5 h-3.5 text-blue-400" />
+                <span>الفلاتر النشطة:</span>
+              </span>
+
+              {search && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-300 text-xs font-medium">
+                  <span>بحث: &quot;{search}&quot;</span>
+                  <button
+                    type="button"
+                    onClick={handleClearSearch}
+                    className="hover:text-white"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+
+              {selectedGroup && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-medium">
+                  <span>المجموعة: {groups.find((g) => g.id === selectedGroup)?.name || selectedGroup}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedGroup("");
+                      setSelectedSection("");
+                      setPage(1);
+                    }}
+                    className="hover:text-white"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+
+              {selectedSection && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-medium">
+                  <span>السكشن: {sections.find((s) => s.id === selectedSection)?.name || selectedSection}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedSection("");
+                      setPage(1);
+                    }}
+                    className="hover:text-white"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+
+              {selectedSubSection && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-medium">
+                  <span>القسم الفرعي: {selectedSubSection}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedSubSection("");
+                      setPage(1);
+                    }}
+                    className="hover:text-white"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+
+              {activationFilter && (
+                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${
+                  activationFilter === "ACTIVATED"
+                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                    : "bg-amber-500/10 border-amber-500/30 text-amber-300"
+                }`}>
+                  <span>
+                    {activationFilter === "ACTIVATED" ? "تمت البصمة (مفعل)" : "لم تبصم بعد (انتظار)"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActivationFilter("");
+                      setPage(1);
+                    }}
+                    className="hover:text-white"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+
+              {selectedStaff && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-300 text-xs font-medium">
+                  <span>الموظف: {staffList.find((s) => s.id === selectedStaff)?.fullName || selectedStaff}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedStaff("");
+                      setPage(1);
+                    }}
+                    className="hover:text-white"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+
+              {selectedDate && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-300 text-xs font-medium">
+                  <span>التاريخ: {selectedDate}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedDate("");
+                      setPage(1);
+                    }}
+                    className="hover:text-white"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+            </div>
+
+            <div className="text-xs text-slate-400 font-medium">
+              إجمالي النتائج الحالية: <b className="text-white font-mono">{total}</b> طالب
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Bulk Action Toolbar for Students - Super Admin Only */}
