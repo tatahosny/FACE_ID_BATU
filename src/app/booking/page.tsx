@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   Search,
   User,
@@ -18,10 +19,27 @@ import {
   ExternalLink,
   KeyRound,
   Settings,
+  Info,
 } from "lucide-react";
 
 export default function BookingPage() {
-  const [academicNumberInput, setAcademicNumberInput] = useState("");
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white">
+        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <BookingContent />
+    </Suspense>
+  );
+}
+
+function BookingContent() {
+  const searchParams = useSearchParams();
+  const urlAcademicNumber = searchParams?.get("academicNumber") || "";
+  const isAlreadyRegistered = searchParams?.get("alreadyRegistered") === "1";
+
+  const [academicNumberInput, setAcademicNumberInput] = useState(urlAcademicNumber);
   const [loading, setLoading] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
   const isBookingSubmittingRef = useRef(false);
@@ -30,6 +48,31 @@ export default function BookingPage() {
   const [lookupResult, setLookupResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [bookingSuccess, setBookingSuccess] = useState<any>(null);
+
+  // Auto lookup if academicNumber is passed via redirect
+  useEffect(() => {
+    if (urlAcademicNumber && urlAcademicNumber.trim()) {
+      setAcademicNumberInput(urlAcademicNumber.trim());
+      (async () => {
+        try {
+          setLoading(true);
+          const res = await fetch(
+            `/api/bookings/student-lookup?academicNumber=${encodeURIComponent(
+              urlAcademicNumber.trim()
+            )}`
+          );
+          const json = await res.json();
+          if (json.success && json.data) {
+            setLookupResult(json.data);
+          }
+        } catch (err) {
+          // ignore
+        } finally {
+          setLoading(false);
+        }
+      })();
+    }
+  }, [urlAcademicNumber]);
 
   const handleResendTelegram = async () => {
     if (!lookupResult?.student?.academicNumber) return;
@@ -194,6 +237,20 @@ export default function BookingPage() {
 
         {/* Step 1: Academic Number Input Form */}
         <div className="bg-slate-900/90 rounded-3xl border border-slate-800 p-6 sm:p-8 shadow-2xl backdrop-blur-xl space-y-6">
+          {isAlreadyRegistered && (
+            <div className="p-4 rounded-2xl bg-blue-950/40 border border-blue-500/40 text-blue-200 text-xs sm:text-sm font-semibold flex items-start gap-3 shadow-lg shadow-blue-950/40 animate-fade-in">
+              <Info className="w-5 h-5 text-cyan-400 flex-shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <span className="font-extrabold text-white block text-sm">
+                  البيانات مسجلة مسبقاً — تم توجيهك تلقائياً لصفحة الحجز
+                </span>
+                <p className="text-slate-300 text-xs leading-relaxed">
+                  التسجيل بالمنظومة متاح <b>مرة واحدة فقط</b> لكل طالب ولا يمكن تعديل البيانات من صفحة التسجيل (التعديل متاح حصرياً عبر المشرف العام Super Admin). يمكنك الآن التحقق من بياناتك وحجز رقم دورك في الطابور مباشرة.
+                </p>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleLookup} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-300 mb-2">

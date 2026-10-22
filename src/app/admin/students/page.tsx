@@ -1625,13 +1625,14 @@ export default function AdminStudentsPage() {
                               </button>
                             )}
 
-                            {/* Edit / Overwrite Student Button */}
+                            {/* Edit Student Button - Super Admin Exclusive */}
                             <button
                               onClick={() => handleOpenEditStudentModal(student)}
-                              title="تعديل أو استبدال بيانات الطالب"
-                              className="p-1.5 rounded-xl bg-blue-950/40 hover:bg-blue-900/60 text-blue-400 border border-blue-800/40 transition hover:text-blue-200"
+                              title="تعديل بيانات الطالب (صلاحية السوبر أدمن فقط)"
+                              className="px-2.5 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-xs font-bold transition flex items-center gap-1 hover:text-white"
                             >
-                              <Edit3 className="w-3.5 h-3.5" />
+                              <Edit3 className="w-3.5 h-3.5 text-blue-400" />
+                              <span>تعديل</span>
                             </button>
 
                             {/* Delete Student Button */}
@@ -1697,8 +1698,13 @@ export default function AdminStudentsPage() {
                   <UserPlus className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-black text-white">إدخال / تحديث بيانات طالب يدوياً</h3>
-                  <p className="text-xs text-slate-400">إدخال مباشر لبيانات الطالب بواسطة المشرف مع معالجة التعارض</p>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-black text-white">إدخال وتعديل بيانات الطالب يدوياً</h3>
+                    <span className="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-bold">
+                      صلاحية السوبر أدمن
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">تعديل الاسم، الرقم الأكاديمي، الرقم القومي، والسكشن حصرياً عبر المشرف العام</p>
                 </div>
               </div>
               <button

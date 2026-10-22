@@ -23,7 +23,21 @@ export async function POST(req: NextRequest) {
 
     const result = await StudentService.registerStudent(parsed.data);
 
-    // Automatically create session for the registered student
+    // If student is already registered, redirect directly to booking without allowing modification
+    if ((result as any).alreadyRegistered) {
+      return apiSuccess(
+        {
+          alreadyRegistered: true,
+          redirectUrl: (result as any).redirectUrl,
+          student: result.student,
+          message: (result as any).message,
+        },
+        (result as any).message,
+        200
+      );
+    }
+
+    // Automatically create session for the freshly registered student
     const sessionToken = await createSessionToken({
       userId: result.student.id,
       studentId: result.student.id,
@@ -34,9 +48,7 @@ export async function POST(req: NextRequest) {
       role: "STUDENT",
     });
 
-    const successMsg = (result.student as any).isExistingUpdated
-      ? "تم التحقق من بياناتك وتحديث السكشن والمجموعة بنجاح. يرجى إتمام ربط التيليجرام لمتابعة حجز دورك."
-      : "تم تسجيل بياناتك بنجاح. يرجى ربط حسابك بالتيليجرام لمتابعة الحجز.";
+    const successMsg = "تم تسجيل بياناتك بنجاح. يرجى ربط حسابك بالتيليجرام لمتابعة الحجز.";
 
     const response = apiSuccess(result, successMsg, 201);
 

@@ -19,6 +19,7 @@ import {
   ArrowRight,
   ChevronLeft,
   Calendar,
+  Info,
 } from "lucide-react";
 
 interface Group {
@@ -53,6 +54,11 @@ export default function RegisterPage() {
 
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [alreadyRegisteredInfo, setAlreadyRegisteredInfo] = useState<{
+    message: string;
+    redirectUrl: string;
+    academicNumber: string;
+  } | null>(null);
   const [successResult, setSuccessResult] = useState<{
     student: any;
     telegramDeepLink: string;
@@ -183,6 +189,24 @@ export default function RegisterPage() {
         return;
       }
 
+      // If student is already registered, show message and auto-redirect to booking
+      if (json.data?.alreadyRegistered) {
+        const destUrl =
+          json.data.redirectUrl ||
+          `/booking?alreadyRegistered=1&academicNumber=${encodeURIComponent(formData.academicNumber.trim())}`;
+        setAlreadyRegisteredInfo({
+          message:
+            json.message ||
+            "البيانات مسجلة مسبقاً في المنظومة، تم توجيهك تلقائياً إلى صفحة حجز الدور.",
+          redirectUrl: destUrl,
+          academicNumber: json.data.student?.academicNumber || formData.academicNumber.trim(),
+        });
+        setTimeout(() => {
+          router.push(destUrl);
+        }, 2200);
+        return;
+      }
+
       setSuccessResult({
         student: json.data.student,
         telegramDeepLink: json.data.telegramDeepLink,
@@ -292,8 +316,46 @@ export default function RegisterPage() {
         </div>
       </div>
 
-      {/* Success / Mandatory Linking State Screen */}
-      {successResult ? (
+      {/* Already Registered Redirect Screen */}
+      {alreadyRegisteredInfo ? (
+        <div className="bg-slate-900/90 rounded-3xl border border-blue-500/30 shadow-2xl p-6 sm:p-10 space-y-6 text-center animate-fade-in relative overflow-hidden backdrop-blur-xl">
+          <div className="w-20 h-20 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center mx-auto shadow-inner border-2 border-blue-500/40 animate-pulse">
+            <CheckCircle2 className="w-12 h-12 text-blue-400" />
+          </div>
+
+          <div>
+            <span className="inline-block py-1 px-3 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/30 text-xs font-bold mb-2">
+              سجل معتمد موجود مسبقاً
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-white">
+              البيانات مسجلة مسبقاً في المنظومة
+            </h2>
+            <p className="text-sm text-slate-300 mt-2 max-w-lg mx-auto leading-relaxed">
+              {alreadyRegisteredInfo.message}
+            </p>
+          </div>
+
+          <div className="bg-blue-950/40 border border-blue-500/30 rounded-2xl p-5 text-right space-y-3">
+            <div className="flex items-center gap-2 text-cyan-300 font-bold text-sm">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+              <span>جاري توجيهك تلقائياً لصفحة حجز الدور...</span>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              التسجيل متاح <b>مرة واحدة فقط</b> لكل طالب، وتعديل البيانات يتم حصرياً عبر المشرف العام (Super Admin). نظراً لكون بياناتك مقيدة بالفعل، يتم نقلك مباشرة لإتمام حجز الدور.
+            </p>
+          </div>
+
+          <div className="pt-2">
+            <Link
+              href={alreadyRegisteredInfo.redirectUrl}
+              className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-base shadow-xl shadow-blue-600/30 transition transform hover:-translate-y-0.5 flex items-center justify-center gap-2"
+            >
+              <span>الانتقال المباشر لصفحة الحجز الآن</span>
+              <Ticket className="w-5 h-5 text-white" />
+            </Link>
+          </div>
+        </div>
+      ) : successResult ? (
         <div className="bg-slate-900/90 rounded-3xl border border-slate-800 shadow-2xl p-6 sm:p-10 space-y-6 text-center animate-fade-in relative overflow-hidden backdrop-blur-xl">
           {isLinked ? (
             /* State 2: Linking Completed Successfully */
@@ -504,6 +566,17 @@ export default function RegisterPage() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-5">
+            {/* Policy Notice: One-Time Registration Only */}
+            <div className="p-4 rounded-2xl bg-blue-950/30 border border-blue-500/30 text-slate-300 text-xs flex items-start gap-3 shadow-inner">
+              <Info className="w-4 h-4 text-cyan-400 flex-shrink-0 mt-0.5" />
+              <div className="space-y-1 leading-relaxed">
+                <span className="font-extrabold text-white block text-[13px]">قواعد وضوابط التسجيل بالمنظومة:</span>
+                <p className="text-slate-300">
+                  التسجيل متاح <b>مرة واحدة فقط</b> لكل طالب. لا يُسمح بتعديل السكشن أو البيانات بعد القيد، وتعديل البيانات يتم حصرياً بواسطة <b>المشرف العام (Super Admin)</b>. إذا كانت بياناتك مسجلة بالفعل، سيتم توجيهك تلقائياً لصفحة حجز الدور.
+                </p>
+              </div>
+            </div>
+
             {/* Full Name */}
             <div>
               <label htmlFor="fullName" className="block text-sm font-bold text-slate-200 mb-1">

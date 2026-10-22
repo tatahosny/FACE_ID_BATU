@@ -68,63 +68,27 @@ export class StudentService {
         .from(students)
         .where(eq(students.nationalIdHash, nationalIdHash));
 
-      // CASE 1: Student is already registered in the system AND both Academic Number & National ID match!
-      // This is the student reclaiming/updating their account or linking Telegram!
-      const isOwnerReclaiming =
+      // CASE 1: Student is already registered in the system (Academic Number and National ID match an existing student)
+      // Per system rules: Students register ONCE only. Data editing is restricted to SUPER_ADMIN only.
+      const isAlreadyRegistered =
         (existingByAcademic && existingByAcademic.nationalIdHash === nationalIdHash) ||
         (existingByNationalId && existingByAcademic && existingByNationalId.id === existingByAcademic.id);
 
-      if (isOwnerReclaiming && existingByAcademic) {
-        // Update student's group, section, and subSection to their current selection
-        const [updatedStudent] = await tx
-          .update(students)
-          .set({
-            fullName: rawFullName,
-            groupId,
-            sectionId,
-            subSection: subSection || existingByAcademic.subSection || "A",
-            updatedAt: new Date(),
-          })
-          .where(eq(students.id, existingByAcademic.id))
-          .returning();
-
-        // Generate fresh single-use Telegram link token (valid for 15 minutes)
-        const rawToken = generateSecureToken(32);
-        const tokenHash = hashToken(rawToken);
-        const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
-
-        await tx.insert(telegramLinkTokens).values({
-          studentId: updatedStudent.id,
-          tokenHash,
-          expiresAt,
-        });
-
-        // Record audit log
-        await tx.insert(auditLogs).values({
-          action: "STUDENT_PROFILE_UPDATED",
-          entityType: "STUDENT",
-          entityId: updatedStudent.id,
-          safeMetadata: {
-            academicNumber: rawAcademicNumber,
-            groupId,
-            sectionId,
-            subSection: subSection || "A",
-            updatedViaRegistrationForm: true,
-          },
-        });
-
+      if (isAlreadyRegistered && existingByAcademic) {
+        // Do NOT update student's data - only SUPER_ADMIN is allowed to edit student data
         return {
+          alreadyRegistered: true,
           student: {
-            id: updatedStudent.id,
-            fullName: updatedStudent.fullName,
-            academicNumber: updatedStudent.academicNumber,
-            groupId: updatedStudent.groupId,
-            sectionId: updatedStudent.sectionId,
-            createdAt: updatedStudent.createdAt,
-            isExistingUpdated: true,
+            id: existingByAcademic.id,
+            fullName: existingByAcademic.fullName,
+            academicNumber: existingByAcademic.academicNumber,
+            groupId: existingByAcademic.groupId,
+            sectionId: existingByAcademic.sectionId,
+            subSection: existingByAcademic.subSection,
+            createdAt: existingByAcademic.createdAt,
           },
-          telegramLinkToken: rawToken,
-          telegramDeepLink: `https://t.me/${process.env.TELEGRAM_BOT_USERNAME || "batu_face_id_bot"}?start=${rawToken}`,
+          message: "البيانات مسجلة مسبقاً في المنظومة، تم توجيهك تلقائياً إلى صفحة حجز الدور.",
+          redirectUrl: `/booking?alreadyRegistered=1&academicNumber=${encodeURIComponent(existingByAcademic.academicNumber)}`,
         };
       }
 
