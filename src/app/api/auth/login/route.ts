@@ -9,6 +9,8 @@ import { formatCairoDateTime } from "@/lib/utils/datetime";
 import { apiError, apiSuccess } from "@/lib/utils/response";
 import { z } from "zod";
 
+export const dynamic = "force-dynamic";
+
 const loginSchema = z.object({
   // Can be email (for staff/admin) or academicNumber (for student)
   identifier: z.string().trim().min(3, "يرجى إدخال البريد الإلكتروني أو الرقم الأكاديمي"),

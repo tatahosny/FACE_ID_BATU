@@ -20,18 +20,20 @@ import { BOOKING_WINDOW_STATUSES } from "@/lib/constants/statuses";
 function getTelegramBotToken(): string {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("[SECURITY] TELEGRAM_BOT_TOKEN environment variable is required in production.");
+    if (process.env.NODE_ENV === "production" && process.env.NEXT_PHASE !== "phase-production-build") {
+      console.warn("[TelegramService] TELEGRAM_BOT_TOKEN is not configured.");
     }
-    // Dev fallback — never commit real tokens to source code
-    console.warn("[SECURITY WARNING] TELEGRAM_BOT_TOKEN not set, Telegram features will fail.");
     return "";
   }
   return token;
 }
 
 const BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || "batu_face_id_bot";
-const TELEGRAM_API_BASE = `https://api.telegram.org/bot${getTelegramBotToken()}`;
+
+function getTelegramApiBase(): string {
+  const token = getTelegramBotToken();
+  return `https://api.telegram.org/bot${token}`;
+}
 
 export class TelegramService {
   /**
@@ -73,7 +75,7 @@ export class TelegramService {
         payload.reply_markup = replyMarkup;
       }
 
-      const response = await fetch(`${TELEGRAM_API_BASE}/sendMessage`, {
+      const response = await fetch(`${getTelegramApiBase()}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -110,7 +112,7 @@ export class TelegramService {
       if (text) {
         payload.text = text;
       }
-      await fetch(`${TELEGRAM_API_BASE}/answerCallbackQuery`, {
+      await fetch(`${getTelegramApiBase()}/answerCallbackQuery`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -134,7 +136,7 @@ export class TelegramService {
       if (replyMarkup) {
         payload.reply_markup = replyMarkup;
       }
-      await fetch(`${TELEGRAM_API_BASE}/editMessageText`, {
+      await fetch(`${getTelegramApiBase()}/editMessageText`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

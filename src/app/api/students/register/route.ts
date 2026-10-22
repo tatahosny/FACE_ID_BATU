@@ -5,6 +5,8 @@ import { checkRateLimit } from "@/lib/security/rate-limit";
 import { apiError, apiSuccess } from "@/lib/utils/response";
 import { createSessionToken, AUTH_COOKIE_NAME } from "@/lib/security/auth";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
     const ip = req.headers.get("x-forwarded-for") || "local";

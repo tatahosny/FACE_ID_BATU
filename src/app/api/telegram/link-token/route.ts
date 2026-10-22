@@ -6,6 +6,8 @@ import { db } from "@/db";
 import { students } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
     let studentId: string | null = null;

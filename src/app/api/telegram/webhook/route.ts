@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { TelegramService } from "@/server/services/telegram.service";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
     // 1. Verify Telegram Webhook Secret Token header if configured

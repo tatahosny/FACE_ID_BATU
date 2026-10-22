@@ -6,9 +6,10 @@ import { requireRole } from "@/lib/security/auth";
 import { USER_ROLES } from "@/lib/constants/statuses";
 import { updateBookingWindowStatusSchema } from "@/lib/validation/booking";
 import { apiError, apiSuccess } from "@/lib/utils/response";
-import { TelegramService } from "@/server/services/telegram.service";
 import { BookingService } from "@/server/services/booking.service";
 import { NotificationService } from "@/server/services/notification.service";
+
+export const dynamic = "force-dynamic";
 
 export async function PATCH(
   req: NextRequest,

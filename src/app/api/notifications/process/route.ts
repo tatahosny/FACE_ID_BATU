@@ -4,6 +4,8 @@ import { getSessionUser } from "@/lib/security/auth";
 import { USER_ROLES } from "@/lib/constants/statuses";
 import { apiError, apiSuccess } from "@/lib/utils/response";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
     // Check Authorization: Bearer <CRON_SECRET> or Admin session
