@@ -18,6 +18,7 @@ import {
   Sparkles,
   ArrowRight,
   ChevronLeft,
+  Calendar,
 } from "lucide-react";
 
 interface Group {
@@ -58,7 +59,10 @@ export default function RegisterPage() {
   } | null>(null);
 
   const [isLinked, setIsLinked] = useState(false);
-  const [linkedData, setLinkedData] = useState<{ telegramUsername?: string | null } | null>(null);
+  const [linkedData, setLinkedData] = useState<{
+    telegramUsername?: string | null;
+    isBookingOpen?: boolean;
+  } | null>(null);
 
   // Poll for linking status and prevent navigating away if not linked
   useEffect(() => {
@@ -79,7 +83,10 @@ export default function RegisterPage() {
         const json = await res.json();
         if (json.success && json.data?.isLinked) {
           setIsLinked(true);
-          setLinkedData({ telegramUsername: json.data.telegramUsername });
+          setLinkedData({
+            telegramUsername: json.data.telegramUsername,
+            isBookingOpen: json.data.isBookingOpen,
+          });
           clearInterval(interval);
         }
       } catch (err) {
@@ -297,41 +304,108 @@ export default function RegisterPage() {
 
               <div>
                 <span className="inline-block py-1 px-3 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-xs font-bold mb-2">
-                  تم التوثيق والربط الأكاديمي بنجاح
+                  تم تسجيل البيانات وربط التيليجرام بنجاح
                 </span>
                 <h2 className="text-2xl sm:text-3xl font-extrabold text-white flex items-center justify-center gap-2">
-                  <span>تم الربط بنجاح</span>
+                  <span>تم تسجيل بياناتك بنجاح فقط</span>
                   <CheckCircle2 className="w-7 h-7 text-emerald-400" />
                 </h2>
-                <p className="text-sm text-slate-300 mt-2">
+                <p className="text-sm text-slate-300 mt-2 max-w-lg mx-auto leading-relaxed">
                   مرحباً بك يا <b>{successResult.student.fullName}</b>
                   {linkedData?.telegramUsername && (
                     <span className="text-cyan-400 font-semibold mx-1">
                       (@{linkedData.telegramUsername})
                     </span>
                   )}
-                  ، تم ربط حسابك في بوت الجامعة بنجاح تام.
+                  . تم توثيق بياناتك الأكاديمية بنجاح، وتأكيد الربط مع بوت التيليجرام.
                 </p>
               </div>
 
-              {/* Crucial Notice */}
-              <div className="bg-amber-950/30 border border-amber-500/30 rounded-2xl p-5 text-right space-y-2 shadow-sm text-amber-200">
-                <div className="flex items-center gap-2 text-amber-400 font-extrabold text-base">
-                  <Volume2 className="w-5 h-5 text-amber-400" />
-                  <span>تنبيه هام وموعد الحجز:</span>
+              {/* Booking Status Section (Open vs Closed) */}
+              {linkedData?.isBookingOpen ? (
+                <div className="bg-emerald-950/40 border border-emerald-500/40 rounded-2xl p-5 text-right space-y-3 shadow-lg shadow-emerald-950/30">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2 text-emerald-400 font-extrabold text-base">
+                      <span className="relative flex h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                      </span>
+                      <span>باب الحجز مفتوح الآن لسكشنك!</span>
+                    </div>
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-xs font-bold border border-emerald-500/40">
+                      متاح للحجز الفوري
+                    </span>
+                  </div>
+
+                  <p className="text-xs sm:text-sm text-slate-200 leading-relaxed font-semibold">
+                    فترة الحجز مفتوحة حالياً لسكشن (
+                    <span className="text-emerald-300 font-bold underline decoration-emerald-500">
+                      {sections.find((s) => s.id === successResult.student.sectionId)?.name || "سكشنك الأكاديمي"}
+                    </span>
+                    ) وقسم (
+                    <span className="text-emerald-300 font-bold">
+                      قسم {successResult.student.subSection || formData.subSection}
+                    </span>
+                    ). يمكنك الآن حجز رقم دورك في الطابور فوراً بالضغط على الزر أدناه!
+                  </p>
+
+                  <div className="pt-1">
+                    <Link
+                      href="/booking"
+                      className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-base shadow-xl shadow-emerald-600/30 transition transform hover:-translate-y-0.5 flex items-center justify-center gap-2"
+                    >
+                      <Ticket className="w-5 h-5 text-white" />
+                      <span>الانتقال لصفحة الحجز وحجز رقم دورك الآن</span>
+                    </Link>
+                  </div>
                 </div>
-                <p className="text-sm sm:text-base font-bold text-slate-100 leading-relaxed">
-                  يرجى التوجه لصفحة الحجز عند فتح الحجز للسكشن الخاص بك (
-                  <span className="underline decoration-amber-500 underline-offset-4 text-amber-300">
-                    {sections.find((s) => s.id === successResult.student.sectionId)?.name || "سكشنك الأكاديمي"}
-                  </span>
-                  ).
-                </p>
-                <p className="text-xs text-amber-300/80 flex items-center gap-1.5">
-                  <Zap className="w-3.5 h-3.5 text-amber-400" />
-                  <span>ستصلك رسالة إشعار فورية على تطبيق التيليجرام فور بدء فترة الحجز الرسمية لسكشنك مباشرة.</span>
-                </p>
-              </div>
+              ) : (
+                <div className="bg-amber-950/30 border border-amber-500/40 rounded-2xl p-5 text-right space-y-3 shadow-sm text-amber-200">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2 text-amber-400 font-extrabold text-base">
+                      <AlertTriangle className="w-5 h-5 text-amber-400" />
+                      <span>تنبيه هام: باب الحجز مقفول حالياً لسكشنك</span>
+                    </div>
+                    <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono text-xs font-bold border border-amber-500/40">
+                      مغلق مؤقتاً
+                    </span>
+                  </div>
+
+                  <p className="text-xs sm:text-sm font-bold text-slate-100 leading-relaxed">
+                    نحيطكم علماً بأنك قمت <b className="text-amber-300 underline underline-offset-4">بتسجيل بياناتك فقط</b>، ولم يتم حجز رقم دور في الطابور بعد لأن باب الحجز لم يُفتح بعد لسكشن (
+                    <span className="text-amber-300">
+                      {sections.find((s) => s.id === successResult.student.sectionId)?.name || "سكشنك الأكاديمي"}
+                    </span>
+                    ) أو قسم (
+                    <span className="text-amber-300">
+                      قسم {successResult.student.subSection || formData.subSection}
+                    </span>
+                    ).
+                  </p>
+
+                  <p className="text-xs text-amber-300/90 leading-relaxed flex items-start gap-1.5 pt-1">
+                    <Zap className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span><b>يرجى الانتباه لرسائل التيليجرام:</b> ستصلك رسالة إشعار فورية على بوت التيليجرام بمجرد قيام الإدارة بفتح باب الحجز، مع ضرورة اتباع الجدول المعتمد والالتزام بموعد سكشنك.</span>
+                  </p>
+
+                  <div className="pt-2 flex flex-col sm:flex-row gap-2.5">
+                    <Link
+                      href="/schedules"
+                      className="flex-1 py-3 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-purple-600/20 transition flex items-center justify-center gap-2"
+                    >
+                      <Calendar className="w-4 h-4 text-white" />
+                      <span>استعراض جدول المواعيد الرسمي المعتمد</span>
+                    </Link>
+                    <Link
+                      href="/booking"
+                      className="py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs sm:text-sm border border-slate-700 transition flex items-center justify-center gap-1.5"
+                    >
+                      <Ticket className="w-4 h-4 text-slate-400" />
+                      <span>صفحة الحجز</span>
+                    </Link>
+                  </div>
+                </div>
+              )}
 
               {/* Student Summary Card */}
               <div className="bg-slate-950/70 rounded-2xl p-4 border border-slate-800 text-xs sm:text-sm space-y-2 text-right">
@@ -357,17 +431,6 @@ export default function RegisterPage() {
                     قسم {successResult.student.subSection || formData.subSection}
                   </span>
                 </div>
-              </div>
-
-              {/* Action Button */}
-              <div className="pt-2">
-                <Link
-                  href="/booking"
-                  className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white font-extrabold text-base shadow-lg shadow-emerald-600/30 transition transform hover:-translate-y-0.5 flex items-center justify-center gap-2"
-                >
-                  <span>الانتقال لصفحة الحجز الآن</span>
-                  <Ticket className="w-5 h-5 text-white" />
-                </Link>
               </div>
             </div>
           ) : (

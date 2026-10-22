@@ -324,9 +324,92 @@ export class TelegramService {
         ? schedule.notes
         : `الواحة — مبنى الشؤون (شباك بصمة الوجه)`;
 
-      const confirmationText = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تم توثيق وربط حسابك بنجاح</b>\n\n<b>اسم الطالب:</b> ${student.fullName}\n<b>الرقم الأكاديمي:</b> ${student.academicNumber}\n<b>المجموعة:</b> ${studentAcademic?.groupName || "المجموعة المحددة"}\n<b>السكشن:</b> ${studentAcademic?.sectionName || "السكشن المحدد"} (قسم ${student.subSection || "A"})\n\n${scheduleDetails}\n\n<b>المقر والمكان بالتفصيل:</b>\n${venueDetails}\n\n<b>تعليمات هامة:</b>\n• يرجى إحضار بطاقة الرقم القومي الأصلية والكارنيه الجامعي.\n• فور قيام الإدارة بفتح باب حجز الأدوار لسكشنك، ستصلك رسالة فورية هنا للدخول وحجز رقم دورك في الطابور!`;
+      // Check if booking window is open right now for student's section and subsection
+      const appUrl =
+        process.env.NEXT_PUBLIC_APP_URL ||
+        process.env.APP_URL ||
+        "https://face-id-batu-hvk9.vercel.app";
 
-      await this.sendMessage(telegramUserId, confirmationText);
+      const nowIso = new Date().toISOString();
+      const candidateWindows = await db
+        .select()
+        .from(bookingWindows)
+        .where(
+          and(
+            eq(bookingWindows.sectionId, student.sectionId),
+            eq(bookingWindows.status, BOOKING_WINDOW_STATUSES.OPEN),
+            sql`${bookingWindows.startsAt} <= ${nowIso}`,
+            sql`${bookingWindows.endsAt} >= ${nowIso}`
+          )
+        )
+        .orderBy(desc(bookingWindows.createdAt));
+
+      const openWindow = candidateWindows.find(
+        (w) => w.subSection === "ALL" || w.subSection === (student.subSection || "A")
+      );
+      const isBookingOpen = !!openWindow;
+
+      let bookingStatusSection = "";
+      let replyMarkup: any = undefined;
+
+      if (isBookingOpen) {
+        bookingStatusSection = `🟢 <b>حالة الحجز الآن: [مفتوح]</b>\nباب حجز الأدوار مفتوح حالياً لسكشنك وقسمك (${student.subSection || "A"})!\nيمكنك الآن الدخول وحجز رقم دورك في الطابور مباشرة عبر الرابط التالي:\n🔗 <a href="${appUrl}/booking">${appUrl}/booking</a>`;
+        replyMarkup = {
+          inline_keyboard: [
+            [
+              {
+                text: "🎫 اضغط هنا لحجز دورك الآن",
+                url: `${appUrl}/booking`,
+              },
+            ],
+            [
+              {
+                text: "📅 استعراض جدول المواعيد",
+                url: `${appUrl}/schedules`,
+              },
+            ],
+          ],
+        };
+      } else {
+        bookingStatusSection = `🔴 <b>حالة الحجز الآن: [مغلق حالياً]</b>\nباب حجز الأدوار مقفول حالياً لسكشنك (أو لم تبدأ فترته بعد).\n⚠️ <b>يرجى الانتباه ومتابعة رسائل التيليجرام هنا</b>، حيث ستصلك رسالة تنبيهية فور قيام الإدارة بفتح باب الحجز، مع ضرورة اتباع الجدول المعتمد والالتزام بموعدك.\n🔗 <b>رابط صفحة جدول المواعيد الرسمي:</b>\n<a href="${appUrl}/schedules">${appUrl}/schedules</a>`;
+        replyMarkup = {
+          inline_keyboard: [
+            [
+              {
+                text: "📅 اضغط هنا لاستعراض جدول المواعيد الرسمي",
+                url: `${appUrl}/schedules`,
+              },
+            ],
+          ],
+        };
+      }
+
+      const confirmationText = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
+قسم تكنولوجيا المعلومات — نظام بصمة الوجه
+
+✅ <b>تم تسجيل بياناتك الأكاديمية بنجاح فقط</b>
+
+⚠️ <b>تنبيه هام:</b> أنت الآن قمت <b>بتسجيل بياناتك فقط</b> ولم يتم حجز رقم دور في الطابور بعد.
+
+<b>اسم الطالب:</b> ${student.fullName}
+<b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>
+<b>المجموعة:</b> ${studentAcademic?.groupName || "المجموعة المحددة"}
+<b>السكشن:</b> ${studentAcademic?.sectionName || "السكشن المحدد"} (قسم ${student.subSection || "A"})
+
+${scheduleDetails}
+
+<b>المقر والمكان بالتفصيل:</b>
+${venueDetails}
+
+━━━━━━━━━━━━━━━━━━━━
+${bookingStatusSection}
+━━━━━━━━━━━━━━━━━━━━
+
+<b>تعليمات هامة:</b>
+• يرجى إحضار أصل بطاقة الرقم القومي والكارنيه الجامعي.
+• لا تتوجه لشباك البصمة إلا بعد إتمام حجز دورك واستلام إشعار ندائك في الطابور.`;
+
+      await this.sendMessage(telegramUserId, confirmationText, "HTML", replyMarkup);
       return { handled: true, success: true, studentId: student.id };
     }
 
