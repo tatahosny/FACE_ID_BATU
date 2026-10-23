@@ -61,6 +61,10 @@ export class TelegramService {
   static pendingIssues = new Map<number, { campaignId: string | null; timestamp: number }>();
   static pendingComments = new Map<number, { ratingId: string; campaignId: string | null; timestamp: number }>();
   static pendingLowRatingRequests = new Map<number, { ratingId: string; timestamp: number }>();
+  static pendingMandatoryLowRatings = new Map<
+    number,
+    { ratingNum: number; campaignId: string | null; messageId?: number; timestamp: number }
+  >();
 
   /**
    * Direct API call to send a message to a Telegram chat, optionally with reply_markup (inline keyboards, force_reply, etc.)
@@ -606,7 +610,50 @@ ${bookingStatusSection}
         }
       }
 
-      // 2. Check if student is adding an optional follow-up comment to a star rating just submitted
+      // 2. Check if student is replying with the MANDATORY problem reason for an initial 1 or 2 star rating
+      const pendingMandatory = TelegramService.pendingMandatoryLowRatings.get(telegramUserId);
+      if (pendingMandatory && !/^[1-5]$/.test(text.trim())) {
+        const problemReason = text.trim();
+        const stars = "⭐".repeat(pendingMandatory.ratingNum);
+
+        // Now save the rating with the mandatory problem description
+        try {
+          await db.insert(feedbackRatings).values({
+            studentId: studentForRating.id,
+            rating: pendingMandatory.ratingNum,
+            type: "ISSUE",
+            message: problemReason,
+            requestCampaignId: pendingMandatory.campaignId,
+            telegramMessageId: pendingMandatory.messageId || null,
+          });
+
+          TelegramService.pendingMandatoryLowRatings.delete(telegramUserId);
+
+          const confirmLowMsg = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
+قسم تكنولوجيا المعلومات — نظام بصمة الوجه
+
+✅ <b>تم استلام الشكوى وتأكيد تسجيل تقييمك بنجاح!</b> ${stars} (${pendingMandatory.ratingNum} من 5)
+
+تفاصيل المشكلة المسجلة:
+<i>"${problemReason}"</i>
+
+<b>شكراً لحرصك ومساعدتنا في تحسين النظام 🙏</b>
+تم تحويل المشكلة فوراً لإدارة المنظومة في قسم الشكاوى لمتابعتها والعمل على حلها.`;
+
+          await this.sendMessage(telegramUserId, confirmLowMsg);
+          return { handled: true, mandatoryLowRatingSaved: true, rating: pendingMandatory.ratingNum };
+        } catch (err: any) {
+          console.warn("[TelegramService] Error saving mandatory low rating:", err.message);
+          TelegramService.pendingMandatoryLowRatings.delete(telegramUserId);
+          await this.sendMessage(
+            telegramUserId,
+            `<b>[جامعة برج العرب التكنولوجية - BATU]</b>\n\n✅ <b>تم تسجيل تقييمك مسبقاً، شكراً لمشاركتك رأيك 🙏</b>`
+          );
+          return { handled: true, alreadyRated: true };
+        }
+      }
+
+      // 2.b. Check if student is adding an optional follow-up comment to a star rating just submitted
       const pendingComment = TelegramService.pendingComments.get(telegramUserId);
       if (pendingComment && Date.now() - pendingComment.timestamp < 15 * 60 * 1000) {
         await db
@@ -628,7 +675,7 @@ ${bookingStatusSection}
         return { handled: true, commentSaved: true };
       }
 
-      // 2.b. Check if student is replying with reason/complaint for a low rating (1 or 2 stars)
+      // 2.c. Check if student is replying with reason/complaint for a previously warned low rating (1 or 2 stars)
       const lowRatingRequest = TelegramService.pendingLowRatingRequests.get(telegramUserId);
       const isReplyToReasonWarning =
         message.reply_to_message?.text?.includes("تنبيه بخصوص تقييمك") ||
@@ -769,6 +816,39 @@ ${bookingStatusSection}
         `<b>[جامعة برج العرب التكنولوجية - BATU]</b>\n\n✅ <b>لقد قمت بتسجيل تقييمك مسبقاً! ${stars}</b>\n\nشكراً لمشاركتك رأيك، ولا يمكن تسجيل التقييم أكثر من مرة 🙏`
       );
       return { handled: true, alreadyRated: true, rating: existingRating.rating };
+    }
+
+    // If rating is 1 or 2 stars, a problem description is MANDATORY!
+    if ((ratingNum === 1 || ratingNum === 2) && (!message || message.length < 3)) {
+      TelegramService.pendingMandatoryLowRatings.set(telegramUserId, {
+        ratingNum,
+        campaignId,
+        timestamp: Date.now(),
+      });
+
+      const stars = "⭐".repeat(ratingNum);
+      const promptText = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
+قسم تكنولوجيا المعلومات — نظام بصمة الوجه
+
+⚠️ <b>مطلوب توضيح المشكلة لاعتماد التقييم (${stars}):</b>
+
+نظراً لاختيارك تقييماً منخفضاً (${ratingNum} من 5)، <b>يلزم كتابة المشكلة أو العائق الذي واجهته في استخدام بصمة الوجه لتأكيد تسجيل تقييمك</b> في النظام ومتابعته من قِبل الإدارة.
+
+🚫 <i>لن يتم احتساب أو اعتماد تقييمك بدون توضيح المشكلة.</i>
+
+👇 <b>يرجى كتابة سبب التقييم والمشكلة الآن بالرد على هذه الرسالة:</b>`;
+
+      await this.sendMessage(telegramUserId, promptText, "HTML", {
+        force_reply: true,
+        selective: true,
+      });
+
+      return { handled: true, rating: ratingNum };
+    }
+
+    // If rating is 1 or 2 stars with a provided comment, mark type as ISSUE
+    if (ratingNum === 1 || ratingNum === 2) {
+      type = "ISSUE";
     }
 
     // Save rating
@@ -929,8 +1009,59 @@ ${existingRating.message ? `\n<i>"${existingRating.message}"</i>\n` : ""}
       return { handled: true, issuePromptSent: true };
     }
 
-    // 3. Case: Star Rating (1 to 5)
-    if (ratingNum !== null && ratingNum >= 1 && ratingNum <= 5) {
+    // 3. Case: Low Star Rating (1 or 2 stars) -> MANDATORY problem description required before saving!
+    if (ratingNum !== null && (ratingNum === 1 || ratingNum === 2)) {
+      // Store pending mandatory low rating request without inserting into DB yet
+      TelegramService.pendingMandatoryLowRatings.set(telegramUserId, {
+        ratingNum,
+        campaignId,
+        messageId,
+        timestamp: Date.now(),
+      });
+
+      const stars = "⭐".repeat(ratingNum);
+      await this.answerCallbackQuery(
+        callbackQueryId,
+        `⚠️ لتقييم ${stars}، يجب كتابة المشكلة التي واجهتك لتأكيد التقييم!`,
+        true
+      );
+
+      // Update original message so buttons are removed to prevent multiple clicks
+      if (chatId && messageId) {
+        await this.editMessageText(
+          chatId,
+          messageId,
+          `<b>[جامعة برج العرب التكنولوجية - BATU]</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n⚠️ <i>تم اختيار تقييم (${stars} - ${ratingNum} من 5).\n\nبانتظار توضيح المشكلة أو سبب التقييم لتأكيد واعتماد تسجيله في النظام...</i>`,
+          "HTML",
+          { inline_keyboard: [] }
+        );
+      }
+
+      // Send mandatory prompt asking for problem description
+      const promptText = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
+قسم تكنولوجيا المعلومات — نظام بصمة الوجه
+
+⚠️ <b>مطلوب توضيح المشكلة لاعتماد التقييم (${stars}):</b>
+
+نظراً لاختيارك تقييماً منخفضاً (${ratingNum} من 5)، <b>يلزم كتابة المشكلة أو العائق الذي واجهته في استخدام بصمة الوجه لتأكيد تسجيل تقييمك</b> في النظام ومتابعته من قِبل الإدارة.
+
+🚫 <i>لن يتم احتساب أو اعتماد تقييمك بدون توضيح المشكلة.</i>
+
+👇 <b>يرجى كتابة سبب التقييم والمشكلة الآن بالرد على هذه الرسالة:</b>`;
+
+      await this.sendMessage(chatId, promptText, "HTML", {
+        force_reply: true,
+        selective: true,
+      });
+
+      return { handled: true, mandatoryReasonRequired: true, rating: ratingNum };
+    }
+
+    // 4. Case: High Star Rating (3, 4, or 5 stars) -> Instant save
+    if (ratingNum !== null && ratingNum >= 3 && ratingNum <= 5) {
+      // Clear any pending mandatory state if they change their mind
+      TelegramService.pendingMandatoryLowRatings.delete(telegramUserId);
+
       let savedRating: any;
       try {
         const [inserted] = await db
