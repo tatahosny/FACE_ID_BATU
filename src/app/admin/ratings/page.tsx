@@ -21,6 +21,10 @@ import {
   Eye,
   X,
   Filter,
+  Trash2,
+  ShieldAlert,
+  HelpCircle,
+  Mail,
 } from "lucide-react";
 
 interface Rating {
@@ -28,11 +32,13 @@ interface Rating {
   rating: number;
   message: string | null;
   type: "SERVICE" | "ISSUE";
+  reasonRequestedAt?: string | null;
   createdAt: string;
   requestCampaignId: string | null;
   studentId: string;
   studentFullName: string;
   studentAcademicNumber: string;
+  telegramUserId?: number | null;
   sectionName: string;
   groupName: string;
 }
@@ -47,6 +53,10 @@ interface Stats {
   oneStar: number;
   issueCount: number;
   serviceCount: number;
+  lowRatingsTotal?: number;
+  lowRatingsWithoutReason?: number;
+  lowRatingsWithReason?: number;
+  lowRatingsWarned?: number;
   totalStudents?: number;
   eligibleStudents?: number;
   unlinkedStudents?: number;
@@ -128,6 +138,10 @@ export default function AdminRatingsPage() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
 
+  // Filters & Search
+  const [filter, setFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+
   // Campaign form
   const [showForm, setShowForm] = useState(false);
   const [formTitle, setFormTitle] = useState("");
@@ -138,6 +152,21 @@ export default function AdminRatingsPage() {
   const [formSearching, setFormSearching] = useState(false);
   const [sending, setSending] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
+
+  // Low Ratings Follow-Up & Cancellation State
+  const [showLowRatingsModal, setShowLowRatingsModal] = useState(false);
+  const [lowRatingTarget, setLowRatingTarget] = useState<"UNREASONED" | "ALL_LOW">("UNREASONED");
+  const [lowRatingCustomMsg, setLowRatingCustomMsg] = useState("");
+  const [sendingLowRatingMsg, setSendingLowRatingMsg] = useState(false);
+  const [cancellingLowRatings, setCancellingLowRatings] = useState(false);
+  const [cancelNotifyStudent, setCancelNotifyStudent] = useState(true);
+  const [showCancelConfirmModal, setShowCancelConfirmModal] = useState(false);
+
+  // Single rating delete confirmation
+  const [ratingToDelete, setRatingToDelete] = useState<Rating | null>(null);
+  const [deletingRating, setDeletingRating] = useState(false);
+  const [deleteNotifyStudent, setDeleteNotifyStudent] = useState(true);
+  const [sendingIndividualReason, setSendingIndividualReason] = useState<string | null>(null);
 
   // Auto-Send Loop & Live Progress Bar State
   const [activeAutoSend, setActiveAutoSend] = useState<{
@@ -157,7 +186,11 @@ export default function AdminRatingsPage() {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/admin/ratings?page=${page}&limit=15`);
+      let url = `/api/admin/ratings?page=${page}&limit=15&filter=${filter}`;
+      if (searchQuery.trim()) {
+        url += `&search=${encodeURIComponent(searchQuery.trim())}`;
+      }
+      const res = await fetch(url);
       const json = await res.json();
       if (json.success) {
         setRatings(json.data.ratings);
@@ -170,11 +203,112 @@ export default function AdminRatingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page]);
+  }, [page, filter, searchQuery]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Handle sending reason requests to low rating students
+  const handleSendLowRatingReasons = async () => {
+    try {
+      setSendingLowRatingMsg(true);
+      const res = await fetch("/api/admin/ratings/request-reason", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target: lowRatingTarget,
+          customMessage: lowRatingCustomMsg.trim() || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setStatusMsg({ text: json.message || "تم إرسال طلبات توضيح التقييم بنجاح", type: "success" });
+        setShowLowRatingsModal(false);
+        fetchData();
+      } else {
+        setStatusMsg({ text: json.error || "فشل إرسال التنبيهات", type: "error" });
+      }
+    } catch (err: any) {
+      setStatusMsg({ text: err.message || "حدث خطأ غير متوقع", type: "error" });
+    } finally {
+      setSendingLowRatingMsg(false);
+    }
+  };
+
+  // Handle batch cancellation of low ratings without a reason
+  const handleCancelUnreasonedLowRatings = async () => {
+    try {
+      setCancellingLowRatings(true);
+      const res = await fetch(
+        `/api/admin/ratings?action=cancel_unreasoned_low&notifyStudent=${cancelNotifyStudent ? "true" : "false"}`,
+        { method: "DELETE" }
+      );
+      const json = await res.json();
+      if (json.success) {
+        setStatusMsg({ text: json.message || "تم إلغاء التقييمات بنجاح", type: "success" });
+        setShowCancelConfirmModal(false);
+        setShowLowRatingsModal(false);
+        fetchData();
+      } else {
+        setStatusMsg({ text: json.error || "فشل إلغاء التقييمات", type: "error" });
+      }
+    } catch (err: any) {
+      setStatusMsg({ text: err.message || "حدث خطأ أثناء الإلغاء", type: "error" });
+    } finally {
+      setCancellingLowRatings(false);
+    }
+  };
+
+  // Send single student reason request
+  const handleSendIndividualReason = async (r: Rating) => {
+    try {
+      setSendingIndividualReason(r.id);
+      const res = await fetch("/api/admin/ratings/request-reason", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target: "SINGLE",
+          ratingId: r.id,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setStatusMsg({ text: `تم إرسال تنبيه طلب التوضيح للطالب ${r.studentFullName} بنجاح`, type: "success" });
+        fetchData();
+      } else {
+        setStatusMsg({ text: json.error || "فشل إرسال التنبيه", type: "error" });
+      }
+    } catch (err: any) {
+      setStatusMsg({ text: err.message || "حدث خطأ أثناء الإرسال", type: "error" });
+    } finally {
+      setSendingIndividualReason(null);
+    }
+  };
+
+  // Delete single rating
+  const handleDeleteSingleRating = async () => {
+    if (!ratingToDelete) return;
+    try {
+      setDeletingRating(true);
+      const res = await fetch(
+        `/api/admin/ratings?id=${ratingToDelete.id}&notifyStudent=${deleteNotifyStudent ? "true" : "false"}`,
+        { method: "DELETE" }
+      );
+      const json = await res.json();
+      if (json.success) {
+        setStatusMsg({ text: "تم إلغاء التقييم بنجاح", type: "success" });
+        setRatingToDelete(null);
+        fetchData();
+      } else {
+        setStatusMsg({ text: json.error || "فشل إلغاء التقييم", type: "error" });
+      }
+    } catch (err: any) {
+      setStatusMsg({ text: err.message || "حدث خطأ أثناء إلغاء التقييم", type: "error" });
+    } finally {
+      setDeletingRating(false);
+    }
+  };
 
   const searchStudents = async (q: string) => {
     if (!q.trim() || q.trim().length < 2) {
@@ -376,6 +510,23 @@ export default function AdminRatingsPage() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button
+            onClick={() => setShowLowRatingsModal(true)}
+            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-rose-950/80 via-amber-950/60 to-rose-950/80 hover:from-rose-900/90 hover:to-amber-900/90 border border-rose-500/40 text-rose-200 hover:text-white transition text-sm font-bold flex items-center gap-2 shadow-lg shadow-rose-950/40 active:scale-95"
+            title="متابعة وإرسال تنبيهات للطلاب الذين قيّموا بنجمة أو نجمتين"
+          >
+            <AlertTriangle className="w-4 h-4 text-amber-400" />
+            <span>متابعة تقييمات ⭐1 و ⭐2</span>
+            {stats?.lowRatingsWithoutReason !== undefined && stats.lowRatingsWithoutReason > 0 ? (
+              <span className="bg-rose-500 text-white text-xs px-2 py-0.5 rounded-full font-mono font-bold animate-pulse">
+                {stats.lowRatingsWithoutReason} بدون سبب
+              </span>
+            ) : (
+              <span className="bg-slate-800 text-slate-300 text-xs px-2 py-0.5 rounded-full font-mono">
+                {stats?.lowRatingsTotal || 0}
+              </span>
+            )}
+          </button>
+          <button
             onClick={() => openDeliveryModal()}
             className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-900/60 to-blue-900/60 hover:from-indigo-800/80 hover:to-blue-800/80 border border-indigo-500/40 text-indigo-200 hover:text-white transition text-sm font-bold flex items-center gap-2 shadow-lg shadow-indigo-500/10 active:scale-95"
           >
@@ -528,10 +679,17 @@ export default function AdminRatingsPage() {
       )}
 
       {/* Stats Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
         <StatCard label="إجمالي التقييمات" value={stats?.totalRatings ?? "—"} icon={Star} color="bg-amber-500/20 text-amber-400" />
         <StatCard label="متوسط التقييم" value={avgForDisplay} sub="من 5 نجوم" icon={TrendingUp} color="bg-blue-500/20 text-blue-400" />
-        <StatCard label="بلاغات مشاكل" value={stats?.issueCount ?? "—"} icon={AlertTriangle} color="bg-red-500/20 text-red-400" />
+        <StatCard
+          label="تقييمات ⭐1 و ⭐2"
+          value={stats?.lowRatingsTotal ?? "—"}
+          sub={stats?.lowRatingsWithoutReason ? `⚠️ ${stats.lowRatingsWithoutReason} بدون سبب` : "جميعها موثقة"}
+          icon={AlertTriangle}
+          color="bg-rose-500/20 text-rose-400"
+        />
+        <StatCard label="بلاغات مشاكل" value={stats?.issueCount ?? "—"} icon={ShieldAlert} color="bg-red-500/20 text-red-400" />
         <StatCard label="حملات مرسلة" value={campaigns.length} icon={Megaphone} color="bg-violet-500/20 text-violet-400" />
       </div>
 
@@ -625,22 +783,124 @@ export default function AdminRatingsPage() {
       </div>
 
       {/* Ratings Table */}
-      <div className="bg-[#0d1322]/80 border border-slate-800/60 rounded-2xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-800/60 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-slate-300 flex items-center gap-2">
-            <MessageCircle className="w-4 h-4 text-blue-400" />
-            ردود التقييمات ({pagination?.total ?? 0})
-          </h2>
+      <div className="bg-[#0d1322]/80 border border-slate-800/60 rounded-2xl overflow-hidden shadow-xl">
+        {/* Table Top Header */}
+        <div className="px-5 py-4 border-b border-slate-800/60 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-2">
+            <MessageCircle className="w-5 h-5 text-blue-400" />
+            <h2 className="text-base font-bold text-white">
+              ردود التقييمات ({pagination?.total ?? 0})
+            </h2>
+          </div>
           {pagination && pagination.totalPages > 1 && (
             <div className="flex items-center gap-1.5">
-              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
-                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-300 transition">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-300 transition"
+              >
                 <ChevronRight className="w-4 h-4" />
               </button>
-              <span className="text-xs text-slate-400 px-2">{page} / {pagination.totalPages}</span>
-              <button onClick={() => setPage((p) => Math.min(pagination.totalPages, p + 1))} disabled={page === pagination.totalPages}
-                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-300 transition">
+              <span className="text-xs text-slate-400 px-2 font-mono">
+                {page} / {pagination.totalPages}
+              </span>
+              <button
+                onClick={() => setPage((p) => Math.min(pagination.totalPages, p + 1))}
+                disabled={page === pagination.totalPages}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-300 transition"
+              >
                 <ChevronLeft className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Filter Tabs */}
+        <div className="flex items-center gap-2 overflow-x-auto p-3 bg-slate-950/40 border-b border-slate-800/60 scrollbar-none">
+          {[
+            { id: "all", label: "جميع التقييمات", count: stats?.totalRatings || 0 },
+            {
+              id: "low",
+              label: "تقييمات منخفضة (⭐1 و ⭐2)",
+              count: stats?.lowRatingsTotal || 0,
+              badgeCls: "bg-amber-500/20 text-amber-300",
+            },
+            {
+              id: "low_unreasoned",
+              label: "⚠️ بدون سبب توضيحي",
+              count: stats?.lowRatingsWithoutReason || 0,
+              badgeCls: "bg-rose-500/20 text-rose-300 font-bold",
+            },
+            {
+              id: "low_reasoned",
+              label: "✅ موثقة بشكوى",
+              count: stats?.lowRatingsWithReason || 0,
+              badgeCls: "bg-emerald-500/20 text-emerald-300",
+            },
+            {
+              id: "issues",
+              label: "بلاغات المشاكل",
+              count: stats?.issueCount || 0,
+              badgeCls: "bg-red-500/20 text-red-300",
+            },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => {
+                setFilter(tab.id);
+                setPage(1);
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-2 whitespace-nowrap border ${
+                filter === tab.id
+                  ? "bg-amber-500/20 border-amber-500/50 text-amber-300 shadow-sm"
+                  : "bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700"
+              }`}
+            >
+              <span>{tab.label}</span>
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${
+                  tab.badgeCls || "bg-slate-800 text-slate-400"
+                }`}
+              >
+                {tab.count}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* Search Bar & Quick Low Ratings Actions */}
+        <div className="px-5 py-3 border-b border-slate-800/40 bg-slate-900/20 flex items-center justify-between gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[220px] max-w-md">
+            <Search className="w-4 h-4 absolute right-3 top-2.5 text-slate-500" />
+            <input
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+              }}
+              placeholder="بحث باسم الطالب أو الرقم الأكاديمي..."
+              className="w-full bg-slate-950/70 border border-slate-800 rounded-xl pr-9 pl-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500/50 transition"
+            />
+          </div>
+
+          {(filter === "low" || filter === "low_unreasoned") && (stats?.lowRatingsWithoutReason ?? 0) > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => {
+                  setLowRatingTarget("UNREASONED");
+                  setShowLowRatingsModal(true);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center gap-1.5 transition active:scale-95"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>إرسال تنبيه للمطالبة بالسبب ({stats?.lowRatingsWithoutReason})</span>
+              </button>
+              <button
+                onClick={() => setShowCancelConfirmModal(true)}
+                className="px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold flex items-center gap-1.5 transition active:scale-95"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>إلغاء التقييمات بدون سبب</span>
               </button>
             </div>
           )}
@@ -653,49 +913,123 @@ export default function AdminRatingsPage() {
         ) : ratings.length === 0 ? (
           <div className="text-center py-16 text-slate-500">
             <Star className="w-10 h-10 mx-auto mb-3 text-slate-700" />
-            <p className="text-sm">لا توجد تقييمات بعد</p>
-            <p className="text-xs text-slate-600 mt-1">أرسل استبياناً للطلاب لبدء جمع التقييمات</p>
+            <p className="text-sm font-semibold">لا توجد تقييمات مطابقة لهذا الفلتر</p>
+            <p className="text-xs text-slate-600 mt-1">جرب تغيير خيارات التصفية أو البحث</p>
           </div>
         ) : (
           <div className="divide-y divide-slate-800/60">
-            {ratings.map((r) => (
-              <div key={r.id} className="px-5 py-4 flex items-start gap-4 hover:bg-slate-900/30 transition">
-                <div className="flex-shrink-0 pt-0.5">
-                  <StarDisplay rating={r.rating} />
-                  <p className="text-[10px] text-slate-500 mt-1 text-center">{r.rating}/5</p>
-                </div>
-                <div className="flex-1 min-w-0">
-                  {r.message && (
-                    <p className="text-sm text-slate-300 mb-1.5 leading-relaxed">
-                      {r.type === "ISSUE" && (
-                        <span className="inline-flex items-center gap-1 text-[10px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full mr-1 font-bold">
-                          <AlertTriangle className="w-3 h-3" />
-                          مشكلة
+            {ratings.map((r) => {
+              const isLowRating = r.rating <= 2;
+              const hasReason = !!r.message && r.message.trim().length > 0;
+
+              return (
+                <div
+                  key={r.id}
+                  className={`px-5 py-4 flex items-start justify-between gap-4 transition ${
+                    isLowRating && !hasReason
+                      ? "bg-rose-950/10 hover:bg-rose-950/20"
+                      : "hover:bg-slate-900/30"
+                  }`}
+                >
+                  <div className="flex items-start gap-4 min-w-0 flex-1">
+                    <div className="flex-shrink-0 pt-0.5 text-center">
+                      <StarDisplay rating={r.rating} />
+                      <p className="text-[10px] text-slate-500 mt-1 font-mono font-bold">
+                        {r.rating}/5
+                      </p>
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      {/* Reason / Complaint text */}
+                      {hasReason ? (
+                        <div className="mb-2">
+                          <p className="text-sm text-slate-200 leading-relaxed bg-slate-950/40 p-2.5 rounded-xl border border-slate-800/60">
+                            {r.type === "ISSUE" && (
+                              <span className="inline-flex items-center gap-1 text-[10px] bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full ml-2 font-bold border border-red-500/30">
+                                <AlertTriangle className="w-3 h-3" />
+                                بلاغ مشكلة / شكوى
+                              </span>
+                            )}
+                            &quot;{r.message}&quot;
+                          </p>
+                        </div>
+                      ) : isLowRating ? (
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          <span className="inline-flex items-center gap-1 text-[11px] bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded-lg font-bold">
+                            <AlertTriangle className="w-3 h-3 text-rose-400" />
+                            تقييم منخفض بدون توضيح سبب أو شكوى
+                          </span>
+                          {r.reasonRequestedAt && (
+                            <span className="inline-flex items-center gap-1 text-[10px] bg-amber-500/15 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md">
+                              <Clock className="w-3 h-3 text-amber-400" />
+                              تم إرسال تنبيه:{" "}
+                              {new Date(r.reasonRequestedAt).toLocaleTimeString("ar-EG", {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                day: "numeric",
+                                month: "short",
+                              })}
+                            </span>
+                          )}
+                        </div>
+                      ) : null}
+
+                      {/* Student info metadata */}
+                      <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-400">
+                        <span className="flex items-center gap-1 font-semibold text-slate-200">
+                          <UserCheck className="w-3.5 h-3.5 text-slate-500" />
+                          {r.studentFullName}
                         </span>
-                      )}
-                      &quot;{r.message}&quot;
-                    </p>
-                  )}
-                  <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
-                    <span className="flex items-center gap-1">
-                      <UserCheck className="w-3 h-3 text-slate-600" />
-                      {r.studentFullName}
-                    </span>
-                    <span className="text-slate-700">•</span>
-                    <span>{r.studentAcademicNumber}</span>
-                    <span className="text-slate-700">•</span>
-                    <span>{r.groupName} / {r.sectionName}</span>
-                    <span className="text-slate-700">•</span>
-                    <span>
-                      {new Date(r.createdAt).toLocaleString("ar-EG", {
-                        day: "numeric", month: "short", year: "numeric",
-                        hour: "2-digit", minute: "2-digit",
-                      })}
-                    </span>
+                        <span className="text-slate-700">•</span>
+                        <span className="font-mono text-slate-300">{r.studentAcademicNumber}</span>
+                        <span className="text-slate-700">•</span>
+                        <span>
+                          {r.groupName} / {r.sectionName}
+                        </span>
+                        <span className="text-slate-700">•</span>
+                        <span className="font-mono text-slate-500">
+                          {new Date(r.createdAt).toLocaleString("ar-EG", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Row action buttons */}
+                  <div className="flex items-center gap-2 flex-shrink-0 pt-1">
+                    {isLowRating && !hasReason && (
+                      <button
+                        type="button"
+                        onClick={() => handleSendIndividualReason(r)}
+                        disabled={sendingIndividualReason === r.id}
+                        className="px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+                        title="إرسال رسالة للطالب على تيليجرام يطالبه بذكر سبب التقييم وإلا يُلغى"
+                      >
+                        <Send
+                          className={`w-3.5 h-3.5 ${
+                            sendingIndividualReason === r.id ? "animate-spin" : ""
+                          }`}
+                        />
+                        <span>{r.reasonRequestedAt ? "إعادة التنبيه" : "طلب توضيح"}</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setRatingToDelete(r)}
+                      className="p-1.5 rounded-xl bg-slate-800/80 hover:bg-rose-950/60 hover:text-rose-400 border border-slate-700/60 hover:border-rose-500/40 text-slate-400 text-xs transition"
+                      title="إلغاء هذا التقييم"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -1061,6 +1395,356 @@ export default function AdminRatingsPage() {
                 className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition"
               >
                 إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Low Ratings Management Modal (Request Reasons & Cancel Unreasoned) */}
+      {showLowRatingsModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#0b101b] border border-slate-700/70 rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-800 bg-gradient-to-r from-rose-950/30 via-slate-900 to-amber-950/30 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base">
+                    متابعة وإدارة التقييمات المنخفضة (⭐1 و ⭐2)
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    إرسال رسائل للمطالبة بذكر سبب التقييم أو الشكوى، وإلغاء التقييمات غير المبررة
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowLowRatingsModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-6">
+              {/* Quick Metrics Bar */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center font-mono">
+                <div className="bg-slate-900/80 border border-slate-800 p-3 rounded-xl">
+                  <span className="text-[11px] text-slate-400 font-sans block mb-1">
+                    إجمالي ⭐1 و ⭐2
+                  </span>
+                  <span className="text-lg font-black text-amber-400">
+                    {stats?.lowRatingsTotal ?? 0}
+                  </span>
+                </div>
+                <div className="bg-rose-950/20 border border-rose-500/30 p-3 rounded-xl">
+                  <span className="text-[11px] text-rose-300 font-sans block mb-1">
+                    بدون سبب أو شكوى
+                  </span>
+                  <span className="text-lg font-black text-rose-400">
+                    {stats?.lowRatingsWithoutReason ?? 0}
+                  </span>
+                </div>
+                <div className="bg-emerald-950/20 border border-emerald-500/30 p-3 rounded-xl">
+                  <span className="text-[11px] text-emerald-300 font-sans block mb-1">
+                    موثقة بشكوى
+                  </span>
+                  <span className="text-lg font-black text-emerald-400">
+                    {stats?.lowRatingsWithReason ?? 0}
+                  </span>
+                </div>
+                <div className="bg-blue-950/20 border border-blue-500/30 p-3 rounded-xl">
+                  <span className="text-[11px] text-blue-300 font-sans block mb-1">
+                    تم إرسال تنبيه مسبقاً
+                  </span>
+                  <span className="text-lg font-black text-blue-400">
+                    {stats?.lowRatingsWarned ?? 0}
+                  </span>
+                </div>
+              </div>
+
+              {/* Action Section 1: Send Reason Request via Telegram */}
+              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
+                  <Send className="w-4 h-4" />
+                  <span>1. إرسال طلب كتابة شكوى أو سبب التقييم (عبر تيليجرام)</span>
+                </div>
+
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  سيتم إرسال رسالة مباشرة لحساب الطالب على التيليجرام تنبهه بضرورة كتابة سبب تقييمه المنخفض أو الشكوى، وتوضح له أنه <b>في حال عدم تقديم سبب سيتم إلغاء تقييمه تلقائياً</b>.
+                </p>
+
+                {/* Target Audience Options */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-2">
+                    الشريحة المستهدفة بالإرسال:
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setLowRatingTarget("UNREASONED")}
+                      className={`p-3 rounded-xl text-right text-xs font-semibold border transition ${
+                        lowRatingTarget === "UNREASONED"
+                          ? "bg-amber-500/20 border-amber-500 text-amber-300 shadow-sm"
+                          : "bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold">الطلاب بدون سبب فقط (مستحسن)</span>
+                        <span className="bg-rose-500/30 text-rose-300 px-2 py-0.5 rounded-full font-mono text-[10px]">
+                          {stats?.lowRatingsWithoutReason ?? 0} طالب
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 font-normal">
+                        من قيّموا بـ 1 أو 2 نجوم ولم يكتبوا أي شكوى أو توضيح
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setLowRatingTarget("ALL_LOW")}
+                      className={`p-3 rounded-xl text-right text-xs font-semibold border transition ${
+                        lowRatingTarget === "ALL_LOW"
+                          ? "bg-amber-500/20 border-amber-500 text-amber-300 shadow-sm"
+                          : "bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold">جميع مقيّمي 1 و 2 نجوم</span>
+                        <span className="bg-amber-500/30 text-amber-300 px-2 py-0.5 rounded-full font-mono text-[10px]">
+                          {stats?.lowRatingsTotal ?? 0} طالب
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 font-normal">
+                        إعادة طلب تفاصيل إضافية من الجميع
+                      </p>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Message Customization Textarea */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-semibold text-slate-400">
+                      نص الرسالة المرسلة للطالب (يمكنك التعديل عليها):
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLowRatingCustomMsg(
+                          `<b>[جامعة برج العرب التكنولوجية - BATU]</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n⚠️ <b>تنبيه بخصوص تقييمك لمنظومة البصمة</b>\n\nعزيزي الطالب، تم تسجيل تقييمك للمنظومة بدرجة ({rating} من 5).\n\nنحرص دائماً على الاستماع لطلابنا وحل أي مشكلة فوراً، لذا:\n⚠️ <b>يجب كتابة شكوى أو سبب واضح لهذا التقييم في رد على هذه الرسالة الآن.</b>\n\n🚨 <b>تنبيه هام جداً:</b> في حال عدم إرسال سبب التقييم أو كتابة شكوى توضح المشكلة، <b>سيتم إلغاء تقييمك تلقائياً من المنظومة</b>.`
+                        )
+                      }
+                      className="text-[11px] text-amber-400 hover:underline"
+                    >
+                      استعادة النص الافتراضي
+                    </button>
+                  </div>
+                  <textarea
+                    rows={4}
+                    value={lowRatingCustomMsg}
+                    onChange={(e) => setLowRatingCustomMsg(e.target.value)}
+                    placeholder={`<b>[جامعة برج العرب التكنولوجية - BATU]</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n⚠️ تنبيه: تم استلام تقييمك (نجمة أو نجمتان).\nيجب كتابة شكوى أو سبب للتقييم في رد على هذه الرسالة، وإلا سيتم إلغاء تقييمك تلقائياً.`}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500/50 transition font-sans leading-relaxed"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    يمكنك استخدام المتغيرات: &#123;name&#125; لاسم الطالب، و &#123;rating&#125; لرقم التقييم.
+                  </p>
+                </div>
+
+                {/* Send Button */}
+                <button
+                  type="button"
+                  onClick={handleSendLowRatingReasons}
+                  disabled={
+                    sendingLowRatingMsg ||
+                    (lowRatingTarget === "UNREASONED"
+                      ? (stats?.lowRatingsWithoutReason ?? 0) === 0
+                      : (stats?.lowRatingsTotal ?? 0) === 0)
+                  }
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition active:scale-95"
+                >
+                  <Send className={`w-4 h-4 ${sendingLowRatingMsg ? "animate-spin" : ""}`} />
+                  <span>
+                    {sendingLowRatingMsg
+                      ? "جاري إرسال التنبيهات للطلاب عبر تيليجرام..."
+                      : `إرسال التنبيه الآن لـ ${
+                          lowRatingTarget === "UNREASONED"
+                            ? stats?.lowRatingsWithoutReason ?? 0
+                            : stats?.lowRatingsTotal ?? 0
+                        } طالب`}
+                  </span>
+                </button>
+              </div>
+
+              {/* Action Section 2: Cancel Unreasoned Low Ratings */}
+              <div className="bg-rose-950/20 border border-rose-500/30 rounded-2xl p-5 space-y-4">
+                <div className="flex items-center gap-2 text-rose-400 font-bold text-sm">
+                  <Trash2 className="w-4 h-4" />
+                  <span>2. إلغاء التقييمات المنخفضة التي ليس لها سبب (حذف التقييم)</span>
+                </div>
+
+                <div className="bg-slate-950/60 p-3.5 rounded-xl border border-rose-500/20 text-xs text-slate-300 leading-relaxed space-y-1.5">
+                  <p className="font-semibold text-rose-300 flex items-center gap-1.5">
+                    <ShieldAlert className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                    تنفيذاً للشرط: &quot;لو محدش كتب سبب يتم إلغاء تقييمه&quot;
+                  </p>
+                  <p className="text-slate-400">
+                    سيتم حذف التقييمات ذات النجمة أو النجمتين التي لم يُكتب لها سبب أو شكوى، مما يعيد رفع متوسط التقييم الإجمالي ويمنع تأثير التقييمات العشوائية غير المبررة.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs text-slate-300">
+                  <input
+                    type="checkbox"
+                    id="cancelNotifyCheck"
+                    checked={cancelNotifyStudent}
+                    onChange={(e) => setCancelNotifyStudent(e.target.checked)}
+                    className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-rose-500 focus:ring-0"
+                  />
+                  <label htmlFor="cancelNotifyCheck" className="cursor-pointer select-none">
+                    إرسال إشعار للطالب على التيليجرام يفيده بإلغاء تقييمه لعدم ذكر السبب أو الشكوى
+                  </label>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowCancelConfirmModal(true)}
+                  disabled={(stats?.lowRatingsWithoutReason ?? 0) === 0}
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-rose-600/20 transition active:scale-95"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>
+                    إلغاء التقييمات بدون سبب ({stats?.lowRatingsWithoutReason ?? 0} تقييم)
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-3 border-t border-slate-800 bg-slate-950/70 flex justify-end">
+              <button
+                onClick={() => setShowLowRatingsModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition"
+              >
+                إغلاق النافذة
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal for Batch Cancelling Unreasoned Ratings */}
+      {showCancelConfirmModal && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#0f1422] border-2 border-red-500/60 rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <div className="text-center space-y-2">
+              <h3 className="text-lg font-bold text-white">
+                تأكيد إلغاء {stats?.lowRatingsWithoutReason ?? 0} تقييم منخفض
+              </h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                هل أنت متأكد من إلغاء جميع التقييمات (1 و 2 نجوم) التي لم يُذكر لها سبب أو شكوى؟
+                <br />
+                <span className="text-red-400 font-semibold block mt-1">
+                  سيتم حذف هذه التقييمات نهائياً ولن تؤثر بعد الآن على متوسط المنظومة.
+                </span>
+              </p>
+            </div>
+
+            {cancelNotifyStudent && (
+              <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 text-[11px] text-amber-300 text-center">
+                ℹ️ سيتم إرسال رسالة توضيحية للطلاب عبر التيليجرام بإلغاء التقييم
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowCancelConfirmModal(false)}
+                disabled={cancellingLowRatings}
+                className="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition"
+              >
+                تراجع
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelUnreasonedLowRatings}
+                disabled={cancellingLowRatings}
+                className="py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition flex items-center justify-center gap-1.5 shadow-lg shadow-red-600/30"
+              >
+                <Trash2 className={`w-3.5 h-3.5 ${cancellingLowRatings ? "animate-spin" : ""}`} />
+                <span>{cancellingLowRatings ? "جاري الإلغاء..." : "نعم، إلغاء التقييمات"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal for Single Rating Deletion */}
+      {ratingToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#0f1422] border border-slate-700/80 rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <div className="text-center space-y-2">
+              <h3 className="text-base font-bold text-white">إلغاء تقييم الطالب</h3>
+              <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 text-right space-y-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">الطالب:</span>
+                  <span className="font-bold text-white">{ratingToDelete.studentFullName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">الرقم الأكاديمي:</span>
+                  <span className="font-mono text-slate-300">{ratingToDelete.studentAcademicNumber}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">التقييم:</span>
+                  <span className="font-bold text-amber-400">
+                    {"⭐".repeat(ratingToDelete.rating)} ({ratingToDelete.rating}/5)
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs text-slate-300">
+              <input
+                type="checkbox"
+                id="singleDeleteNotifyCheck"
+                checked={deleteNotifyStudent}
+                onChange={(e) => setDeleteNotifyStudent(e.target.checked)}
+                className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-rose-500 focus:ring-0"
+              />
+              <label htmlFor="singleDeleteNotifyCheck" className="cursor-pointer select-none">
+                إشعار الطالب على التيليجرام بإلغاء هذا التقييم
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setRatingToDelete(null)}
+                disabled={deletingRating}
+                className="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition"
+              >
+                تراجع
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteSingleRating}
+                disabled={deletingRating}
+                className="py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition flex items-center justify-center gap-1.5 shadow-lg shadow-red-600/30"
+              >
+                <Trash2 className={`w-3.5 h-3.5 ${deletingRating ? "animate-spin" : ""}`} />
+                <span>{deletingRating ? "جاري الإلغاء..." : "تأكيد الإلغاء"}</span>
               </button>
             </div>
           </div>

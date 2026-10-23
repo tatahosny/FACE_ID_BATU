@@ -346,6 +346,7 @@ export const feedbackRatings = pgTable(
     type: varchar("type", { length: 20 }).default("SERVICE").notNull(), // 'SERVICE' | 'ISSUE'
     requestCampaignId: uuid("request_campaign_id").references(() => feedbackCampaigns.id, { onDelete: "set null" }),
     telegramMessageId: bigint("telegram_message_id", { mode: "number" }), // Telegram msg id for reference
+    reasonRequestedAt: timestamp("reason_requested_at", { withTimezone: true }), // Timestamp when admin requested explanation for low rating
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({

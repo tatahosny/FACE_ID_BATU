@@ -11,7 +11,7 @@ import {
 import { requireRole } from "@/lib/security/auth";
 import { USER_ROLES } from "@/lib/constants/statuses";
 import { apiError, apiSuccess } from "@/lib/utils/response";
-import { eq, desc, sql, and, isNotNull } from "drizzle-orm";
+import { eq, desc, sql, and, isNotNull, or, like, inArray } from "drizzle-orm";
 import { TelegramService } from "@/server/services/telegram.service";
 import { FeedbackService } from "@/server/services/feedback.service";
 
@@ -26,27 +26,67 @@ export async function GET(req: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "20", 10);
     const offset = (page - 1) * limit;
     const campaignId = searchParams.get("campaignId") || undefined;
+    const filter = searchParams.get("filter") || "all";
+    const search = searchParams.get("search")?.trim() || undefined;
 
-    // Total count & filter
-    const whereClause = campaignId ? eq(feedbackRatings.requestCampaignId, campaignId) : undefined;
+    // Build filter conditions
+    const conditions: any[] = [];
+    if (campaignId) {
+      conditions.push(eq(feedbackRatings.requestCampaignId, campaignId));
+    }
 
+    if (filter === "low") {
+      conditions.push(sql`${feedbackRatings.rating} <= 2`);
+    } else if (filter === "low_unreasoned") {
+      conditions.push(
+        and(
+          sql`${feedbackRatings.rating} <= 2`,
+          sql`(${feedbackRatings.message} IS NULL OR TRIM(${feedbackRatings.message}) = '')`
+        )
+      );
+    } else if (filter === "low_reasoned") {
+      conditions.push(
+        and(
+          sql`${feedbackRatings.rating} <= 2`,
+          sql`(${feedbackRatings.message} IS NOT NULL AND TRIM(${feedbackRatings.message}) != '')`
+        )
+      );
+    } else if (filter === "issues") {
+      conditions.push(eq(feedbackRatings.type, "ISSUE"));
+    }
+
+    if (search) {
+      conditions.push(
+        or(
+          like(students.fullName, `%${search}%`),
+          like(students.academicNumber, `%${search}%`)
+        )
+      );
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    // Total count for current filter
     const [totalRow] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(feedbackRatings)
+      .innerJoin(students, eq(feedbackRatings.studentId, students.id))
       .where(whereClause);
 
-    // Ratings with student info (name + academic number for admin, hidden in Telegram)
+    // Ratings with student info & reasonRequestedAt
     const ratings = await db
       .select({
         id: feedbackRatings.id,
         rating: feedbackRatings.rating,
         message: feedbackRatings.message,
         type: feedbackRatings.type,
+        reasonRequestedAt: feedbackRatings.reasonRequestedAt,
         createdAt: feedbackRatings.createdAt,
         requestCampaignId: feedbackRatings.requestCampaignId,
         studentId: feedbackRatings.studentId,
         studentFullName: students.fullName,
         studentAcademicNumber: students.academicNumber,
+        telegramUserId: students.telegramUserId,
         sectionName: sections.name,
         groupName: groups.name,
       })
@@ -81,6 +121,10 @@ export async function GET(req: NextRequest) {
         oneStar: sql<number>`count(*) filter (where ${feedbackRatings.rating} = 1)::int`,
         issueCount: sql<number>`count(*) filter (where ${feedbackRatings.type} = 'ISSUE')::int`,
         serviceCount: sql<number>`count(*) filter (where ${feedbackRatings.type} = 'SERVICE')::int`,
+        lowRatingsTotal: sql<number>`count(*) filter (where ${feedbackRatings.rating} <= 2)::int`,
+        lowRatingsWithoutReason: sql<number>`count(*) filter (where ${feedbackRatings.rating} <= 2 and (${feedbackRatings.message} is null or trim(${feedbackRatings.message}) = ''))::int`,
+        lowRatingsWithReason: sql<number>`count(*) filter (where ${feedbackRatings.rating} <= 2 and ${feedbackRatings.message} is not null and trim(${feedbackRatings.message}) != '')::int`,
+        lowRatingsWarned: sql<number>`count(*) filter (where ${feedbackRatings.rating} <= 2 and ${feedbackRatings.reasonRequestedAt} is not null)::int`,
       })
       .from(feedbackRatings);
 
@@ -124,6 +168,116 @@ export async function GET(req: NextRequest) {
       return apiError("غير مصرح لك", 403);
     }
     return apiError(error.message || "فشل جلب التقييمات", 500);
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    await requireRole([USER_ROLES.SUPER_ADMIN]);
+
+    const { searchParams } = new URL(req.url);
+    const action = searchParams.get("action");
+    const id = searchParams.get("id");
+    const notifyStudent = searchParams.get("notifyStudent") === "true";
+
+    // 1. Batch cancellation of low ratings without a reason
+    if (action === "cancel_unreasoned_low") {
+      const unreasonedRatings = await db
+        .select({
+          id: feedbackRatings.id,
+          rating: feedbackRatings.rating,
+          studentFullName: students.fullName,
+          telegramUserId: students.telegramUserId,
+        })
+        .from(feedbackRatings)
+        .innerJoin(students, eq(feedbackRatings.studentId, students.id))
+        .where(
+          and(
+            sql`${feedbackRatings.rating} <= 2`,
+            sql`(${feedbackRatings.message} IS NULL OR TRIM(${feedbackRatings.message}) = '')`
+          )
+        );
+
+      if (unreasonedRatings.length === 0) {
+        return apiSuccess({ cancelledCount: 0, notifiedCount: 0 }, "لا توجد تقييمات منخفضة بدون سبب لإلغائها حالياً");
+      }
+
+      let notifiedCount = 0;
+      if (notifyStudent) {
+        for (const item of unreasonedRatings) {
+          if (item.telegramUserId) {
+            try {
+              const msg = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
+قسم تكنولوجيا المعلومات — نظام بصمة الوجه
+
+ℹ️ <b>تنبيه بخصوص التقييم:</b>
+عزيزي الطالب: <b>${item.studentFullName}</b>
+نظراً لعدم توضيح سبب التقييم (${item.rating} من 5) أو تقديم شكوى توضيحية، تم <b>إلغاء تقييمك</b> من سجلات المنظومة.
+
+نرحب دائماً برأيك ومشاركتك في الاستبيانات القادمة مع توضيح ملاحظاتك لمساعدتنا على تحسين الخدمة 🙏`;
+              await TelegramService.sendMessage(item.telegramUserId, msg);
+              notifiedCount++;
+            } catch (err) {
+              console.error(`Failed to notify student ${item.studentFullName} on cancellation:`, err);
+            }
+          }
+        }
+      }
+
+      const ratingIds = unreasonedRatings.map((r) => r.id);
+      await db.delete(feedbackRatings).where(inArray(feedbackRatings.id, ratingIds));
+
+      return apiSuccess(
+        { cancelledCount: unreasonedRatings.length, notifiedCount },
+        `تم إلغاء ${unreasonedRatings.length} تقييم بنجاح ${notifyStudent ? `(تم إشعار ${notifiedCount} طالب)` : ""}`
+      );
+    }
+
+    // 2. Single rating cancellation
+    if (id) {
+      const [rating] = await db
+        .select({
+          id: feedbackRatings.id,
+          rating: feedbackRatings.rating,
+          studentFullName: students.fullName,
+          telegramUserId: students.telegramUserId,
+        })
+        .from(feedbackRatings)
+        .innerJoin(students, eq(feedbackRatings.studentId, students.id))
+        .where(eq(feedbackRatings.id, id));
+
+      if (!rating) {
+        return apiError("التقييم غير موجود", 404);
+      }
+
+      if (notifyStudent && rating.telegramUserId) {
+        try {
+          const msg = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
+قسم تكنولوجيا المعلومات — نظام بصمة الوجه
+
+ℹ️ <b>تنبيه بخصوص التقييم:</b>
+عزيزي الطالب: <b>${rating.studentFullName}</b>
+تم <b>إلغاء تقييمك السابق</b> (${rating.rating} من 5) من منظومة البصمة لعدم استيفاء سبب التقييم أو بناءً على المراجعة.
+
+شكراً لتفهمك 🙏`;
+          await TelegramService.sendMessage(rating.telegramUserId, msg);
+        } catch (err) {
+          console.error(`Failed to notify student on rating deletion:`, err);
+        }
+      }
+
+      await db.delete(feedbackRatings).where(eq(feedbackRatings.id, id));
+
+      return apiSuccess({ cancelledId: id }, "تم إلغاء التقييم بنجاح");
+    }
+
+    return apiError("معاملات الإلغاء غير مكتملة", 400);
+  } catch (error: any) {
+    if (error.message === "UNAUTHORIZED" || error.message === "FORBIDDEN") {
+      return apiError("غير مصرح لك", 403);
+    }
+    console.error("Error in DELETE ratings:", error);
+    return apiError(error.message || "فشل إلغاء التقييم", 500);
   }
 }
 

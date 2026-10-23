@@ -60,6 +60,7 @@ export class TelegramService {
   // In-memory tracking for interactive feedback flows
   static pendingIssues = new Map<number, { campaignId: string | null; timestamp: number }>();
   static pendingComments = new Map<number, { ratingId: string; campaignId: string | null; timestamp: number }>();
+  static pendingLowRatingRequests = new Map<number, { ratingId: string; timestamp: number }>();
 
   /**
    * Direct API call to send a message to a Telegram chat, optionally with reply_markup (inline keyboards, force_reply, etc.)
@@ -625,6 +626,63 @@ ${bookingStatusSection}
 
         await this.sendMessage(telegramUserId, confirmCommentMsg);
         return { handled: true, commentSaved: true };
+      }
+
+      // 2.b. Check if student is replying with reason/complaint for a low rating (1 or 2 stars)
+      const lowRatingRequest = TelegramService.pendingLowRatingRequests.get(telegramUserId);
+      const isReplyToReasonWarning =
+        message.reply_to_message?.text?.includes("تنبيه بخصوص تقييمك") ||
+        message.reply_to_message?.text?.includes("شكوى") ||
+        message.reply_to_message?.text?.includes("سبب هذا التقييم");
+
+      const [existingLowRating] = await db
+        .select({
+          id: feedbackRatings.id,
+          rating: feedbackRatings.rating,
+          reasonRequestedAt: feedbackRatings.reasonRequestedAt,
+          message: feedbackRatings.message,
+        })
+        .from(feedbackRatings)
+        .where(
+          and(
+            eq(feedbackRatings.studentId, studentForRating.id),
+            sql`${feedbackRatings.rating} <= 2`
+          )
+        )
+        .orderBy(desc(feedbackRatings.createdAt))
+        .limit(1);
+
+      const isPendingReason =
+        lowRatingRequest ||
+        isReplyToReasonWarning ||
+        (existingLowRating && (existingLowRating.reasonRequestedAt !== null || !existingLowRating.message));
+
+      const isNumericRating = /^[1-5]$/.test(text.trim());
+
+      if (existingLowRating && isPendingReason && !isNumericRating) {
+        await db
+          .update(feedbackRatings)
+          .set({
+            message: text.trim(),
+            type: "ISSUE",
+          })
+          .where(eq(feedbackRatings.id, existingLowRating.id));
+
+        TelegramService.pendingLowRatingRequests.delete(telegramUserId);
+
+        const stars = "⭐".repeat(existingLowRating.rating);
+        const confirmMsg = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
+قسم تكنولوجيا المعلومات — نظام بصمة الوجه
+
+✅ <b>تم استلام وتوثيق سبب تقييمك بنجاح!</b> ${stars}
+تفاصيل الشكوى / الملاحظة:
+<i>"${text.trim()}"</i>
+
+<b>شكراً لحرصك ومساعدتنا في تحسين المنظومة 🙏</b>
+تم اعتماد تقييمك وتثبيته في النظام مع الملاحظات، وسيتم متابعتها من قِبل الإدارة.`;
+
+        await this.sendMessage(telegramUserId, confirmMsg);
+        return { handled: true, lowRatingReasonSaved: true };
       }
 
       // 3. Fallback: Parse manual text ratings (e.g. "5 ممتاز")
