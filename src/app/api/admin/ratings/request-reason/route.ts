@@ -68,6 +68,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (target === "SINGLE" && !rows[0].telegramUserId) {
+      return apiError(
+        `الطالب «${rows[0].studentFullName}» غير مرتبط بحساب تيليجرام حتى الآن، لذا يتعذر إرسال التنبيه إليه.`,
+        400
+      );
+    }
+
     let sentCount = 0;
     let failedCount = 0;
     let skippedNoTelegram = 0;
