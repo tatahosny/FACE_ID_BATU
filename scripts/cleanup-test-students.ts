@@ -7,6 +7,8 @@ import {
   notificationOutbox,
   bookingWindows,
   feedbackRatings,
+  feedbackCampaignRecipients,
+  telegramCampaignRecipients,
 } from "../src/db/schema";
 import { inArray, sql } from "drizzle-orm";
 
@@ -68,7 +70,15 @@ async function cleanupTestStudents() {
 
   // Execute cleanup inside an atomic database transaction
   await db.transaction(async (tx) => {
-    // A0. Delete feedback ratings for test students
+    // A0. Delete campaign recipients and feedback ratings for test students
+    await tx
+      .delete(feedbackCampaignRecipients)
+      .where(inArray(feedbackCampaignRecipients.studentId, testStudentIds));
+
+    await tx
+      .delete(telegramCampaignRecipients)
+      .where(inArray(telegramCampaignRecipients.studentId, testStudentIds));
+
     await tx
       .delete(feedbackRatings)
       .where(inArray(feedbackRatings.studentId, testStudentIds));
