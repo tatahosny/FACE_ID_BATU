@@ -20,7 +20,7 @@ import {
   Send,
   Sparkles,
 } from "lucide-react";
-import { getArabicDayName } from "@/lib/utils/datetime";
+import { getArabicDayName, format12HourTime, getAcademicTimeMinutes } from "@/lib/utils/datetime";
 
 export default function PublicSchedulesPage() {
   const [schedules, setSchedules] = useState<any[]>([]);
@@ -63,21 +63,32 @@ export default function PublicSchedulesPage() {
       .then((j) => j.success && setSections(j.data.sections || []));
   }, []);
 
-  // Filtered schedules
-  const filtered = schedules.filter((sc) => {
-    if (selectedGroup !== "ALL" && sc.groupId !== selectedGroup) return false;
-    if (selectedSubSection !== "ALL" && sc.subSection !== "ALL" && sc.subSection !== selectedSubSection)
-      return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      const matchName = sc.sectionName?.toLowerCase().includes(q);
-      const matchCode = sc.sectionCode?.toLowerCase().includes(q);
-      const matchGroup = sc.groupName?.toLowerCase().includes(q);
-      const matchVenue = sc.notes?.toLowerCase().includes(q);
-      if (!matchName && !matchCode && !matchGroup && !matchVenue) return false;
-    }
-    return true;
-  });
+  // Filtered & Chronologically Sorted schedules (Morning first, 10:20 before 01:00)
+  const filtered = schedules
+    .filter((sc) => {
+      if (selectedGroup !== "ALL" && sc.groupId !== selectedGroup) return false;
+      if (selectedSubSection !== "ALL" && sc.subSection !== "ALL" && sc.subSection !== selectedSubSection)
+        return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const matchName = sc.sectionName?.toLowerCase().includes(q);
+        const matchCode = sc.sectionCode?.toLowerCase().includes(q);
+        const matchGroup = sc.groupName?.toLowerCase().includes(q);
+        const matchVenue = sc.notes?.toLowerCase().includes(q);
+        if (!matchName && !matchCode && !matchGroup && !matchVenue) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      // 1. Sort by Date first
+      if (a.date !== b.date) {
+        return (a.date || "").localeCompare(b.date || "");
+      }
+      // 2. Sort by Morning-First Academic Minutes (e.g. 10:20 AM comes BEFORE 01:00 PM)
+      const aMinutes = getAcademicTimeMinutes(a.startTime);
+      const bMinutes = getAcademicTimeMinutes(b.startTime);
+      return aMinutes - bMinutes;
+    });
 
   const handlePrint = () => {
     window.print();
@@ -382,8 +393,12 @@ export default function PublicSchedulesPage() {
                           </span>
                         </div>
                       </td>
-                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-mono font-bold text-slate-200 print:text-black">
-                        من {sc.startTime} إلى {sc.endTime}
+                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-bold text-slate-200 print:text-black">
+                        <span className="inline-flex items-center gap-1 font-mono text-xs sm:text-sm">
+                          <span>من {format12HourTime(sc.startTime)}</span>
+                          <span className="text-slate-500 print:text-black">إلى</span>
+                          <span>{format12HourTime(sc.endTime)}</span>
+                        </span>
                       </td>
                       <td className="p-3 border border-slate-800/80 print:border print:border-black text-xs text-slate-300 font-medium print:text-black">
                         {sc.notes || "الواحة — مبنى الشؤون (شباك بصمة الوجه)"}

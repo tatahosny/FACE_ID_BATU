@@ -15,7 +15,7 @@ import {
   FileSpreadsheet,
   Edit3,
 } from "lucide-react";
-import { getArabicDayName } from "@/lib/utils/datetime";
+import { getArabicDayName, format12HourTime, getAcademicTimeMinutes } from "@/lib/utils/datetime";
 
 export default function AdminSchedulesPage() {
   const [schedules, setSchedules] = useState<any[]>([]);
@@ -425,6 +425,14 @@ export default function AdminSchedulesPage() {
                       return false;
                     return true;
                   })
+                  .sort((a, b) => {
+                    if (a.date !== b.date) {
+                      return (a.date || "").localeCompare(b.date || "");
+                    }
+                    const aMin = getAcademicTimeMinutes(a.startTime);
+                    const bMin = getAcademicTimeMinutes(b.startTime);
+                    return aMin - bMin;
+                  })
                   .map((sc, idx) => (
                     <tr
                       key={sc.id}
@@ -464,8 +472,12 @@ export default function AdminSchedulesPage() {
                           </span>
                         </div>
                       </td>
-                      <td className="p-3 border border-slate-700 print:border print:border-black text-center font-mono font-bold text-slate-200 print:text-black">
-                        من {sc.startTime} إلى {sc.endTime}
+                      <td className="p-3 border border-slate-700 print:border print:border-black text-center font-bold text-slate-200 print:text-black">
+                        <span className="inline-flex items-center gap-1 font-mono text-xs sm:text-sm">
+                          <span>من {format12HourTime(sc.startTime)}</span>
+                          <span className="text-slate-500 print:text-black">إلى</span>
+                          <span>{format12HourTime(sc.endTime)}</span>
+                        </span>
                       </td>
                       <td className="p-3 border border-slate-700 print:border print:border-black text-xs text-slate-300 font-medium print:text-black">
                         {sc.notes || "الواحة — مبنى الشؤون (شباك بصمة الوجه)"}

@@ -76,3 +76,78 @@ body {
   border: 1px solid rgba(30, 41, 59, 0.8);
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
 }
+
+/* ==========================================================================
+   Print Stylesheet: Clean, Professional Schedule & Official Document Output
+   ========================================================================== */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 12mm 10mm;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt !important;
+    overflow: visible !important;
+    height: auto !important;
+    min-height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Force hide all shell/admin/navbar headers, sidebars, alerts, action buttons, floating UI */
+  header,
+  aside,
+  nav,
+  footer,
+  .print\:hidden {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Reset main wrapper scrolling/overflow for clean page breaks */
+  main,
+  div {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  /* Printable tables */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    page-break-after: auto !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  th,
+  td {
+    border: 1.5px solid #000000 !important;
+    color: #000000 !important;
+    background: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  th {
+    background-color: #f1f5f9 !important;
+    font-weight: 800 !important;
+  }
+
+  img {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}

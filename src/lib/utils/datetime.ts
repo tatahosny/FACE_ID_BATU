@@ -94,3 +94,73 @@ export function formatArabicDateWithDay(dateInput: Date | string | number): stri
     day: "numeric",
   }).format(d);
 }
+
+/**
+ * Converts a time string (e.g. "10:20:00", "01:00:00", "13:30", "11:40") to 12-hour Arabic format:
+ * - "10:20" -> "10:20 ص"
+ * - "01:00" -> "01:00 م" (afternoon academic slot)
+ * - "13:30" -> "01:30 م"
+ */
+export function format12HourTime(timeStr?: string | null): string {
+  if (!timeStr) return "";
+  const parts = timeStr.trim().split(":");
+  let h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1] || "0", 10);
+
+  if (isNaN(h)) return timeStr;
+
+  let period = "ص";
+
+  // Academic schedule convention:
+  // Slots like 1:00, 1:40, 2:00 are afternoon slots (مساءً)
+  // Slots like 8:00, 9:00, 10:00, 11:00 are morning slots (صباحاً)
+  if (h >= 12 && h < 24) {
+    period = "م";
+    if (h > 12) h -= 12;
+  } else if (h === 0) {
+    // 00:20 is actually 12:20 PM in academic slots
+    h = 12;
+    period = "م";
+  } else if (h >= 1 && h <= 7) {
+    // Academic hours 1 to 7 are PM (ظهر / عصر)
+    period = "م";
+  } else {
+    // 8, 9, 10, 11 AM
+    period = "ص";
+  }
+
+  const paddedH = String(h).padStart(2, "0");
+  const paddedM = String(m).padStart(2, "0");
+  return `${paddedH}:${paddedM} ${period}`;
+}
+
+/**
+ * Computes minutes from 00:00 in chronological university order (Morning first!):
+ * University day starts around 08:00 AM (8, 9, 10, 11 AM)
+ * then 12:00 PM, 01:00 PM (13:00), 02:00 PM (14:00), etc.
+ *
+ * Example:
+ * 10:20 AM -> 10 * 60 + 20 = 620
+ * 11:00 AM -> 11 * 60 = 660
+ * 01:00 PM (written as 01:00 or 13:00) -> 13 * 60 = 780
+ *
+ * This ensures that 10:20 AM correctly sorts BEFORE 01:00 PM!
+ */
+export function getAcademicTimeMinutes(timeStr?: string | null): number {
+  if (!timeStr) return 9999;
+  const parts = timeStr.trim().split(":");
+  let h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1] || "0", 10);
+
+  if (isNaN(h)) return 9999;
+
+  // Normalize: If h is entered as 1..7 (e.g. 1 PM, 2 PM), treat as 13..19
+  if (h >= 1 && h <= 7) {
+    h += 12;
+  } else if (h === 0) {
+    // 00:20 entered instead of 12:20
+    h = 12;
+  }
+
+  return h * 60 + m;
+}

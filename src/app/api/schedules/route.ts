@@ -53,9 +53,27 @@ export async function GET(req: NextRequest) {
       query = query.where(and(...conditions));
     }
 
-    const list = await query.orderBy(asc(sectionSchedules.date), asc(sectionSchedules.startTime));
+    const list = await query.orderBy(asc(sectionSchedules.date));
 
-    return apiSuccess({ schedules: list });
+    // Sort list chronologically with university morning hours first (10:20 AM before 01:00 PM)
+    const sortedList = [...list].sort((a, b) => {
+      if (a.date !== b.date) {
+        return (a.date || "").localeCompare(b.date || "");
+      }
+      const parseMin = (t?: string | null) => {
+        if (!t) return 9999;
+        const [hStr, mStr] = t.split(":");
+        let h = parseInt(hStr, 10);
+        const m = parseInt(mStr || "0", 10);
+        if (isNaN(h)) return 9999;
+        if (h >= 1 && h <= 7) h += 12;
+        else if (h === 0) h = 12;
+        return h * 60 + m;
+      };
+      return parseMin(a.startTime) - parseMin(b.startTime);
+    });
+
+    return apiSuccess({ schedules: sortedList });
   } catch (error: any) {
     return apiError(error.message || "فشل جلب جدول المواعيد", 500);
   }
