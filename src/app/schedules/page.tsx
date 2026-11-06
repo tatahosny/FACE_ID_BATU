@@ -119,18 +119,16 @@ export default function PublicSchedulesPage() {
   };
 
   // Filtered & Chronologically Sorted Free Slots (Saturday -> Thursday, Period 1 -> 9)
-  // NOTE: Free slots table shows ALL specializations (نيتورك + سوفت وير) in one unified table
   const filteredFreeSlots = freeSlots
     .filter((fs) => {
-      // No specialization filter — always show all (نيتورك + سوفت وير together)
+      if (selectedSpecialization !== "ALL" && fs.specialization !== selectedSpecialization) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchSection = fs.sectionName?.toLowerCase().includes(q);
         const matchGroup = fs.groupName?.toLowerCase().includes(q);
         const matchDelegate = fs.delegateName?.toLowerCase().includes(q);
         const matchDay = fs.dayName?.toLowerCase().includes(q);
-        const matchSpec = fs.specialization?.toLowerCase().includes(q);
-        if (!matchSection && !matchGroup && !matchDelegate && !matchDay && !matchSpec) return false;
+        if (!matchSection && !matchGroup && !matchDelegate && !matchDay) return false;
       }
       return true;
     })
@@ -517,11 +515,8 @@ export default function PublicSchedulesPage() {
                         <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-bold font-mono">
                           {idx + 1}
                         </td>
-                        <td className="p-3 border border-slate-800/80 print:border print:border-black font-black font-mono">
-                          <div className="text-cyan-400 print:text-black">{fs.sectionName}</div>
-                          <div className="text-[11px] font-bold text-slate-400 print:text-black">
-                            شعبة {fs.specialization}
-                          </div>
+                        <td className="p-3 border border-slate-800/80 print:border print:border-black font-black text-cyan-400 font-mono">
+                          {fs.sectionName} ({fs.sectionCode})
                         </td>
                         <td className="p-3 border border-slate-800/80 print:border print:border-black font-bold text-white">
                           {fs.groupName}

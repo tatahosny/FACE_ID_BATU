@@ -53,7 +53,6 @@ interface BookedSlot {
 
 export default function FreeSlotsPage() {
   // State
-  const [activeSpec, setActiveSpec] = useState<"سوفت وير" | "نيتورك">("سوفت وير");
   const [days, setDays] = useState<DaySetting[]>([]);
   const [slots, setSlots] = useState<BookedSlot[]>([]);
   const [loading, setLoading] = useState(true);
@@ -98,7 +97,7 @@ export default function FreeSlotsPage() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/free-slots?academicYear=${encodeURIComponent("الفرقة الثالثة")}&specialization=${encodeURIComponent(activeSpec)}`);
+      const res = await fetch(`/api/free-slots?academicYear=${encodeURIComponent("الفرقة الثالثة")}`);
       const json = await res.json();
       if (json.success) {
         setDays(json.data.days || []);
@@ -113,7 +112,7 @@ export default function FreeSlotsPage() {
 
   useEffect(() => {
     fetchData();
-  }, [activeSpec]);
+  }, []);
 
   // Check Current Session on mount
   useEffect(() => {
@@ -126,9 +125,6 @@ export default function FreeSlotsPage() {
           setSessionUser(json.data.user);
           if (json.data.user.isDelegate || json.data.user.role === "SUPER_ADMIN") {
             setDelegateStudent(json.data.user);
-            if (json.data.user.specialization === "نيتورك") {
-              setActiveSpec("نيتورك");
-            }
           }
         }
       } catch (err) {
@@ -251,7 +247,6 @@ export default function FreeSlotsPage() {
         student: json.data.student,
         telegramDeepLink: json.data.telegramDeepLink,
       });
-      setActiveSpec(regForm.specialization);
     } catch (err: any) {
       setFeedback({ message: err.message || "حدث خطأ غير متوقع", type: "error" });
     } finally {
@@ -305,9 +300,6 @@ export default function FreeSlotsPage() {
 
       const st = json.data.student;
       setDelegateStudent(st);
-      if (st.specialization === "نيتورك") {
-        setActiveSpec("نيتورك");
-      }
 
       if (!json.data.isTelegramLinked && json.data.telegramDeepLink) {
         setRegSuccessData({
@@ -346,9 +338,6 @@ export default function FreeSlotsPage() {
       }
       const st = json.data.student;
       setDelegateStudent(st);
-      if (st.specialization === "نيتورك") {
-        setActiveSpec("نيتورك");
-      }
       setFeedback({ message: `مرحباً بك يا مندوب: ${st.fullName}`, type: "success" });
     } catch (err: any) {
       setFeedback({ message: err.message || "فشل التحقق من الرقم", type: "error" });
@@ -375,14 +364,15 @@ export default function FreeSlotsPage() {
     }
 
     // Check if slot already taken
-    const existingSlot = slots.find((s) => s.dayName === dayName && s.periodIndex === periodIndex);
+    const cellSlots = slots.filter((s) => s.dayName === dayName && s.periodIndex === periodIndex);
+    const mySectionSlot = cellSlots.find((s) => s.sectionId === mySectionId);
 
     // If already booked by MY section: Offer to release / cancel
-    if (existingSlot && existingSlot.sectionId === mySectionId) {
-      if (confirm(`هل تريد إلغاء حجز ${existingSlot.periodName} يوم (${dayName}) لسكشنك؟`)) {
+    if (mySectionSlot) {
+      if (confirm(`هل تريد إلغاء حجز ${mySectionSlot.periodName} يوم (${dayName}) لسكشنك؟`)) {
         try {
           setActionLoading(`${dayName}-${periodIndex}`);
-          const res = await fetch(`/api/free-slots?id=${existingSlot.id}`, { method: "DELETE" });
+          const res = await fetch(`/api/free-slots?id=${mySectionSlot.id}`, { method: "DELETE" });
           const json = await res.json();
           if (!res.ok || !json.success) {
             setFeedback({ message: json.error || "فشل إلغاء الحجز", type: "error" });
@@ -400,9 +390,10 @@ export default function FreeSlotsPage() {
     }
 
     // If already booked by ANOTHER section
-    if (existingSlot && existingSlot.sectionId !== mySectionId) {
+    const otherSectionSlot = cellSlots.find((s) => s.sectionId !== mySectionId);
+    if (otherSectionSlot) {
       setFeedback({
-        message: `هذه الفترة محجوزة بالفعل لـ (${existingSlot.sectionName} - المندوب: ${existingSlot.delegateName}).`,
+        message: `هذه الفترة محجوزة بالفعل لـ (${otherSectionSlot.sectionName} - ${otherSectionSlot.specialization} - المندوب: ${otherSectionSlot.delegateName}).`,
         type: "error",
       });
       return;
@@ -435,7 +426,7 @@ export default function FreeSlotsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           academicYear: "الفرقة الثالثة",
-          specialization: activeSpec,
+          specialization: delegateStudent.specialization || "سوفت وير",
           groupId: delegateStudent.groupId,
           sectionId: mySectionId,
           delegateStudentId: delegateStudent.id,
@@ -547,7 +538,7 @@ export default function FreeSlotsPage() {
                   </div>
                   <div className="pt-1 flex items-center gap-1.5 justify-end">
                     <span className="px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 text-[11px] font-bold border border-cyan-500/30">
-                      {delegateStudent.specialization || activeSpec}
+                      {delegateStudent.specialization || "الفرقة الثالثة"}
                     </span>
                     <span className="px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 text-[11px] font-bold border border-purple-500/30">
                       فترات سكشنك: {mySlotsCount} / 2
@@ -930,29 +921,13 @@ export default function FreeSlotsPage() {
           </div>
         )}
 
-        {/* Division Switcher Tabs */}
+        {/* Table Header & Controls (Unified for All Specializations) */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2 p-1.5 bg-slate-900/90 rounded-2xl border border-slate-800 w-full sm:w-auto">
-            <button
-              onClick={() => setActiveSpec("سوفت وير")}
-              className={`flex-1 sm:flex-none px-6 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm transition flex items-center justify-center gap-2 ${
-                activeSpec === "سوفت وير"
-                  ? "bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-600/30"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              <span>💻 شعبة سوفت وير (Software)</span>
-            </button>
-            <button
-              onClick={() => setActiveSpec("نيتورك")}
-              className={`flex-1 sm:flex-none px-6 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm transition flex items-center justify-center gap-2 ${
-                activeSpec === "نيتورك"
-                  ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-600/30"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              <span>🌐 شعبة نيتورك (Network)</span>
-            </button>
+          <div className="flex items-center gap-2">
+            <span className="px-3.5 py-2 rounded-2xl bg-slate-900/90 border border-slate-800 text-xs font-black text-cyan-300 flex items-center gap-2 shadow-sm">
+              <Calendar className="w-4 h-4 text-cyan-400" />
+              <span>جدول فترات الفراغ الموحد — لكافة الشعب (سوفت وير ونيتورك)</span>
+            </span>
           </div>
 
           {/* Quick Refresh & Legend */}
@@ -1036,11 +1011,13 @@ export default function FreeSlotsPage() {
 
                     {/* Day Cells */}
                     {days.map((day) => {
-                      const bookedSlot = slots.find(
+                      const cellSlots = slots.filter(
                         (s) => s.dayName === day.dayName && s.periodIndex === period.index
                       );
-                      const isMySection = bookedSlot && bookedSlot.sectionId === mySectionId;
-                      const isAnotherSection = bookedSlot && !isMySection;
+                      const mySectionSlot = cellSlots.find((s) => s.sectionId === mySectionId);
+                      const isMySection = !!mySectionSlot;
+                      const isAnotherSection = !isMySection && cellSlots.length > 0;
+                      const bookedSlot = mySectionSlot || cellSlots[0];
                       const isDayOpen = day.isOpen;
                       const isBusy = actionLoading === `${day.dayName}-${period.index}`;
 
@@ -1079,8 +1056,8 @@ export default function FreeSlotsPage() {
                                   <Sparkles className="w-2.5 h-2.5 text-emerald-300" />
                                   <span>محجوز لسكشنك</span>
                                 </span>
-                                <span className="text-[10px] text-emerald-400 font-mono">
-                                  {bookedSlot.sectionCode}
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-950/60 text-emerald-300 font-mono font-bold">
+                                  {bookedSlot.specialization} • {bookedSlot.sectionCode}
                                 </span>
                               </div>
 
@@ -1105,8 +1082,8 @@ export default function FreeSlotsPage() {
                                   <Lock className="w-2.5 h-2.5" />
                                   <span>محجوز</span>
                                 </span>
-                                <span className="text-[10px] text-slate-400 font-mono">
-                                  {bookedSlot.groupName.includes("1") ? "G1" : "G2"}
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800/80 text-cyan-300 font-bold">
+                                  {bookedSlot.specialization}
                                 </span>
                               </div>
 

@@ -60,7 +60,7 @@ export default function AdminSchedulesPage() {
   const [freeDays, setFreeDays] = useState<any[]>([]);
   const [freeSlots, setFreeSlots] = useState<any[]>([]);
   const [loadingFreeSlots, setLoadingFreeSlots] = useState(false);
-
+  const [freeSpecFilter, setFreeSpecFilter] = useState<string>("ALL");
   const [freeSearch, setFreeSearch] = useState<string>("");
   const [togglingDay, setTogglingDay] = useState<string | null>(null);
 
@@ -390,31 +390,18 @@ export default function AdminSchedulesPage() {
       return aMin - bMin;
     });
 
-  // Filtered Free Slots — unified table (نيتورك + سوفت وير together, no spec filter)
-  const filteredFreeSlots = freeSlots
-    .filter((s) => {
-      if (freeSearch) {
-        const q = freeSearch.trim().toLowerCase();
-        const matchName = (s.delegateName || "").toLowerCase().includes(q);
-        const matchSec = (s.sectionName || "").toLowerCase().includes(q);
-        const matchDay = (s.dayName || "").toLowerCase().includes(q);
-        const matchSpec = (s.specialization || "").toLowerCase().includes(q);
-        if (!matchName && !matchSec && !matchDay && !matchSpec) return false;
-      }
-      return true;
-    })
-    .sort((a: any, b: any) => {
-      const DAY_ORDER: Record<string, number> = {
-        "السبت": 1, "الأحد": 2, "الاحد": 2, "الاثنين": 3, "الإثنين": 3,
-        "الثلاثاء": 4, "الأربعاء": 5, "الاربعاء": 5, "الخميس": 6,
-      };
-      const dayA = DAY_ORDER[a.dayName] || 99;
-      const dayB = DAY_ORDER[b.dayName] || 99;
-      if (dayA !== dayB) return dayA - dayB;
-      if ((a.periodIndex || 0) !== (b.periodIndex || 0)) return (a.periodIndex || 0) - (b.periodIndex || 0);
-      // Same day+period: sort by specialization (سوفت وير before نيتورك)
-      return (a.specialization || "").localeCompare(b.specialization || "", "ar");
-    });
+  // Filtered Free Slots
+  const filteredFreeSlots = freeSlots.filter((s) => {
+    if (freeSpecFilter !== "ALL" && s.specialization !== freeSpecFilter) return false;
+    if (freeSearch) {
+      const q = freeSearch.trim().toLowerCase();
+      const matchName = (s.delegateName || "").toLowerCase().includes(q);
+      const matchSec = (s.sectionName || "").toLowerCase().includes(q);
+      const matchDay = (s.dayName || "").toLowerCase().includes(q);
+      if (!matchName && !matchSec && !matchDay) return false;
+    }
+    return true;
+  });
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -919,7 +906,8 @@ export default function AdminSchedulesPage() {
                 كلية تكنولوجيا الصناعة والطاقة • قسم تكنولوجيا المعلومات
               </h2>
               <h3 className="text-base font-extrabold text-purple-900 mt-2 bg-slate-100 px-4 py-1 rounded-lg border border-slate-300 inline-block">
-              <span>الجدول الرسمي المعتمد لفترات فراغ سكاشن الفرقة الثالثة (المعتمد بواسطة المناديب) • جميع الشعب</span>
+                الجدول الرسمي المعتمد لفترات فراغ سكاشن الفرقة الثالثة (المعتمد بواسطة المناديب)
+                {freeSpecFilter !== "ALL" ? ` • شعبة ${freeSpecFilter}` : ""}
               </h3>
               <div className="flex items-center justify-center gap-4 text-xs font-bold text-slate-700 mt-2">
                 <span>العام الجامعي: 2026 / 2027</span>
@@ -941,17 +929,34 @@ export default function AdminSchedulesPage() {
                 </p>
               </div>
 
-              {/* Search & PDF Print Button — unified table (نيتورك + سوفت وير together) */}
+              {/* Specialization Filter, Search & PDF Print Button */}
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={handlePrintPDF}
                   className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-xs font-black shadow-md shadow-purple-600/30 transition flex items-center gap-1.5"
-                  title="طباعة وتصدير جدول فترات الفراغ بصيغة PDF (جميع الشعب)"
+                  title="طباعة وتصدير جدول فترات الفراغ بصيغة PDF"
                 >
                   <Printer className="w-3.5 h-3.5" />
                   <span>طباعة جدول الفراغ PDF</span>
                 </button>
+
+                <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+                  {["ALL", "سوفت وير", "نيتورك"].map((sp) => (
+                    <button
+                      key={sp}
+                      type="button"
+                      onClick={() => setFreeSpecFilter(sp)}
+                      className={`px-3 py-1.5 rounded-lg font-bold transition ${
+                        freeSpecFilter === sp
+                          ? "bg-purple-600 text-white shadow"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      {sp === "ALL" ? "جميع الشعب" : sp}
+                    </button>
+                  ))}
+                </div>
 
                 <div className="relative">
                   <input
@@ -1024,10 +1029,7 @@ export default function AdminSchedulesPage() {
                           </span>
                         </td>
                         <td className="p-3 border border-slate-800 print:border print:border-black print:text-black">
-                          <div className="font-extrabold text-white print:text-black text-sm flex items-center gap-1.5 flex-wrap">
-                            <span>{slot.sectionName}</span>
-                            <span className="text-[10px] text-cyan-400 print:text-black font-bold">({slot.specialization})</span>
-                          </div>
+                          <div className="font-extrabold text-white print:text-black text-sm">{slot.sectionName}</div>
                           <div className="text-xs text-slate-400 print:text-slate-800">{slot.groupName}</div>
                         </td>
                         <td className="p-3 border border-slate-800 print:border print:border-black print:text-black">

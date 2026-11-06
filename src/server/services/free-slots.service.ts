@@ -121,18 +121,19 @@ export class FreeSlotsService {
     }
 
     return await db.transaction(async (tx) => {
-      // 3. Check if slot is already booked for this specialization, day, and period
+      // 3. Check if slot is already booked for this day and period in the unified table
       const [existingSlot] = await tx
         .select({
           id: sectionFreeSlots.id,
           sectionName: sections.name,
+          specialization: sectionFreeSlots.specialization,
           delegateName: sectionFreeSlots.delegateName,
         })
         .from(sectionFreeSlots)
         .innerJoin(sections, eq(sectionFreeSlots.sectionId, sections.id))
         .where(
           and(
-            eq(sectionFreeSlots.specialization, data.specialization),
+            eq(sectionFreeSlots.academicYear, academicYear),
             eq(sectionFreeSlots.dayName, data.dayName),
             eq(sectionFreeSlots.periodIndex, data.periodIndex)
           )
@@ -140,7 +141,7 @@ export class FreeSlotsService {
 
       if (existingSlot) {
         throw new Error(
-          `هذه الفترة محجوزة بالفعل لـ (${existingSlot.sectionName} - المندوب: ${existingSlot.delegateName}). يرجى اختيار فترة أخرى متاحة.`
+          `هذه الفترة محجوزة بالفعل لـ (${existingSlot.sectionName} - ${existingSlot.specialization} - المندوب: ${existingSlot.delegateName}). يرجى اختيار فترة أخرى متاحة.`
         );
       }
 
