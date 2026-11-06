@@ -649,7 +649,7 @@ export default function PublicSchedulesPage() {
                           </span>
                         </td>
                         <td className="p-3 border border-slate-800/80 print:border print:border-black text-xs text-slate-300 font-medium print:text-black">
-                          {sc.notes || "الواحة — مبنى الشؤون (شباك بصمة الوجه)"}
+                          {sc.notes || "مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)"}
                         </td>
                       </tr>
                     ))}

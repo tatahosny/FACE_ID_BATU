@@ -46,7 +46,7 @@ export default function AdminSchedulesPage() {
   const [formDate, setFormDate] = useState("");
   const [formStartTime, setFormStartTime] = useState("09:00");
   const [formEndTime, setFormEndTime] = useState("13:00");
-  const [formVenue, setFormVenue] = useState("الواحة — مبنى الشؤون (شباك بصمة الوجه)");
+  const [formVenue, setFormVenue] = useState("مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)");
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
@@ -75,7 +75,7 @@ export default function AdminSchedulesPage() {
   const [adminSlotSaving, setAdminSlotSaving] = useState(false);
 
   const venuePresets = [
-    "الواحة — مبنى الشؤون (شباك بصمة الوجه)",
+    "مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)",
     "شباك الاستقبال المركزي - شؤون الطلاب (الواحة)",
     "معمل الحاسب الآلي الرئيسي — الطابق الأرضي — شباك تسجيل البصمة",
     "المدرج المركزي للكلية — شباك الفحص البيومتري",
@@ -799,7 +799,7 @@ export default function AdminSchedulesPage() {
                         </span>
                       </td>
                       <td className="p-3 border border-slate-700 print:border print:border-black text-xs text-slate-300 font-medium print:text-black">
-                        {sc.notes || "الواحة — مبنى الشؤون (شباك بصمة الوجه)"}
+                        {sc.notes || "مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)"}
                       </td>
                       <td className="p-3 border border-slate-700 print:hidden text-center">
                         <div className="flex items-center justify-center gap-1.5 flex-wrap">
@@ -1268,7 +1268,7 @@ export default function AdminSchedulesPage() {
                   required
                   value={formVenue}
                   onChange={(e) => setFormVenue(e.target.value)}
-                  placeholder="مثال: الواحة — مبنى الشؤون (شباك بصمة الوجه)"
+                  placeholder="مثال: مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)"
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-700 text-xs bg-slate-950 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
 

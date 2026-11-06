@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
         startTime,
         endTime,
         subSection: validSubSection,
-        notes: notes || "الواحة — مبنى الشؤون (شباك بصمة الوجه)",
+        notes: notes || "مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)",
       })
       .returning();
 
@@ -144,7 +144,7 @@ export async function PUT(req: NextRequest) {
         startTime,
         endTime,
         subSection: validSubSection,
-        notes: notes || "الواحة — مبنى الشؤون (شباك بصمة الوجه)",
+        notes: notes || "مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)",
       })
       .where(eq(sectionSchedules.id, id))
       .returning();

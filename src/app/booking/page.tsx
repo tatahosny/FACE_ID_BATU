@@ -494,7 +494,7 @@ function BookingContent() {
 
                   <div className="text-xs text-slate-300 flex items-center justify-center gap-2">
                     <MapPin className="w-4 h-4 text-emerald-400" />
-                    <span>الواحة — مبنى الشؤون (شباك بصمة الوجه)</span>
+                    <span>مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)</span>
                   </div>
 
                   <div className="pt-2 border-t border-slate-800/80 flex flex-col items-center gap-2">

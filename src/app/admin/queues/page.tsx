@@ -257,7 +257,7 @@ export default function AdminQueuesPage() {
             </span>
           </h1>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            توزيع تلقائي للأدوار بالتناوب (T / D)، تخصيص موظفي الشبابيك، ومتابعة فورية للحضور بمبنى الشؤون (الواحة).
+            توزيع تلقائي للأدوار بالتناوب (T / D)، تخصيص موظفي الشبابيك، ومتابعة فورية للحضور بمبنى المعامل ب الواحة الدور الاول علوى يمين.
           </p>
         </div>
 
@@ -332,7 +332,7 @@ export default function AdminQueuesPage() {
                     </div>
                     <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
                       <Building2 className="w-3 h-3 text-cyan-400" />
-                      <span>الواحة — مبنى الشؤون (بصمة الوجه)</span>
+                      <span>مبنى المعامل ب الواحة الدور الاول علوى يمين (بصمة الوجه)</span>
                     </p>
                   </div>
                 </div>
@@ -469,7 +469,7 @@ export default function AdminQueuesPage() {
                     </div>
                     <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
                       <Building2 className="w-3 h-3 text-purple-400" />
-                      <span>الواحة — مبنى الشؤون (بصمة الوجه)</span>
+                      <span>مبنى المعامل ب الواحة الدور الاول علوى يمين (بصمة الوجه)</span>
                     </p>
                   </div>
                 </div>

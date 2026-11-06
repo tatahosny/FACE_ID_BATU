@@ -293,7 +293,7 @@ export class BookingService {
 <b>ترتيبك في طابور شباك ${deskName}:</b> <code>#${formattedDeskTurn}</code> (${deskAhead === 0 ? "أنت التالي مباشرة على هذا الشباك!" : `باقي قبلك ${deskAhead} طلاب على هذا الشباك`})
 <b>ترتيبك العام في انتظار الكلية:</b> <code>#${formattedGlobalTurn}</code>
 
-<b>المقر:</b> الواحة — مبنى الشؤون (شباك بصمة الوجه)
+<b>المقر:</b> مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)
 ستصلك رسالة تنبيهية فور المناداة على دورك.`;
 
             pendingTelegramNotification = {
@@ -427,7 +427,7 @@ export class BookingService {
 
 <b>تنبيه عاجل:</b>
 أنت من <b>أول 10 طلاب</b> في طابور شباك ${assignedDesk}!
-<b>يرجى التوجه فوراً الآن إلى شباك ${assignedDesk} (الواحة — مبنى الشؤون) لعمل بصمة الوجه.</b>`
+<b>يرجى التوجه فوراً الآن إلى شباك ${assignedDesk} (مبنى المعامل ب الواحة الدور الاول علوى يمين) لعمل بصمة الوجه.</b>`
             : `<b>جامعة برج العرب التكنولوجية (BATU)</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
@@ -440,7 +440,7 @@ export class BookingService {
 <b>ترتيبك في طابور شباك ${assignedDesk}:</b> <code>#${formattedDeskTurn}</code> (باقي أمامك <b>${deskAhead}</b> طلاب على هذا الشباك)
 <b>ترتيبك العام في انتظار الكلية:</b> <code>#${formattedGlobalTurn}</code>
 
-<b>المقر:</b> الواحة — مبنى الشؤون (شباك ${assignedDesk})
+<b>المقر:</b> مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك ${assignedDesk})
 <b>ستصلك رسالة تنبيهية فور وصول المتبقي على دورك إلى 10 أشخاص للاستعداد والتوجه إلى شباك ${assignedDesk}.</b>`;
 
           const outboxKey = `booking_confirm_${createdBooking.id}`;
@@ -818,7 +818,7 @@ ${notes ? `<b>السبب:</b> ${notes}\n` : ""}
     if (student.telegramUserId) {
       const ticketNum = booking.ticketNumber || booking.queueNumber;
       const deskName = booking.desk || "T";
-      const alertMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>نداء عاجل ومكرر!</b>\nعزيزي الطالب <b>${student.fullName}</b>،\nحان دورك الآن رسمياً في الطابور برقم: <code>#${formatQueueNumber(currentTurn)}</code> (تذكرة حجز رقم: <code>#${formatQueueNumber(ticketNum)}</code>)\n<b>الشباك المخصص:</b> <code>شباك ${deskName}</code>\n\n<b>يرجى التوجه فوراً إلى الواحة — مبنى الشؤون (شباك ${deskName}) لعمل بصمة الوجه قبل فوات الدور!</b>`;
+      const alertMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>نداء عاجل ومكرر!</b>\nعزيزي الطالب <b>${student.fullName}</b>،\nحان دورك الآن رسمياً في الطابور برقم: <code>#${formatQueueNumber(currentTurn)}</code> (تذكرة حجز رقم: <code>#${formatQueueNumber(ticketNum)}</code>)\n<b>الشباك المخصص:</b> <code>شباك ${deskName}</code>\n\n<b>يرجى التوجه فوراً إلى مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك ${deskName}) لعمل بصمة الوجه قبل فوات الدور!</b>`;
 
       const repeatKey = `repeat_alert_${booking.id}_${Date.now()}`;
       await db
@@ -983,8 +983,8 @@ ${
     : `تم تأخيرك 10 أدوار للخلف، وسيحين دورك بعد مرور 10 طلاب.`
 }
 
-<b>المقر:</b> الواحة — مبنى الشؤون (شباك ${deskName})
-يرجى التواجد أمام شباك ${deskName} بمبنى الشؤون فور اقتراب رقم دورك.`;
+<b>المقر:</b> مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك ${deskName})
+يرجى التواجد أمام شباك ${deskName} بمبنى المعامل ب الواحة الدور الاول علوى يمين فور اقتراب رقم دورك.`;
 
         const pushBackKey = `pushback_${booking.id}_${Date.now()}`;
         await tx
@@ -1382,7 +1382,7 @@ ${
 <b>رقم دورك الحالي في الطابور:</b> <code>#${formattedTurn}</code> (تذكرة حجز رقم: <code>#${formattedNum}</code>)
 <b>حالة الطابور:</b> ${peopleAhead === 0 ? "أنت أول شخص في الطابور الآن!" : `باقي أمامك ${peopleAhead} أشخاص فقط في الانتظار`}
 
-<b>المقر:</b> الواحة — مبنى الشؤون (شباك بصمة الوجه)
+<b>المقر:</b> مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)
 ستصلك رسالة تنبيهية فور المناداة على دورك.`;
 
     await TelegramService.sendMessage(Number(student.telegramUserId), msg);

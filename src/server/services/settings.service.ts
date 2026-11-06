@@ -3,7 +3,7 @@ import { systemSettings } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
 export class SettingsService {
-  private static defaultLocation = "الواحة — مبنى الشؤون (شباك بصمة الوجه)";
+  private static defaultLocation = "مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)";
 
   /**
    * Retrieve a setting by its key with fallback

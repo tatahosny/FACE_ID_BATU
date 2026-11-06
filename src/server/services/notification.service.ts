@@ -189,7 +189,7 @@ export class NotificationService {
         // Milestone 1: Next in line (1 or 0 ahead)
         if (studentsAhead <= 1) {
           const idempotencyKey = `proximity_next_${item.bookingId}`;
-          const msg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه هام (أنت التالي):</b>\nعزيزي الطالب <b>${item.fullName}</b>،\nأنت التالي مباشرة على <b>شباك ${deskName}</b>!\nيرجى الوقوف فوراً أمام الشباك (الواحة — مبنى الشؤون) للاستعداد لمناداة دورك.`;
+          const msg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه هام (أنت التالي):</b>\nعزيزي الطالب <b>${item.fullName}</b>،\nأنت التالي مباشرة على <b>شباك ${deskName}</b>!\nيرجى الوقوف فوراً أمام الشباك (مبنى المعامل ب الواحة الدور الاول علوى يمين) للاستعداد لمناداة دورك.`;
 
           const inserted = await this.queueOutboxItem({
             eventType: "PROXIMITY_NEXT",
@@ -209,7 +209,7 @@ export class NotificationService {
         // Milestone 2: 5 or fewer ahead (2 to 5)
         else if (studentsAhead <= 5) {
           const idempotencyKey = `proximity_5_${item.bookingId}`;
-          const msg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه عاجل:</b>\nمتبقي <b>${studentsAhead}</b> أشخاص فقط على دورك (<b>${item.fullName}</b>).\n<b>الشباك:</b> <code>شباك ${deskName}</code>.\nيرجى التواجد أمام شباك ${deskName} بمبنى الشؤون (الواحة) الآن.`;
+          const msg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه عاجل:</b>\nمتبقي <b>${studentsAhead}</b> أشخاص فقط على دورك (<b>${item.fullName}</b>).\n<b>الشباك:</b> <code>شباك ${deskName}</code>.\nيرجى التواجد أمام شباك ${deskName} بمبنى المعامل ب الواحة الدور الاول علوى يمين الآن.`;
 
           const inserted = await this.queueOutboxItem({
             eventType: "PROXIMITY_5",
@@ -229,7 +229,7 @@ export class NotificationService {
         // Milestone 3: 10 or fewer ahead (6 to 10)
         else if (studentsAhead <= 10) {
           const idempotencyKey = `proximity_10_${item.bookingId}`;
-          const msg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه اقتراب الدور:</b>\nعزيزي الطالب <b>${item.fullName}</b>،\n<b>باقى على دورك ${studentsAhead} أشخاص، يرجى التوجه الآن لمكتب البصمة</b>\n<b>الشباك المخصص:</b> <code>شباك ${deskName}</code>\n\n<b>المقر:</b> الواحة — مبنى الشؤون (شباك ${deskName})\nيرجى الاستعداد والتواجد بالقرب من الشباك فور النداء.`;
+          const msg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه اقتراب الدور:</b>\nعزيزي الطالب <b>${item.fullName}</b>،\n<b>باقى على دورك ${studentsAhead} أشخاص، يرجى التوجه الآن لمكتب البصمة</b>\n<b>الشباك المخصص:</b> <code>شباك ${deskName}</code>\n\n<b>المقر:</b> مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك ${deskName})\nيرجى الاستعداد والتواجد بالقرب من الشباك فور النداء.`;
 
           const inserted = await this.queueOutboxItem({
             eventType: "PROXIMITY_10",
@@ -249,7 +249,7 @@ export class NotificationService {
         // Milestone 4: 15 or fewer ahead (11 to 15)
         else if (studentsAhead <= 15) {
           const idempotencyKey = `proximity_15_${item.bookingId}`;
-          const msg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه متابعة الطابور:</b>\nعزيزي الطالب <b>${item.fullName}</b>،\nمتبقي على دورك <b>${studentsAhead}</b> شخصاً في الطابور.\n<b>الشباك المخصص:</b> <code>شباك ${deskName}</code>\n\n<b>المقر:</b> الواحة — مبنى الشؤون\nيرجى متابعة الإشعارات والاقتراب من المقر مع تقدم الطابور.`;
+          const msg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه متابعة الطابور:</b>\nعزيزي الطالب <b>${item.fullName}</b>،\nمتبقي على دورك <b>${studentsAhead}</b> شخصاً في الطابور.\n<b>الشباك المخصص:</b> <code>شباك ${deskName}</code>\n\n<b>المقر:</b> مبنى المعامل ب الواحة الدور الاول علوى يمين\nيرجى متابعة الإشعارات والاقتراب من المقر مع تقدم الطابور.`;
 
           const inserted = await this.queueOutboxItem({
             eventType: "PROXIMITY_15",
@@ -324,35 +324,35 @@ export class NotificationService {
 
     switch (eventType) {
       case "PROXIMITY_15":
-        return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه متابعة الطابور:</b>\nعزيزي الطالب <b>${payload.studentName}</b>،\nمتبقي على دورك <b>${payload.remainingAhead || 15}</b> شخصاً في الطابور.\n${payload.desk ? `<b>الشباك المخصص:</b> <code>شباك ${payload.desk}</code>\n` : ""}<b>المقر:</b> الواحة — مبنى الشؤون\nيرجى الاستعداد والاقتراب من المقر مع تقدم الطابور.`;
+        return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه متابعة الطابور:</b>\nعزيزي الطالب <b>${payload.studentName}</b>،\nمتبقي على دورك <b>${payload.remainingAhead || 15}</b> شخصاً في الطابور.\n${payload.desk ? `<b>الشباك المخصص:</b> <code>شباك ${payload.desk}</code>\n` : ""}<b>المقر:</b> مبنى المعامل ب الواحة الدور الاول علوى يمين\nيرجى الاستعداد والاقتراب من المقر مع تقدم الطابور.`;
 
       case "PROXIMITY_10":
-        return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه اقتراب الدور:</b>\nعزيزي الطالب <b>${payload.studentName}</b>،\n<b>باقى على دورك ${payload.remainingAhead || 10} اشخاص يرجى التوجه الان لمكتب البصمة</b>\n${payload.desk ? `<b>الشباك المخصص:</b> <code>شباك ${payload.desk}</code>\n` : ""}<b>المقر:</b> الواحة — مبنى الشؤون (شباك بصمة الوجه).`;
+        return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه اقتراب الدور:</b>\nعزيزي الطالب <b>${payload.studentName}</b>،\n<b>باقى على دورك ${payload.remainingAhead || 10} اشخاص يرجى التوجه الان لمكتب البصمة</b>\n${payload.desk ? `<b>الشباك المخصص:</b> <code>شباك ${payload.desk}</code>\n` : ""}<b>المقر:</b> مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه).`;
 
       case "PROXIMITY_5":
-        return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه عاجل:</b>\nمتبقي ${payload.remainingAhead || 5} أدوار فقط على دورك (<b>${payload.studentName}</b>).${payload.desk ? `\n<b>الشباك:</b> <code>شباك ${payload.desk}</code>.` : ""}\nيرجى التواجد أمام شباك ${payload.desk ? `شباك ${payload.desk}` : "بصمة الوجه"} بمبنى الشؤون (الواحة) الآن.`;
+        return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه عاجل:</b>\nمتبقي ${payload.remainingAhead || 5} أدوار فقط على دورك (<b>${payload.studentName}</b>).${payload.desk ? `\n<b>الشباك:</b> <code>شباك ${payload.desk}</code>.` : ""}\nيرجى التواجد أمام شباك ${payload.desk ? `شباك ${payload.desk}` : "بصمة الوجه"} بمبنى المعامل ب الواحة الدور الاول علوى يمين الآن.`;
 
       case "PROXIMITY_NEXT":
-        return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه هام (أنت التالي):</b>\nأنت التالي مباشرة على <b>شباك ${payload.desk || "T"}</b>!\nيرجى الوقوف فوراً أمام الشباك بمبنى الشؤون (الواحة) للاستعداد.`;
+        return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه هام (أنت التالي):</b>\nأنت التالي مباشرة على <b>شباك ${payload.desk || "T"}</b>!\nيرجى الوقوف فوراً أمام الشباك بمبنى المعامل ب الواحة الدور الاول علوى يمين للاستعداد.`;
 
       case "TURN_CALLED":
       case "REPEAT_ALERT":
-        return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>حان دورك الآن!</b>\nعزيزي الطالب <b>${payload.studentName}</b>،\n${payload.queueNumber ? `<b>رقمك في الطابور:</b> <code>${payload.queueNumber}</code>\n` : ""}${payload.desk ? `<b>الشباك المخصص:</b> <code>شباك ${payload.desk}</code>\n` : ""}<b>المقر:</b> الواحة — مبنى الشؤون (شباك بصمة الوجه)\n\nيرجى التوجه فوراً إلى <code>شباك ${payload.desk || "T"}</code> لتسجيل بصمة الوجه فوراً.`;
+        return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>حان دورك الآن!</b>\nعزيزي الطالب <b>${payload.studentName}</b>،\n${payload.queueNumber ? `<b>رقمك في الطابور:</b> <code>${payload.queueNumber}</code>\n` : ""}${payload.desk ? `<b>الشباك المخصص:</b> <code>شباك ${payload.desk}</code>\n` : ""}<b>المقر:</b> مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)\n\nيرجى التوجه فوراً إلى <code>شباك ${payload.desk || "T"}</code> لتسجيل بصمة الوجه فوراً.`;
 
       case "QUEUE_PUSH_BACK":
         return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه تأخير الدور:</b>\nعزيزي الطالب: <b>${payload.studentName}</b>\n${payload.ticketNumber ? `<b>رقم التذكرة:</b> <code>#${payload.ticketNumber}</code>\n` : ""}${payload.desk ? `<b>الشباك:</b> <code>شباك ${payload.desk}</code>\n` : ""}${payload.newTurn ? `<b>دورك الجديد في الطابور:</b> <code>#${payload.newTurn}</code>\n` : ""}<b>المتبقي قبلك في الانتظار:</b> ${payload.remainingAhead ?? "عدة أشخاص"}\n\nيرجى التواجد أمام الشباك فور اقتراب رقم دورك الجديد.`;
 
       case "BOOKING_CONFIRMATION":
         if (payload.isFirstTen) {
-          return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\n\n<b>تم تأكيد حجز موعدك بنجاح!</b>\n\n<b>رقم دورك في الطابور:</b> ${payload.queueNumber}\n${payload.desk ? `<b>الشباك المخصص:</b> شباك ${payload.desk}\n` : ""}<b>الطالب:</b> ${payload.studentName}\n<b>الرقم الأكاديمي:</b> ${payload.academicNumber}\n\n<b>تنبيه عاجل:</b>\nأنت من <b>أول 10 طلاب</b> في قائمة الانتظار!\n<b>يرجى التوجه فوراً الآن إلى الواحة — مبنى الشؤون لعمل بصمة الوجه.</b>`;
+          return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\n\n<b>تم تأكيد حجز موعدك بنجاح!</b>\n\n<b>رقم دورك في الطابور:</b> ${payload.queueNumber}\n${payload.desk ? `<b>الشباك المخصص:</b> شباك ${payload.desk}\n` : ""}<b>الطالب:</b> ${payload.studentName}\n<b>الرقم الأكاديمي:</b> ${payload.academicNumber}\n\n<b>تنبيه عاجل:</b>\nأنت من <b>أول 10 طلاب</b> في قائمة الانتظار!\n<b>يرجى التوجه فوراً الآن إلى مبنى المعامل ب الواحة الدور الاول علوى يمين لعمل بصمة الوجه.</b>`;
         }
-        return `<b>تأكيد حجز موعد البصمة</b>\n\nعزيزي الطالب <b>${payload.studentName}</b>,\nتم تسجيل حجزك بنجاح.\n\n<b>رقمك في قائمة الانتظار:</b> ${payload.queueNumber}\n${payload.desk ? `<b>الشباك المخصص:</b> شباك ${payload.desk}\n` : ""}<b>الرقم الأكاديمي:</b> ${payload.academicNumber}\n${payload.deskAhead !== undefined ? `<b>المتبقي قبلك:</b> ${payload.deskAhead} أشخاص\n` : ""}<b>المقر:</b> الواحة — مبنى الشؤون\n\nيرجى متابعة إشعارات البوت عند فتح فترة الحضور واقتراب دورك.`;
+        return `<b>تأكيد حجز موعد البصمة</b>\n\nعزيزي الطالب <b>${payload.studentName}</b>,\nتم تسجيل حجزك بنجاح.\n\n<b>رقمك في قائمة الانتظار:</b> ${payload.queueNumber}\n${payload.desk ? `<b>الشباك المخصص:</b> شباك ${payload.desk}\n` : ""}<b>الرقم الأكاديمي:</b> ${payload.academicNumber}\n${payload.deskAhead !== undefined ? `<b>المتبقي قبلك:</b> ${payload.deskAhead} أشخاص\n` : ""}<b>المقر:</b> مبنى المعامل ب الواحة الدور الاول علوى يمين\n\nيرجى متابعة إشعارات البوت عند فتح فترة الحضور واقتراب دورك.`;
 
       case "BOOKING_CANCELLED":
         return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تم إلغاء حجز دورك في الطابور</b>\n\nعزيزي الطالب: <b>${payload.studentName}</b>\n<b>الرقم الأكاديمي:</b> <code>${payload.academicNumber}</code>\n${payload.notes ? `<b>السبب:</b> ${payload.notes}\n` : ""}نحيطكم علماً بأنه قد تم إلغاء حجز دورك في الطابور.\n${payload.bookingUrl ? `<b>يرجى إعادة الحجز من الرابط:</b>\n<a href="${payload.bookingUrl}">${payload.bookingUrl}</a>` : ""}`;
 
       case "WINDOW_OPENED":
-        return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تم فتح حجز دور البصمة للسكشن الخاص بكم الآن!</b>\n\n<b>السكشن:</b> ${payload.sectionName || "السكشن الأكاديمي"}\n<b>عزيزي الطالب:</b> ${payload.studentName}\n\n<b>المقر:</b> الواحة — مبنى الشؤون (شباك بصمة الوجه)\n\n<b>يمكنك الآن الدخول إلى المنصة وحجز رقم دورك فوراً:</b>\n<a href="${payload.bookingUrl}">${payload.bookingUrl}</a>`;
+        return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تم فتح حجز دور البصمة للسكشن الخاص بكم الآن!</b>\n\n<b>السكشن:</b> ${payload.sectionName || "السكشن الأكاديمي"}\n<b>عزيزي الطالب:</b> ${payload.studentName}\n\n<b>المقر:</b> مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)\n\n<b>يمكنك الآن الدخول إلى المنصة وحجز رقم دورك فوراً:</b>\n<a href="${payload.bookingUrl}">${payload.bookingUrl}</a>`;
 
       case "WINDOW_PAUSED":
         return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه إيقاف حجز دور البصمة:</b>\n\nأعزائنا طلاب <b>${payload.sectionName || "السكشن الأكاديمي"}</b>،\nنحيطكم علماً بأنه قد <b>تم إيقاف حجز دور البصمة لسكشنكم مؤقتاً لحين إشعار آخر بالفتح</b>.\n\nستصلكم رسالة فورية عبر التيليجرام فور استئناف وفتح الحجز لسكشنكم مرة أخرى.`;
@@ -361,7 +361,7 @@ export class NotificationService {
         return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه إغلاق باب حجز دور البصمة:</b>\n\nأعزائنا طلاب <b>${payload.sectionName || "السكشن الأكاديمي"}</b>،\nنحيطكم علماً بأنه قد <b>تم إغلاق باب حجز دور البصمة لسكشنكم</b> في الوقت الحالي.\n\nستصلكم رسالة فورية عبر التيليجرام فور إعادة فتح الحجز لسكشنكم مرة أخرى.`;
 
       case "ACTIVATION_SUCCESS":
-        return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — كلية تكنولوجيا الصناعة والطاقة\n\n<b>تم تفعيل بصمة الوجه بنجاح!</b>\n\nعزيزي الطالب: <b>${payload.studentName}</b>\n<b>الرقم الأكاديمي:</b> <code>${payload.academicNumber}</code>\n\nنحيطكم علماً بأنه قد تم تسجيل وتوثيق بصمة الوجه الخاصة بك رسمياً بنجاح تام، وتأكيد حضورك لدى شؤون الطلاب.\n\n<b>المسؤول المعتمد:</b> ${payload.staffName}\n<b>توقيت الاعتماد:</b> ${payload.activatedAt}\n<b>المقر:</b> ${payload.location || "الواحة — مبنى الشؤون (شباك بصمة الوجه)"}\n\nنتمنى لك دوام التوفيق والنجاح!`;
+        return `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — كلية تكنولوجيا الصناعة والطاقة\n\n<b>تم تفعيل بصمة الوجه بنجاح!</b>\n\nعزيزي الطالب: <b>${payload.studentName}</b>\n<b>الرقم الأكاديمي:</b> <code>${payload.academicNumber}</code>\n\nنحيطكم علماً بأنه قد تم تسجيل وتوثيق بصمة الوجه الخاصة بك رسمياً بنجاح تام، وتأكيد حضورك لدى شؤون الطلاب.\n\n<b>المسؤول المعتمد:</b> ${payload.staffName}\n<b>توقيت الاعتماد:</b> ${payload.activatedAt}\n<b>المقر:</b> ${payload.location || "مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)"}\n\nنتمنى لك دوام التوفيق والنجاح!`;
 
       case "CAMPAIGN_MESSAGE":
         return `<b>إعلان رسمي</b>\n\n${payload.message}`;

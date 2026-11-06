@@ -253,7 +253,7 @@ function BookingStatusContent() {
                     <span>حان دورك الآن!</span>
                   </div>
                   <p className="text-xs font-normal text-slate-300">
-                    يرجى التوجه فوراً إلى <b className="text-white">شباك {statusData.desk || "T"}</b> بمبنى الشؤون (الواحة) لإتمام تسجيل بصمتك.
+                    يرجى التوجه فوراً إلى <b className="text-white">شباك {statusData.desk || "T"}</b> بمبنى المعامل ب الواحة الدور الاول علوى يمين لإتمام تسجيل بصمتك.
                   </p>
                 </div>
               )}
@@ -316,7 +316,7 @@ function BookingStatusContent() {
 
                 <div className="text-xs text-slate-300 pt-2 flex items-center justify-center gap-1.5">
                   <MapPin className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>الواحة — مبنى الشؤون (شباك بصمة الوجه)</span>
+                  <span>مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)</span>
                 </div>
 
                 <p className="text-[11px] text-slate-400 pt-1">

@@ -393,7 +393,7 @@ export default function DeskConsole({ desk }: DeskConsoleProps) {
             </h1>
 
             <p className="text-xs sm:text-sm text-slate-300">
-              تسلسل الأدوار والتذاكر يبدأ من <b className="text-amber-400 font-mono">#001</b> بشكل مستقل لهذا الشباك • مقر الشباك: الواحة — مبنى الشؤون
+              تسلسل الأدوار والتذاكر يبدأ من <b className="text-amber-400 font-mono">#001</b> بشكل مستقل لهذا الشباك • مقر الشباك: مبنى المعامل ب الواحة الدور الاول علوى يمين
               {lastRefreshedAt && <span className="text-slate-400 mr-2">(آخر تحديث: {lastRefreshedAt})</span>}
             </p>
           </div>
