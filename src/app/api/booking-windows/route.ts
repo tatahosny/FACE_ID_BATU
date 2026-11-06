@@ -16,7 +16,15 @@ export async function GET(req: NextRequest) {
 
     // Auto-ensure: guarantee that every active section across all academic years has a canonical booking window
     try {
-      const allSecs = await db.select({ id: sections.id, groupId: sections.groupId }).from(sections);
+      const allSecs = await db
+        .select({
+          id: sections.id,
+          groupId: sections.groupId,
+          academicYear: groups.academicYear,
+          specialization: groups.specialization,
+        })
+        .from(sections)
+        .innerJoin(groups, eq(sections.groupId, groups.id));
       const existingWins = await db.select({ sectionId: bookingWindows.sectionId }).from(bookingWindows);
       const existingSet = new Set(existingWins.map((w) => w.sectionId));
       const missingSecs = allSecs.filter((s) => !existingSet.has(s.id));
@@ -25,6 +33,8 @@ export async function GET(req: NextRequest) {
           missingSecs.map((s) => ({
             groupId: s.groupId,
             sectionId: s.id,
+            academicYear: s.academicYear,
+            specialization: s.specialization,
             subSection: "ALL" as const,
             startsAt: new Date(),
             endsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
