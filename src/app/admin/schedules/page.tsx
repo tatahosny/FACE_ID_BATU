@@ -447,20 +447,29 @@ export default function AdminSchedulesPage() {
                 className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold border border-slate-700 shadow-md transition flex items-center gap-2"
               >
                 <Printer className="w-4 h-4 text-slate-300" />
-                <span>تصدير وطباعة جدول PDF</span>
+                <span>طباعة جدول البصمة اليدوي PDF</span>
               </button>
             </>
           )}
 
           {activeTab === "FREE_SLOTS" && (
-            <button
-              onClick={fetchFreeSlots}
-              disabled={loadingFreeSlots}
-              className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-lg shadow-purple-600/30 transition flex items-center gap-2 disabled:opacity-50"
-            >
-              <RotateCcw className={`w-4 h-4 ${loadingFreeSlots ? "animate-spin" : ""}`} />
-              <span>تحديث بيانات الفترات</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={handlePrintPDF}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-xs font-bold shadow-lg shadow-purple-600/30 transition flex items-center gap-2"
+              >
+                <Printer className="w-4 h-4 text-white" />
+                <span>طباعة جدول فترات الفراغ PDF</span>
+              </button>
+              <button
+                onClick={fetchFreeSlots}
+                disabled={loadingFreeSlots}
+                className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-bold transition flex items-center gap-2 disabled:opacity-50"
+              >
+                <RotateCcw className={`w-4 h-4 ${loadingFreeSlots ? "animate-spin" : ""}`} />
+                <span>تحديث الفترات</span>
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -671,9 +680,20 @@ export default function AdminSchedulesPage() {
               </div>
             </div>
 
-            <div className="text-xs text-slate-400 font-mono">
-              المواعيد المعروضة:{" "}
-              <span className="text-white font-bold">{filteredSchedules.length}</span> من أصل {schedules.length}
+            <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
+              <div className="text-xs text-slate-400 font-mono">
+                المواعيد المعروضة:{" "}
+                <span className="text-white font-bold">{filteredSchedules.length}</span> من أصل {schedules.length}
+              </div>
+              <button
+                type="button"
+                onClick={handlePrintPDF}
+                className="py-1.5 px-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold shadow-md shadow-blue-600/30 transition flex items-center gap-1.5"
+                title="طباعة الجدول اليدوي المعتمد بصيغة PDF"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>طباعة PDF</span>
+              </button>
             </div>
           </div>
 
@@ -814,7 +834,7 @@ export default function AdminSchedulesPage() {
       {activeTab === "FREE_SLOTS" && (
         <div className="space-y-6">
           {/* Day Lock/Unlock Status Controls */}
-          <div className="bg-slate-900/90 rounded-3xl border border-slate-800 p-6 shadow-2xl backdrop-blur-xl">
+          <div className="print:hidden bg-slate-900/90 rounded-3xl border border-slate-800 p-6 shadow-2xl backdrop-blur-xl">
             <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-6">
               <div>
                 <h3 className="text-lg font-black text-white flex items-center gap-2">
@@ -869,8 +889,36 @@ export default function AdminSchedulesPage() {
           </div>
 
           {/* Booked Slots Management Table */}
-          <div className="bg-slate-900/90 rounded-3xl border border-slate-800 p-6 shadow-2xl backdrop-blur-xl space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+          <div className="bg-slate-900/90 rounded-3xl border border-slate-800 p-6 sm:p-10 shadow-2xl backdrop-blur-xl space-y-6 text-white print:bg-white print:text-black print:border-none print:shadow-none print:p-0">
+            {/* Printable Official University Header for Free Slots */}
+            <div className="hidden print:flex flex-col items-center justify-center border-b-2 border-black pb-4 mb-6 text-center">
+              <div className="w-24 h-24 mx-auto mb-2 flex items-center justify-center">
+                <img
+                  src="/images/batu-logo.png"
+                  alt="شعار جامعة برج العرب التكنولوجية"
+                  className="max-h-full max-w-full object-contain"
+                />
+              </div>
+              <h1 className="text-xl font-black text-black tracking-tight">
+                جامعة برج العرب التكنولوجية (BATU)
+              </h1>
+              <h2 className="text-sm font-bold text-slate-800 mt-0.5">
+                كلية تكنولوجيا الصناعة والطاقة • قسم تكنولوجيا المعلومات
+              </h2>
+              <h3 className="text-base font-extrabold text-purple-900 mt-2 bg-slate-100 px-4 py-1 rounded-lg border border-slate-300 inline-block">
+                الجدول الرسمي المعتمد لفترات فراغ سكاشن الفرقة الثالثة (المعتمد بواسطة المناديب)
+                {freeSpecFilter !== "ALL" ? ` • شعبة ${freeSpecFilter}` : ""}
+              </h3>
+              <div className="flex items-center justify-center gap-4 text-xs font-bold text-slate-700 mt-2">
+                <span>العام الجامعي: 2026 / 2027</span>
+                <span>•</span>
+                <span>تاريخ الطباعة: {new Date().toLocaleDateString("ar-EG")}</span>
+                <span>•</span>
+                <span className="text-emerald-800 font-bold">معتمد رسمياً للنشر والطباعة</span>
+              </div>
+            </div>
+
+            <div className="print:hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
               <div>
                 <h3 className="text-lg font-black text-white flex items-center gap-2">
                   <Users className="w-5 h-5 text-purple-400" />
@@ -881,8 +929,18 @@ export default function AdminSchedulesPage() {
                 </p>
               </div>
 
-              {/* Specialization Filter & Search */}
+              {/* Specialization Filter, Search & PDF Print Button */}
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handlePrintPDF}
+                  className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-xs font-black shadow-md shadow-purple-600/30 transition flex items-center gap-1.5"
+                  title="طباعة وتصدير جدول فترات الفراغ بصيغة PDF"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>طباعة جدول الفراغ PDF</span>
+                </button>
+
                 <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
                   {["ALL", "سوفت وير", "نيتورك"].map((sp) => (
                     <button
@@ -930,38 +988,38 @@ export default function AdminSchedulesPage() {
                 لا توجد فترات فراغ محجوزة تطابق الفلتر المحدد حتى الآن.
               </div>
             ) : (
-              <div className="overflow-x-auto custom-scrollbar">
-                <table className="w-full text-right border-collapse border border-slate-800 text-xs sm:text-sm min-w-[850px]">
+              <div className="overflow-x-auto custom-scrollbar print:overflow-visible">
+                <table className="w-full text-right border-collapse border border-slate-800 print:border-2 print:border-black text-xs sm:text-sm min-w-[850px] print:min-w-0">
                   <thead>
-                    <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-300 text-xs font-black">
-                      <th className="p-3 border border-slate-800 text-center w-12">م</th>
-                      <th className="p-3 border border-slate-800">اليوم</th>
-                      <th className="p-3 border border-slate-800">الفترة والتوقيت</th>
-                      <th className="p-3 border border-slate-800">الشعبة</th>
-                      <th className="p-3 border border-slate-800">المجموعة والسكشن</th>
-                      <th className="p-3 border border-slate-800">اسم المندوب المسؤول</th>
-                      <th className="p-3 border border-slate-800">الملاحظات</th>
-                      <th className="p-3 border border-slate-800 text-center">إجراءات الإدارة</th>
+                    <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-300 text-xs font-black print:bg-slate-100 print:text-black print:border-b-2 print:border-black">
+                      <th className="p-3 border border-slate-800 print:border print:border-black text-center w-12 print:text-black">م</th>
+                      <th className="p-3 border border-slate-800 print:border print:border-black print:text-black">اليوم</th>
+                      <th className="p-3 border border-slate-800 print:border print:border-black print:text-black">الفترة والتوقيت</th>
+                      <th className="p-3 border border-slate-800 print:border print:border-black print:text-black">الشعبة</th>
+                      <th className="p-3 border border-slate-800 print:border print:border-black print:text-black">المجموعة والسكشن</th>
+                      <th className="p-3 border border-slate-800 print:border print:border-black print:text-black">اسم المندوب المسؤول</th>
+                      <th className="p-3 border border-slate-800 print:border print:border-black print:text-black">الملاحظات</th>
+                      <th className="p-3 border border-slate-800 text-center print:hidden">إجراءات الإدارة</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800 text-xs sm:text-sm">
                     {filteredFreeSlots.map((slot, idx) => (
-                      <tr key={slot.id} className="hover:bg-purple-950/20 even:bg-slate-950/40 odd:bg-slate-900/40 transition">
-                        <td className="p-3 border border-slate-800 text-center font-bold font-mono text-slate-400">
+                      <tr key={slot.id} className="hover:bg-purple-950/20 even:bg-slate-950/40 odd:bg-slate-900/40 transition print:bg-white print:border print:border-black print:text-black">
+                        <td className="p-3 border border-slate-800 print:border print:border-black text-center font-bold font-mono text-slate-400 print:text-black">
                           {idx + 1}
                         </td>
-                        <td className="p-3 border border-slate-800 font-bold text-amber-400">
+                        <td className="p-3 border border-slate-800 print:border print:border-black font-bold text-amber-400 print:text-black">
                           {slot.dayName}
                         </td>
-                        <td className="p-3 border border-slate-800 font-bold text-white">
-                          <div className="text-cyan-300 font-bold">{slot.periodName}</div>
-                          <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+                        <td className="p-3 border border-slate-800 print:border print:border-black font-bold text-white print:text-black">
+                          <div className="text-cyan-300 font-bold print:text-black">{slot.periodName}</div>
+                          <div className="text-[11px] font-mono text-slate-400 print:text-slate-800 mt-0.5">
                             {format12HourTime(slot.startTime)} - {format12HourTime(slot.endTime)}
                           </div>
                         </td>
-                        <td className="p-3 border border-slate-800 font-bold">
+                        <td className="p-3 border border-slate-800 print:border print:border-black font-bold print:text-black">
                           <span
-                            className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
+                            className={`px-2 py-0.5 rounded-full text-[11px] font-black print:border print:border-slate-800 print:bg-slate-100 print:text-black ${
                               slot.specialization === "سوفت وير"
                                 ? "bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
                                 : "bg-purple-500/15 text-purple-300 border border-purple-500/30"
@@ -970,22 +1028,22 @@ export default function AdminSchedulesPage() {
                             {slot.specialization}
                           </span>
                         </td>
-                        <td className="p-3 border border-slate-800">
-                          <div className="font-extrabold text-white text-sm">{slot.sectionName}</div>
-                          <div className="text-xs text-slate-400">{slot.groupName}</div>
+                        <td className="p-3 border border-slate-800 print:border print:border-black print:text-black">
+                          <div className="font-extrabold text-white print:text-black text-sm">{slot.sectionName}</div>
+                          <div className="text-xs text-slate-400 print:text-slate-800">{slot.groupName}</div>
                         </td>
-                        <td className="p-3 border border-slate-800">
-                          <div className="font-bold text-white flex items-center gap-1.5 flex-wrap">
+                        <td className="p-3 border border-slate-800 print:border print:border-black print:text-black">
+                          <div className="font-bold text-white print:text-black flex items-center gap-1.5 flex-wrap">
                             <span>{slot.delegateName || "مندوب السكشن"}</span>
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 font-black">
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 font-black print:border print:border-slate-800 print:bg-slate-100 print:text-black">
                               ⭐ مندوب
                             </span>
                           </div>
                         </td>
-                        <td className="p-3 border border-slate-800 text-slate-400 text-xs">
+                        <td className="p-3 border border-slate-800 print:border print:border-black text-slate-400 print:text-black text-xs">
                           {slot.notes || "فترة فراغ سكشن رسمية"}
                         </td>
-                        <td className="p-3 border border-slate-800 text-center">
+                        <td className="p-3 border border-slate-800 text-center print:hidden">
                           <div className="flex items-center justify-center gap-1.5 flex-wrap">
                             <button
                               type="button"

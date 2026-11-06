@@ -168,7 +168,11 @@ export default function PublicSchedulesPage() {
               className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-blue-600/30 transition flex items-center gap-2"
             >
               <Printer className="w-4 h-4" />
-              <span>تصدير وطباعة جدول PDF</span>
+              <span>
+                {activeTab === "FREE_SLOTS"
+                  ? "تصدير وطباعة جدول فترات الفراغ PDF"
+                  : "تصدير وطباعة جدول البصمة اليدوي PDF"}
+              </span>
             </button>
           </div>
         </div>
@@ -428,15 +432,32 @@ export default function PublicSchedulesPage() {
                 : "الفترات الزمنية المعتمدة رسمياً لكل سكشن بالفرقة الثالثة وفق اختيار المناديب"}
             </p>
 
-            {activeTab === "FREE_SLOTS" && (
-              <div className="pt-2">
+            {activeTab === "FREE_SLOTS" ? (
+              <div className="pt-2 flex items-center justify-center gap-3 flex-wrap">
+                <button
+                  onClick={handlePrint}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white font-extrabold text-xs shadow-lg shadow-cyan-600/30 transition transform hover:-translate-y-0.5"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>طباعة جدول فترات الفراغ PDF</span>
+                </button>
                 <Link
                   href="/free-slots"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-extrabold text-xs shadow-lg shadow-cyan-600/30 transition"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-extrabold text-xs border border-slate-700 transition"
                 >
                   <Users className="w-4 h-4" />
                   <span>بوابة مناديب السكاشن (حجز أو تعديل فترات الفراغ) ←</span>
                 </Link>
+              </div>
+            ) : (
+              <div className="pt-2 flex items-center justify-center gap-3 flex-wrap">
+                <button
+                  onClick={handlePrint}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-xs shadow-lg shadow-blue-600/30 transition transform hover:-translate-y-0.5"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>طباعة جدول مواعيد البصمة اليدوي PDF</span>
+                </button>
               </div>
             )}
           </div>
