@@ -19,12 +19,16 @@ export async function GET(req: NextRequest) {
 
     if (isPreview) {
       const targetType = (searchParams.get("targetType") || "ALL") as any;
+      const academicYear = searchParams.get("academicYear") || undefined;
+      const specialization = searchParams.get("specialization") || undefined;
       const groupId = searchParams.get("groupId") || undefined;
       const sectionId = searchParams.get("sectionId") || undefined;
       const subSection = (searchParams.get("subSection") || undefined) as any;
 
       const preview = await CampaignService.previewAudience({
         targetType,
+        academicYear,
+        specialization,
         groupId,
         sectionId,
         subSection,
@@ -39,6 +43,7 @@ export async function GET(req: NextRequest) {
         title: telegramCampaigns.title,
         message: telegramCampaigns.message,
         targetType: telegramCampaigns.targetType,
+        targetFilters: telegramCampaigns.targetFilters,
         status: telegramCampaigns.status,
         totalRecipients: telegramCampaigns.totalRecipients,
         sentCount: telegramCampaigns.sentCount,

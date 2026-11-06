@@ -14,6 +14,8 @@ export default function AdminTelegramBroadcastPage() {
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [targetType, setTargetType] = useState<"ALL" | "GROUP" | "SECTION">("ALL");
+  const [selectedAcademicYear, setSelectedAcademicYear] = useState<string>("ALL");
+  const [selectedSpecialization, setSelectedSpecialization] = useState<string>("ALL");
   const [selectedGroupId, setSelectedGroupId] = useState("");
   const [selectedSectionId, setSelectedSectionId] = useState("");
   const [selectedSubSection, setSelectedSubSection] = useState<"ALL" | "A" | "B">("ALL");
@@ -81,6 +83,29 @@ export default function AdminTelegramBroadcastPage() {
     init();
   }, []);
 
+  // Update groups when academicYear or specialization changes
+  useEffect(() => {
+    async function updateGroups() {
+      try {
+        let url = "/api/groups";
+        const params = new URLSearchParams();
+        if (selectedAcademicYear !== "ALL") params.append("academicYear", selectedAcademicYear);
+        if (selectedSpecialization !== "ALL") params.append("specialization", selectedSpecialization);
+        const q = params.toString();
+        if (q) url += `?${q}`;
+
+        const res = await fetch(url);
+        const json = await res.json();
+        if (json.success && json.data.groups) {
+          setGroups(json.data.groups);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    updateGroups();
+  }, [selectedAcademicYear, selectedSpecialization]);
+
   // Update sections when group changes
   useEffect(() => {
     if (!selectedGroupId) {
@@ -99,6 +124,8 @@ export default function AdminTelegramBroadcastPage() {
       try {
         setPreviewLoading(true);
         let url = `/api/telegram/campaigns?preview=true&targetType=${targetType}`;
+        if (selectedAcademicYear !== "ALL") url += `&academicYear=${encodeURIComponent(selectedAcademicYear)}`;
+        if (selectedSpecialization !== "ALL") url += `&specialization=${encodeURIComponent(selectedSpecialization)}`;
         if (targetType === "GROUP" && selectedGroupId) url += `&groupId=${selectedGroupId}`;
         if (targetType === "SECTION" && selectedSectionId) url += `&sectionId=${selectedSectionId}`;
         if (selectedSubSection && selectedSubSection !== "ALL") url += `&subSection=${selectedSubSection}`;
@@ -115,7 +142,7 @@ export default function AdminTelegramBroadcastPage() {
       }
     }
     loadPreview();
-  }, [targetType, selectedGroupId, selectedSectionId, selectedSubSection]);
+  }, [targetType, selectedAcademicYear, selectedSpecialization, selectedGroupId, selectedSectionId, selectedSubSection]);
 
   const handleApplyTemplate = (templateContent: string) => {
     setMessage(templateContent);
@@ -140,6 +167,8 @@ export default function AdminTelegramBroadcastPage() {
           message,
           targetType,
           targetFilters: {
+            academicYear: selectedAcademicYear !== "ALL" ? selectedAcademicYear : undefined,
+            specialization: selectedSpecialization !== "ALL" ? selectedSpecialization : undefined,
             groupId: selectedGroupId || undefined,
             sectionId: selectedSectionId || undefined,
             subSection: selectedSubSection !== "ALL" ? selectedSubSection : undefined,
@@ -459,10 +488,77 @@ export default function AdminTelegramBroadcastPage() {
           </h2>
 
           <form onSubmit={handleCreateCampaign} className="space-y-4 text-right">
-            {/* Target Audience Filter */}
+            {/* Academic Year (الدفعة) & Specialization (الشعبة) Selectors */}
+            <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-cyan-400 flex items-center gap-1.5">
+                  <span>🎯</span>
+                  <span>تحديد الدفعة والشعبة المستهدفة</span>
+                </span>
+                {selectedAcademicYear !== "ALL" && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/30">
+                    {selectedAcademicYear} {selectedSpecialization !== "ALL" ? `• ${selectedSpecialization}` : ""}
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Academic Year Selection */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">
+                    الفرقة الدراسية (الدفعة) <span className="text-cyan-400">*</span>
+                  </label>
+                  <select
+                    value={selectedAcademicYear}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedAcademicYear(val);
+                      if (val !== "الفرقة الثالثة" && val !== "الفرقة الرابعة") {
+                        setSelectedSpecialization("ALL");
+                      }
+                      setSelectedGroupId("");
+                      setSelectedSectionId("");
+                    }}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-700 text-xs bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 font-bold"
+                  >
+                    <option value="ALL">🎓 جميع الفرق والدفعات (كافة طلاب الكلية)</option>
+                    <option value="الفرقة الأولى">الفرقة الأولى</option>
+                    <option value="الفرقة الثانية">الفرقة الثانية</option>
+                    <option value="الفرقة الثالثة">الفرقة الثالثة</option>
+                    <option value="الفرقة الرابعة">الفرقة الرابعة</option>
+                  </select>
+                </div>
+
+                {/* Specialization Selection (Active for Year 3 & Year 4) */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">
+                    الشعبة التخصصية
+                    {selectedAcademicYear !== "الفرقة الثالثة" && selectedAcademicYear !== "الفرقة الرابعة" && (
+                      <span className="text-[10px] text-slate-500 mr-1.5 font-normal">(للفرقة الثالثة والرابعة فقط)</span>
+                    )}
+                  </label>
+                  <select
+                    disabled={selectedAcademicYear !== "الفرقة الثالثة" && selectedAcademicYear !== "الفرقة الرابعة"}
+                    value={selectedSpecialization}
+                    onChange={(e) => {
+                      setSelectedSpecialization(e.target.value);
+                      setSelectedGroupId("");
+                      setSelectedSectionId("");
+                    }}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-700 text-xs bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 font-bold disabled:bg-slate-950 disabled:text-slate-600 disabled:border-slate-800"
+                  >
+                    <option value="ALL">🌐 جميع الشعب (سوفت وير + نيتورك)</option>
+                    <option value="سوفت وير">💻 شعبة سوفت وير (Software)</option>
+                    <option value="نيتورك">🌐 شعبة نيتورك (Network)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Target Audience Scope Filter */}
             <div>
               <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                تحديد الجمهور المستهدف
+                نطاق استهداف الجمهور
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <button
@@ -474,7 +570,9 @@ export default function AdminTelegramBroadcastPage() {
                       : "bg-slate-950 text-slate-300 border-slate-700 hover:bg-slate-800"
                   }`}
                 >
-                  جميع طلاب الكلية
+                  {selectedAcademicYear === "ALL"
+                    ? "جميع طلاب الكلية"
+                    : `كافة طلاب ${selectedAcademicYear}${selectedSpecialization !== "ALL" ? ` (${selectedSpecialization})` : ""}`}
                 </button>
                 <button
                   type="button"
@@ -678,7 +776,26 @@ export default function AdminTelegramBroadcastPage() {
                     <td className="py-3 px-4 font-bold text-white max-w-[200px] truncate">
                       {c.title}
                     </td>
-                    <td className="py-3 px-4 text-cyan-400 font-mono">{c.targetType}</td>
+                    <td className="py-3 px-4 text-cyan-400 font-medium">
+                      <div>
+                        <span>
+                          {c.targetFilters?.academicYear && c.targetFilters.academicYear !== "ALL"
+                            ? c.targetFilters.academicYear
+                            : c.targetType === "ALL"
+                            ? "جميع الفرق"
+                            : c.targetType === "GROUP"
+                            ? "مجموعة"
+                            : c.targetType === "SECTION"
+                            ? "سكشن"
+                            : c.targetType}
+                        </span>
+                        {c.targetFilters?.specialization && c.targetFilters.specialization !== "ALL" && (
+                          <span className="text-[10px] text-indigo-300 block font-bold">
+                            ({c.targetFilters.specialization})
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="py-3 px-4 font-mono font-bold text-slate-200">{c.totalRecipients}</td>
                     <td className="py-3 px-4 font-mono">
                       <span className="text-emerald-400 font-bold">{c.sentCount}</span> /{" "}

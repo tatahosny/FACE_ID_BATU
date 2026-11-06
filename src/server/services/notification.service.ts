@@ -44,15 +44,51 @@ export class NotificationService {
   }
 
   /**
+   * Helper to resolve the queue priority for any given outbox event type:
+   * Priority 1 (Highest): Manual Admin/Staff Actions (نداء، نداء مكرر، إلغاء دور، تأخير 10 أدوار، تفعيل البصمة)
+   * Priority 2 (Medium): Queue Proximity Alerts (أول 1، أول 5، أول 10، أول 15 دورهم فاضلو قد إيه بانتظام بدون تأخير)
+   * Priority 3 (Standard): Remaining queue events and background messages (تأكيد الحجز، إعلانات، إلخ)
+   */
+  static getEventPriority(eventType: string): number {
+    switch (eventType) {
+      case "TURN_CALLED":
+      case "REPEAT_ALERT":
+      case "BOOKING_CANCELLED":
+      case "QUEUE_PUSH_BACK":
+      case "ACTIVATION_SUCCESS":
+        return 1;
+      case "PROXIMITY_NEXT":
+      case "PROXIMITY_5":
+      case "PROXIMITY_10":
+      case "PROXIMITY_15":
+        return 2;
+      default:
+        return 3;
+    }
+  }
+
+  /**
    * Continuous loop that drains pending outbox notifications in safe batches
-   * with automatic throttling (60ms) and retry logic.
+   * prioritized strictly according to operational criticality.
    */
   private static async runAutonomousWorker(): Promise<void> {
     const BATCH_SIZE = 30;
-    const THROTTLE_DELAY_MS = 60; // ~16 messages/sec (well within Telegram 30/sec limit)
+    const THROTTLE_DELAY_MS = 60; // Standard safe delay (~16 msgs/sec)
 
     while (true) {
       const now = new Date();
+
+      // Dynamic SQL Priority Ordering:
+      // Priority 1: TURN_CALLED, REPEAT_ALERT, BOOKING_CANCELLED, QUEUE_PUSH_BACK, ACTIVATION_SUCCESS
+      // Priority 2: PROXIMITY_NEXT, PROXIMITY_5, PROXIMITY_10, PROXIMITY_15
+      // Priority 3: All other remaining notifications
+      const priorityOrderSql = sql<number>`
+        CASE 
+          WHEN ${notificationOutbox.eventType} IN ('TURN_CALLED', 'REPEAT_ALERT', 'BOOKING_CANCELLED', 'QUEUE_PUSH_BACK', 'ACTIVATION_SUCCESS') THEN 1
+          WHEN ${notificationOutbox.eventType} IN ('PROXIMITY_NEXT', 'PROXIMITY_5', 'PROXIMITY_10', 'PROXIMITY_15') THEN 2
+          ELSE 3
+        END
+      `;
 
       const pendingItems = await db
         .select()
@@ -63,7 +99,7 @@ export class NotificationService {
             sql`${notificationOutbox.nextAttemptAt} <= ${now}`
           )
         )
-        .orderBy(asc(notificationOutbox.createdAt))
+        .orderBy(asc(priorityOrderSql), asc(notificationOutbox.createdAt))
         .limit(BATCH_SIZE);
 
       if (pendingItems.length === 0) {
@@ -92,6 +128,9 @@ export class NotificationService {
           .where(eq(notificationOutbox.id, item.id));
 
         const messageText = this.formatNotificationMessage(item.eventType, item.payload);
+        const itemPriority = this.getEventPriority(item.eventType);
+        // Priority 1: ultra-fast 25ms, Priority 2: steady 40ms, Priority 3: standard 60ms
+        const itemDelayMs = itemPriority === 1 ? 25 : itemPriority === 2 ? 40 : THROTTLE_DELAY_MS;
 
         try {
           await TelegramService.sendMessage(item.telegramChatId, messageText);
@@ -107,7 +146,7 @@ export class NotificationService {
             .where(eq(notificationOutbox.id, item.id));
 
           // Safe delay between outgoing messages to protect Telegram rate limits
-          await new Promise((r) => setTimeout(r, THROTTLE_DELAY_MS));
+          await new Promise((r) => setTimeout(r, itemDelayMs));
         } catch (err: any) {
           const errMsg = err?.message || "";
           const isPermanentFailure =
@@ -142,7 +181,7 @@ export class NotificationService {
             })
             .where(eq(notificationOutbox.id, item.id));
 
-          await new Promise((r) => setTimeout(r, THROTTLE_DELAY_MS));
+          await new Promise((r) => setTimeout(r, itemDelayMs));
         }
       }
     }

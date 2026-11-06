@@ -3,9 +3,11 @@ import { z } from "zod";
 export const createCampaignSchema = z.object({
   title: z.string().trim().min(3, "عنوان الحملة يجب أن لا يقل عن 3 أحرف").max(150),
   message: z.string().trim().min(5, "نص الرسالة يجب أن لا يقل عن 5 أحرف").max(4000),
-  targetType: z.enum(["ALL", "GROUP", "SECTION"]),
+  targetType: z.enum(["ALL", "GROUP", "SECTION", "ACADEMIC_YEAR", "SPECIALIZATION"]),
   targetFilters: z
     .object({
+      academicYear: z.string().optional(),
+      specialization: z.string().optional(),
       groupId: z.string().uuid().optional(),
       sectionId: z.string().uuid().optional(),
       subSection: z.enum(["ALL", "A", "B"]).optional(),

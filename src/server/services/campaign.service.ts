@@ -14,12 +14,22 @@ export class CampaignService {
    * Calculate audience metrics before confirming campaign
    */
   static async previewAudience(params: {
-    targetType: "ALL" | "GROUP" | "SECTION";
+    targetType: "ALL" | "GROUP" | "SECTION" | "ACADEMIC_YEAR" | "SPECIALIZATION";
+    academicYear?: string;
+    specialization?: string;
     groupId?: string;
     sectionId?: string;
     subSection?: "ALL" | "A" | "B";
   }) {
     const conditions = [];
+
+    if (params.academicYear && params.academicYear !== "ALL") {
+      conditions.push(eq(students.academicYear, params.academicYear));
+    }
+
+    if (params.specialization && params.specialization !== "ALL") {
+      conditions.push(eq(students.specialization, params.specialization));
+    }
 
     if (params.targetType === "GROUP" && params.groupId) {
       conditions.push(eq(students.groupId, params.groupId));
@@ -56,13 +66,27 @@ export class CampaignService {
   static async createCampaign(params: {
     title: string;
     message: string;
-    targetType: "ALL" | "GROUP" | "SECTION";
-    targetFilters?: { groupId?: string; sectionId?: string; subSection?: "ALL" | "A" | "B" };
+    targetType: "ALL" | "GROUP" | "SECTION" | "ACADEMIC_YEAR" | "SPECIALIZATION";
+    targetFilters?: {
+      academicYear?: string;
+      specialization?: string;
+      groupId?: string;
+      sectionId?: string;
+      subSection?: "ALL" | "A" | "B";
+    };
     createdBy: string;
   }) {
     return await db.transaction(async (tx) => {
       // 1. Resolve eligible students who have linked Telegram accounts
       const conditions = [isNotNull(students.telegramUserId)];
+
+      if (params.targetFilters?.academicYear && params.targetFilters.academicYear !== "ALL") {
+        conditions.push(eq(students.academicYear, params.targetFilters.academicYear));
+      }
+
+      if (params.targetFilters?.specialization && params.targetFilters.specialization !== "ALL") {
+        conditions.push(eq(students.specialization, params.targetFilters.specialization));
+      }
 
       if (params.targetType === "GROUP" && params.targetFilters?.groupId) {
         conditions.push(eq(students.groupId, params.targetFilters.groupId));
