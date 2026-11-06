@@ -59,6 +59,9 @@ export default function AdminStudentsPage() {
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
 
   // Filters
+  const [selectedAcademicYear, setSelectedAcademicYear] = useState("");
+  const [selectedSpecialization, setSelectedSpecialization] = useState("");
+  const [selectedDelegateFilter, setSelectedDelegateFilter] = useState("");
   const [selectedGroup, setSelectedGroup] = useState("");
   const [selectedSection, setSelectedSection] = useState("");
   const [selectedSubSection, setSelectedSubSection] = useState("");
@@ -89,6 +92,9 @@ export default function AdminStudentsPage() {
     fullName: "",
     nationalId: "",
     academicNumber: "",
+    academicYear: "الفرقة الثانية",
+    specialization: "",
+    isDelegate: false,
     groupId: "",
     sectionId: "",
     subSection: "A",
@@ -212,6 +218,9 @@ export default function AdminStudentsPage() {
       const params = new URLSearchParams();
       params.set("page", page.toString());
       params.set("limit", "25");
+      if (selectedAcademicYear) params.set("academicYear", selectedAcademicYear);
+      if (selectedSpecialization) params.set("specialization", selectedSpecialization);
+      if (selectedDelegateFilter) params.set("isDelegate", selectedDelegateFilter);
       if (selectedGroup) params.set("groupId", selectedGroup);
       if (selectedSection) params.set("sectionId", selectedSection);
       if (selectedSubSection) params.set("subSection", selectedSubSection);
@@ -256,6 +265,9 @@ export default function AdminStudentsPage() {
   };
 
   const handleResetAllFilters = () => {
+    setSelectedAcademicYear("");
+    setSelectedSpecialization("");
+    setSelectedDelegateFilter("");
     setSelectedGroup("");
     setSelectedSection("");
     setSelectedSubSection("");
@@ -271,6 +283,9 @@ export default function AdminStudentsPage() {
     try {
       setExportLoading(true);
       const params = new URLSearchParams();
+      if (selectedAcademicYear) params.set("academicYear", selectedAcademicYear);
+      if (selectedSpecialization) params.set("specialization", selectedSpecialization);
+      if (selectedDelegateFilter) params.set("isDelegate", selectedDelegateFilter);
       if (selectedGroup) params.set("groupId", selectedGroup);
       if (selectedSection) params.set("sectionId", selectedSection);
       if (selectedSubSection) params.set("subSection", selectedSubSection);
@@ -305,6 +320,9 @@ export default function AdminStudentsPage() {
       setExportActivatedLoading(true);
       const params = new URLSearchParams();
       params.set("mode", "activated_only");
+      if (selectedAcademicYear) params.set("academicYear", selectedAcademicYear);
+      if (selectedSpecialization) params.set("specialization", selectedSpecialization);
+      if (selectedDelegateFilter) params.set("isDelegate", selectedDelegateFilter);
       if (selectedGroup) params.set("groupId", selectedGroup);
       if (selectedSection) params.set("sectionId", selectedSection);
       if (selectedSubSection) params.set("subSection", selectedSubSection);
@@ -395,7 +413,18 @@ export default function AdminStudentsPage() {
 
   useEffect(() => {
     fetchStudents();
-  }, [page, selectedGroup, selectedSection, selectedSubSection, activationFilter, selectedStaff, selectedDate]);
+  }, [
+    page,
+    selectedAcademicYear,
+    selectedSpecialization,
+    selectedDelegateFilter,
+    selectedGroup,
+    selectedSection,
+    selectedSubSection,
+    activationFilter,
+    selectedStaff,
+    selectedDate,
+  ]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -582,6 +611,9 @@ export default function AdminStudentsPage() {
       fullName: "",
       nationalId: "",
       academicNumber: "",
+      academicYear: "الفرقة الثانية",
+      specialization: "",
+      isDelegate: false,
       groupId: defaultGroup,
       sectionId: "",
       subSection: "A",
@@ -597,6 +629,9 @@ export default function AdminStudentsPage() {
       fullName: student.fullName || "",
       nationalId: student.nationalId || "",
       academicNumber: student.academicNumber || "",
+      academicYear: student.academicYear || "الفرقة الثانية",
+      specialization: student.specialization || "",
+      isDelegate: Boolean(student.isDelegate),
       groupId: student.groupId || groups[0]?.id || "",
       sectionId: student.sectionId || "",
       subSection: student.subSection || "A",
@@ -1065,7 +1100,69 @@ export default function AdminStudentsPage() {
               <span>الأبعاد الأكاديمية والتسكين الدراسي</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {/* Academic Year */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                  <span>الفرقة الأكاديمية:</span>
+                </label>
+                <select
+                  value={selectedAcademicYear}
+                  onChange={(e) => {
+                    setSelectedAcademicYear(e.target.value);
+                    setPage(1);
+                  }}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-700/80 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-cyan-500 bg-slate-900 text-white transition hover:border-slate-600"
+                >
+                  <option value="">جميع الفرق</option>
+                  <option value="الفرقة الأولى">الفرقة الأولى</option>
+                  <option value="الفرقة الثانية">الفرقة الثانية</option>
+                  <option value="الفرقة الثالثة">الفرقة الثالثة</option>
+                  <option value="الفرقة الرابعة">الفرقة الرابعة</option>
+                </select>
+              </div>
+
+              {/* Specialization */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                  <span>الشعبة التخصصية:</span>
+                </label>
+                <select
+                  value={selectedSpecialization}
+                  onChange={(e) => {
+                    setSelectedSpecialization(e.target.value);
+                    setPage(1);
+                  }}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-700/80 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-cyan-500 bg-slate-900 text-white transition hover:border-slate-600"
+                >
+                  <option value="">جميع الشُعب</option>
+                  <option value="سوفت وير">💻 سوفت وير</option>
+                  <option value="نيتورك">🌐 نيتورك</option>
+                </select>
+              </div>
+
+              {/* Role / Delegate Filter */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  <span>صفة القيد:</span>
+                </label>
+                <select
+                  value={selectedDelegateFilter}
+                  onChange={(e) => {
+                    setSelectedDelegateFilter(e.target.value);
+                    setPage(1);
+                  }}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-700/80 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-amber-500 bg-slate-900 text-white transition hover:border-slate-600"
+                >
+                  <option value="">الكل (طلاب ومناديب)</option>
+                  <option value="true">⭐ مناديب السكاشن فقط</option>
+                  <option value="false">طلاب عاديين فقط</option>
+                </select>
+              </div>
+
               {/* Group */}
               <div>
                 <label className="block text-[11px] font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
@@ -1442,6 +1539,7 @@ export default function AdminStudentsPage() {
                     </th>
                   )}
                   <th className="p-4">اسم الطالب</th>
+                  <th className="p-4">الفرقة والشعبة</th>
                   <th className="p-4">الرقم القومي</th>
                   <th className="p-4">الرقم الأكاديمي</th>
                   <th className="p-4">المجموعة والسكشن</th>
@@ -1499,14 +1597,33 @@ export default function AdminStudentsPage() {
                             {initial}
                           </div>
                           <div>
-                            <div className="font-bold text-white text-sm leading-tight">
-                              {student.fullName}
+                            <div className="font-bold text-white text-sm leading-tight flex items-center gap-1.5 flex-wrap">
+                              <span>{student.fullName}</span>
+                              {student.isDelegate && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-500/20 to-yellow-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-black shadow-sm shadow-amber-950/40">
+                                  <span>⭐ مندوب سكشن</span>
+                                </span>
+                              )}
                             </div>
                             <div className="text-[10px] text-slate-500 font-mono mt-0.5">
                               قيد: {formatCairoDateTime(student.createdAt).split(" ")[0]}
                             </div>
                           </div>
                         </div>
+                      </td>
+
+                      {/* Academic Year & Specialization */}
+                      <td className="p-4 text-xs">
+                        <div className="font-extrabold text-slate-100">
+                          {student.academicYear || "الفرقة الثانية"}
+                        </div>
+                        {student.specialization && student.specialization !== "عام" ? (
+                          <div className="inline-block px-2 py-0.5 rounded-md bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 text-[10px] font-bold mt-1">
+                            {student.specialization}
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-slate-500 mt-0.5">عام</div>
+                        )}
                       </td>
 
                       {/* Decrypted 14-digit National ID with copy */}
@@ -1536,8 +1653,11 @@ export default function AdminStudentsPage() {
 
                       {/* Group & Section */}
                       <td className="p-4 text-xs">
-                        <div className="font-bold text-slate-200">{student.groupName}</div>
-                        <div className="text-slate-400 text-[11px] mt-0.5">{student.sectionName}</div>
+                        <div className="font-extrabold text-white text-sm flex items-center gap-1.5">
+                          <Layers className="w-3.5 h-3.5 text-blue-400" />
+                          <span>{student.sectionName}</span>
+                        </div>
+                        <div className="text-slate-400 text-[11px] mt-0.5 font-medium">{student.groupName}</div>
                       </td>
 
                       {/* Sub-Section */}
@@ -1867,6 +1987,36 @@ export default function AdminStudentsPage() {
                       placeholder="مثال: 2520111"
                       className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700/80 text-white font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
+                  </div>
+                </div>
+
+                {/* Academic Year & Specialization */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-300 mb-1">الفرقة الأكاديمية *</label>
+                    <select
+                      value={manualForm.academicYear}
+                      onChange={(e) => setManualForm({ ...manualForm, academicYear: e.target.value })}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700/80 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="الفرقة الأولى">الفرقة الأولى</option>
+                      <option value="الفرقة الثانية">الفرقة الثانية</option>
+                      <option value="الفرقة الثالثة">الفرقة الثالثة</option>
+                      <option value="الفرقة الرابعة">الفرقة الرابعة</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 mb-1">الشعبة التخصصية</label>
+                    <select
+                      value={manualForm.specialization}
+                      onChange={(e) => setManualForm({ ...manualForm, specialization: e.target.value })}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700/80 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">بدون تشعيب (عام)</option>
+                      <option value="سوفت وير">💻 سوفت وير</option>
+                      <option value="نيتورك">🌐 نيتورك</option>
+                    </select>
                   </div>
                 </div>
 

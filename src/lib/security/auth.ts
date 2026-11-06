@@ -28,6 +28,9 @@ export interface SessionPayload {
   academicNumber?: string;
   groupId?: string;
   sectionId?: string;
+  academicYear?: string;
+  specialization?: string | null;
+  isDelegate?: boolean;
 }
 
 export async function hashPassword(password: string): Promise<string> {

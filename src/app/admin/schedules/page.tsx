@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Calendar,
   Clock,
@@ -14,34 +14,65 @@ import {
   X,
   FileSpreadsheet,
   Edit3,
+  Power,
+  RotateCcw,
+  Sparkles,
+  Users,
+  Layers,
+  Check,
+  Search,
 } from "lucide-react";
 import { getArabicDayName, format12HourTime, getAcademicTimeMinutes } from "@/lib/utils/datetime";
+import { ACADEMIC_YEARS, SPECIALIZATIONS, FREE_SLOT_PERIODS } from "@/lib/constants/academic";
 
 export default function AdminSchedulesPage() {
+  // Main Tab State: "BIOMETRICS" | "FREE_SLOTS"
+  const [activeTab, setActiveTab] = useState<"BIOMETRICS" | "FREE_SLOTS">("BIOMETRICS");
+
+  // Biometrics Schedules State
   const [schedules, setSchedules] = useState<any[]>([]);
   const [groups, setGroups] = useState<any[]>([]);
   const [sections, setSections] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Form State
+  // Form State for Biometrics Schedule
   const [showModal, setShowModal] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<any | null>(null);
+  const [formYear, setFormYear] = useState<string>("الفرقة الثانية");
+  const [formSpecialization, setFormSpecialization] = useState<string>("سوفت وير");
   const [formGroupId, setFormGroupId] = useState("");
   const [formSectionId, setFormSectionId] = useState("");
   const [formSubSection, setFormSubSection] = useState<"ALL" | "A" | "B">("ALL");
   const [formDate, setFormDate] = useState("");
   const [formStartTime, setFormStartTime] = useState("09:00");
   const [formEndTime, setFormEndTime] = useState("13:00");
-  const [formVenue, setFormVenue] = useState(
-    "الواحة — مبنى الشؤون (شباك بصمة الوجه)"
-  );
+  const [formVenue, setFormVenue] = useState("الواحة — مبنى الشؤون (شباك بصمة الوجه)");
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
-  // Filters State
+  // Biometrics Filters State
+  const [filterYear, setFilterYear] = useState("ALL");
+  const [filterSpecialization, setFilterSpecialization] = useState("ALL");
   const [filterGroupId, setFilterGroupId] = useState("ALL");
-  const [filterSectionId, setFilterSectionId] = useState("ALL");
   const [filterSubSection, setFilterSubSection] = useState<"ALL" | "A" | "B">("ALL");
+
+  // Delegate Free Slots State
+  const [freeDays, setFreeDays] = useState<any[]>([]);
+  const [freeSlots, setFreeSlots] = useState<any[]>([]);
+  const [loadingFreeSlots, setLoadingFreeSlots] = useState(false);
+  const [freeSpecFilter, setFreeSpecFilter] = useState<string>("ALL");
+  const [freeSearch, setFreeSearch] = useState<string>("");
+  const [togglingDay, setTogglingDay] = useState<string | null>(null);
+
+  // Admin Slot Edit/Swap Modal State
+  const [adminEditingSlot, setAdminEditingSlot] = useState<any | null>(null);
+  const [showAdminSlotModal, setShowAdminSlotModal] = useState(false);
+  const [adminSlotGroupId, setAdminSlotGroupId] = useState("");
+  const [adminSlotSectionId, setAdminSlotSectionId] = useState("");
+  const [adminSlotSections, setAdminSlotSections] = useState<any[]>([]);
+  const [adminSlotDelegateName, setAdminSlotDelegateName] = useState("");
+  const [adminSlotNotes, setAdminSlotNotes] = useState("");
+  const [adminSlotSaving, setAdminSlotSaving] = useState(false);
 
   const venuePresets = [
     "الواحة — مبنى الشؤون (شباك بصمة الوجه)",
@@ -65,8 +96,25 @@ export default function AdminSchedulesPage() {
     }
   };
 
+  const fetchFreeSlots = async () => {
+    try {
+      setLoadingFreeSlots(true);
+      const res = await fetch("/api/free-slots?academicYear=الفرقة الثالثة");
+      const json = await res.json();
+      if (json.success && json.data) {
+        setFreeDays(json.data.days || []);
+        setFreeSlots(json.data.slots || []);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingFreeSlots(false);
+    }
+  };
+
   useEffect(() => {
     fetchSchedules();
+    fetchFreeSlots();
 
     // Fetch groups
     fetch("/api/groups")
@@ -74,7 +122,29 @@ export default function AdminSchedulesPage() {
       .then((j) => j.success && setGroups(j.data.groups || []));
   }, []);
 
-  // Fetch sections when group changes
+  // Sync groups for form
+  const formGroups = groups.filter((g) => {
+    const y = g.academicYear || "الفرقة الثانية";
+    if (y !== formYear) return false;
+    if ((formYear === "الفرقة الثالثة" || formYear === "الفرقة الرابعة") && g.specialization) {
+      if (g.specialization !== formSpecialization) return false;
+    }
+    return true;
+  });
+
+  useEffect(() => {
+    if (formGroups.length > 0) {
+      if (!formGroups.some((g) => g.id === formGroupId)) {
+        setFormGroupId(formGroups[0].id);
+      }
+    } else {
+      setFormGroupId("");
+      setSections([]);
+      setFormSectionId("");
+    }
+  }, [formYear, formSpecialization, groups]);
+
+  // Fetch sections when formGroupId changes
   useEffect(() => {
     if (!formGroupId) {
       setSections([]);
@@ -83,13 +153,35 @@ export default function AdminSchedulesPage() {
     }
     fetch(`/api/sections?groupId=${formGroupId}`)
       .then((r) => r.json())
-      .then((j) => j.success && setSections(j.data.sections || []));
+      .then((j) => {
+        if (j.success && j.data.sections) {
+          setSections(j.data.sections || []);
+          if (j.data.sections.length > 0 && !editingSchedule) {
+            setFormSectionId(j.data.sections[0].id);
+          }
+        }
+      });
   }, [formGroupId]);
+
+  // Fetch sections for admin free slot modal
+  useEffect(() => {
+    if (!adminSlotGroupId) {
+      setAdminSlotSections([]);
+      return;
+    }
+    fetch(`/api/sections?groupId=${adminSlotGroupId}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.success && j.data.sections) {
+          setAdminSlotSections(j.data.sections || []);
+        }
+      });
+  }, [adminSlotGroupId]);
 
   const handleOpenCreateModal = () => {
     setEditingSchedule(null);
-    setFormGroupId("");
-    setFormSectionId("");
+    setFormYear("الفرقة الثانية");
+    setFormSpecialization("سوفت وير");
     setFormSubSection("ALL");
     setFormDate("");
     setFormStartTime("09:00");
@@ -100,6 +192,8 @@ export default function AdminSchedulesPage() {
 
   const handleOpenEditModal = async (sc: any) => {
     setEditingSchedule(sc);
+    setFormYear(sc.academicYear || "الفرقة الثانية");
+    setFormSpecialization(sc.specialization || "سوفت وير");
     setFormGroupId(sc.groupId || "");
     setFormSubSection(sc.subSection || "ALL");
     setFormDate(sc.date || "");
@@ -184,13 +278,134 @@ export default function AdminSchedulesPage() {
     }
   };
 
+  // Toggle Free Slots Day Open/Closed Status
+  const handleToggleDay = async (dayName: string, currentOpen: boolean) => {
+    try {
+      setTogglingDay(dayName);
+      setFeedback(null);
+      const res = await fetch("/api/free-slots/days", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dayName, isOpen: !currentOpen }),
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setFeedback({ message: json.message, type: "success" });
+        await fetchFreeSlots();
+      } else {
+        setFeedback({ message: json.error || "فشل تغيير حالة اليوم", type: "error" });
+      }
+    } catch (err: any) {
+      setFeedback({ message: err.message || "حدث خطأ غير متوقع", type: "error" });
+    } finally {
+      setTogglingDay(null);
+    }
+  };
+
+  // Delete Free Slot
+  const handleDeleteFreeSlot = async (slotId: string, sectionName: string) => {
+    if (!confirm(`هل أنت متأكد من إلغاء وحذف حجز هذه الفترة لسكشن "${sectionName}"؟`)) return;
+    try {
+      setFeedback(null);
+      const res = await fetch(`/api/free-slots/admin?id=${slotId}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setFeedback({ message: json.message, type: "success" });
+        await fetchFreeSlots();
+      } else {
+        setFeedback({ message: json.error || "فشل إلغاء الفترة", type: "error" });
+      }
+    } catch (err: any) {
+      setFeedback({ message: err.message || "حدث خطأ غير متوقع", type: "error" });
+    }
+  };
+
+  // Open Admin Slot Edit Modal
+  const handleOpenAdminSlotModal = (slot: any) => {
+    setAdminEditingSlot(slot);
+    setAdminSlotGroupId(slot.groupId || "");
+    setAdminSlotSectionId(slot.sectionId || "");
+    setAdminSlotDelegateName(slot.delegateName || "");
+    setAdminSlotNotes(slot.notes || "");
+    setShowAdminSlotModal(true);
+  };
+
+  // Save Admin Slot Modification
+  const handleSaveAdminSlot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminEditingSlot) return;
+
+    try {
+      setAdminSlotSaving(true);
+      setFeedback(null);
+      const res = await fetch("/api/free-slots/admin", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slotId: adminEditingSlot.id,
+          groupId: adminSlotGroupId || undefined,
+          sectionId: adminSlotSectionId || undefined,
+          delegateName: adminSlotDelegateName.trim() || undefined,
+          notes: adminSlotNotes.trim() || undefined,
+        }),
+      });
+
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setFeedback({ message: json.message, type: "success" });
+        setShowAdminSlotModal(false);
+        setAdminEditingSlot(null);
+        await fetchFreeSlots();
+      } else {
+        setFeedback({ message: json.error || "فشل تعديل الفترة", type: "error" });
+      }
+    } catch (err: any) {
+      setFeedback({ message: err.message || "حدث خطأ غير متوقع", type: "error" });
+    } finally {
+      setAdminSlotSaving(false);
+    }
+  };
+
   const handlePrintPDF = () => {
     window.print();
   };
 
+  // Filtered Biometrics Schedules
+  const filteredSchedules = schedules
+    .filter((sc) => {
+      if (filterYear !== "ALL" && (sc.academicYear || "الفرقة الثانية") !== filterYear) return false;
+      if (filterSpecialization !== "ALL" && sc.specialization && sc.specialization !== filterSpecialization) return false;
+      if (filterGroupId !== "ALL" && sc.groupId !== filterGroupId) return false;
+      if (filterSubSection !== "ALL" && sc.subSection !== "ALL" && sc.subSection !== filterSubSection) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (a.date !== b.date) {
+        return (a.date || "").localeCompare(b.date || "");
+      }
+      const aMin = getAcademicTimeMinutes(a.startTime);
+      const bMin = getAcademicTimeMinutes(b.startTime);
+      return aMin - bMin;
+    });
+
+  // Filtered Free Slots
+  const filteredFreeSlots = freeSlots.filter((s) => {
+    if (freeSpecFilter !== "ALL" && s.specialization !== freeSpecFilter) return false;
+    if (freeSearch) {
+      const q = freeSearch.trim().toLowerCase();
+      const matchName = (s.delegateName || "").toLowerCase().includes(q);
+      const matchSec = (s.sectionName || "").toLowerCase().includes(q);
+      const matchDay = (s.dayName || "").toLowerCase().includes(q);
+      if (!matchName && !matchSec && !matchDay) return false;
+    }
+    return true;
+  });
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      {/* Non-Printable Header */}
+      {/* Header */}
       <div className="print:hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white p-1.5 shadow-xl shadow-blue-500/20 border border-slate-700/60 flex-shrink-0 flex items-center justify-center">
@@ -204,35 +419,83 @@ export default function AdminSchedulesPage() {
             <div className="flex items-center gap-2 mb-1">
               <span className="w-2.5 h-2.5 rounded-full bg-cyan-400" />
               <span className="text-xs font-mono text-cyan-400 font-bold uppercase tracking-wider">
-                ACADEMIC TIMETABLE • إدارة الجداول والاعتماد
+                ACADEMIC TIMETABLE • إدارة الجداول وفترات الفراغ
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-              جدول مواعيد تسجيل بصمة الوجه المعتمد
+              إدارة جداول الحضور وفترات فراغ السكاشن
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 mt-1">
-              تحديد مواعيد الحضور للسكاشن ومقرات انعقاد لجان البصمة، وتصدير جدول معتمد بصيغة PDF للطباعة والنشر الرسمي.
+              التحكم في المواعيد الرسمية المعتمدة للبصمة، وإدارة حجز فترات الفراغ لمناديب سكاشن الفرقة الثالثة (فتح/قفل الأيام وتبديل السكاشن).
             </p>
           </div>
         </div>
 
         <div className="flex flex-wrap gap-2.5">
-          <button
-            onClick={handleOpenCreateModal}
-            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-blue-600/30 transition flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            <span>إضافة موعد ومكان لسكشن</span>
-          </button>
+          {activeTab === "BIOMETRICS" && (
+            <>
+              <button
+                onClick={handleOpenCreateModal}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-blue-600/30 transition flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                <span>إضافة موعد ومكان لسكشن</span>
+              </button>
 
-          <button
-            onClick={handlePrintPDF}
-            className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold border border-slate-700 shadow-md transition flex items-center gap-2"
-          >
-            <Printer className="w-4 h-4 text-slate-300" />
-            <span>تصدير وطباعة جدول PDF</span>
-          </button>
+              <button
+                onClick={handlePrintPDF}
+                className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold border border-slate-700 shadow-md transition flex items-center gap-2"
+              >
+                <Printer className="w-4 h-4 text-slate-300" />
+                <span>تصدير وطباعة جدول PDF</span>
+              </button>
+            </>
+          )}
+
+          {activeTab === "FREE_SLOTS" && (
+            <button
+              onClick={fetchFreeSlots}
+              disabled={loadingFreeSlots}
+              className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-lg shadow-purple-600/30 transition flex items-center gap-2 disabled:opacity-50"
+            >
+              <RotateCcw className={`w-4 h-4 ${loadingFreeSlots ? "animate-spin" : ""}`} />
+              <span>تحديث بيانات الفترات</span>
+            </button>
+          )}
         </div>
+      </div>
+
+      {/* Main Tab Navigation */}
+      <div className="print:hidden flex items-center gap-2 p-1.5 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl backdrop-blur-xl">
+        <button
+          onClick={() => setActiveTab("BIOMETRICS")}
+          className={`flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-black transition flex items-center justify-center gap-2 ${
+            activeTab === "BIOMETRICS"
+              ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-600/30 border border-blue-400/30"
+              : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+          }`}
+        >
+          <Calendar className="w-4 h-4" />
+          <span>جدول مواعيد بصمة الوجه المعتمد</span>
+          <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-black/20 text-blue-200">
+            {schedules.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("FREE_SLOTS")}
+          className={`flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-black transition flex items-center justify-center gap-2 ${
+            activeTab === "FREE_SLOTS"
+              ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-600/30 border border-purple-400/30"
+              : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-amber-400" />
+          <span>إدارة فترات فراغ الفرقة الثالثة (المناديب)</span>
+          <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-black/20 text-purple-200">
+            {freeSlots.length} فترات
+          </span>
+        </button>
       </div>
 
       {/* Feedback Alert */}
@@ -261,185 +524,221 @@ export default function AdminSchedulesPage() {
         </div>
       )}
 
-      {/* Printable Document Container */}
-      <div className="bg-slate-900/90 rounded-3xl border border-slate-800 shadow-2xl p-6 sm:p-10 backdrop-blur-xl text-white print:bg-white print:text-black print:border-none print:shadow-none print:p-0">
-        {/* Printable Official University Header with Logo */}
-        <div className="hidden print:flex flex-col items-center justify-center border-b-2 border-black pb-4 mb-6 text-center">
-          <div className="w-24 h-24 mx-auto mb-2 flex items-center justify-center">
-            <img
-              src="/images/batu-logo.png"
-              alt="شعار جامعة برج العرب التكنولوجية"
-              className="max-h-full max-w-full object-contain"
-            />
-          </div>
-          <h1 className="text-xl font-black text-black tracking-tight">
-            جامعة برج العرب التكنولوجية (BATU)
-          </h1>
-          <h2 className="text-sm font-bold text-slate-800 mt-0.5">
-            كلية تكنولوجيا الصناعة والطاقة • قسم تكنولوجيا المعلومات
-          </h2>
-          <h3 className="text-base font-extrabold text-blue-900 mt-2 bg-slate-100 px-4 py-1 rounded-lg border border-slate-300 inline-block">
-            الجدول الرسمي المعتمد لتسجيل بصمة الوجه (الفرقة الثانية)
-          </h3>
-          <div className="flex items-center justify-center gap-4 text-xs font-bold text-slate-700 mt-2">
-            <span>العام الجامعي: 2026 / 2027</span>
-            <span>•</span>
-            <span>تاريخ الطباعة: {new Date().toLocaleDateString("ar-EG")}</span>
-            <span>•</span>
-            <span className="text-emerald-800 font-bold">معتمد رسمياً للنشر</span>
-          </div>
-        </div>
-
-        {/* Schedule Title (Screen Only) */}
-        <div className="print:hidden text-center mb-6">
-          <h2 className="text-xl sm:text-2xl font-black text-white">
-            الجدول الرسمي المعتمد لتسجيل بصمة الوجه (الفرقة الثانية)
-          </h2>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            قسم تكنولوجيا المعلومات — يرجى الالتزام التام بالمواعيد والمقرات المحددة لكل سكشن
-          </p>
-        </div>
-
-        {/* Non-Printable Filter Controls */}
-        <div className="print:hidden mb-6 p-4 rounded-2xl bg-slate-950/60 border border-slate-800 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs font-bold text-slate-400">تصفية الجدول:</span>
-
-            {/* Filter by Group */}
-            <select
-              value={filterGroupId}
-              onChange={(e) => {
-                setFilterGroupId(e.target.value);
-                setFilterSectionId("ALL");
-              }}
-              className="px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-900 text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="ALL">جميع المجموعات</option>
-              {groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
-            </select>
-
-            {/* Filter by SubSection A / B */}
-            <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-700 text-xs">
-              <button
-                type="button"
-                onClick={() => setFilterSubSection("ALL")}
-                className={`px-2.5 py-1 rounded-lg font-bold transition ${
-                  filterSubSection === "ALL"
-                    ? "bg-slate-700 text-white shadow"
-                    : "text-slate-400 hover:text-white"
-                }`}
-              >
-                الكل
-              </button>
-              <button
-                type="button"
-                onClick={() => setFilterSubSection("A")}
-                className={`px-2.5 py-1 rounded-lg font-bold transition ${
-                  filterSubSection === "A"
-                    ? "bg-blue-600 text-white shadow"
-                    : "text-slate-400 hover:text-white"
-                }`}
-              >
-                قسم A
-              </button>
-              <button
-                type="button"
-                onClick={() => setFilterSubSection("B")}
-                className={`px-2.5 py-1 rounded-lg font-bold transition ${
-                  filterSubSection === "B"
-                    ? "bg-purple-600 text-white shadow"
-                    : "text-slate-400 hover:text-white"
-                }`}
-              >
-                قسم B
-              </button>
+      {/* TAB 1: OFFICIAL BIOMETRICS SCHEDULE */}
+      {activeTab === "BIOMETRICS" && (
+        <div className="bg-slate-900/90 rounded-3xl border border-slate-800 shadow-2xl p-6 sm:p-10 backdrop-blur-xl text-white print:bg-white print:text-black print:border-none print:shadow-none print:p-0 space-y-6">
+          {/* Printable Official University Header */}
+          <div className="hidden print:flex flex-col items-center justify-center border-b-2 border-black pb-4 mb-6 text-center">
+            <div className="w-24 h-24 mx-auto mb-2 flex items-center justify-center">
+              <img
+                src="/images/batu-logo.png"
+                alt="شعار جامعة برج العرب التكنولوجية"
+                className="max-h-full max-w-full object-contain"
+              />
+            </div>
+            <h1 className="text-xl font-black text-black tracking-tight">
+              جامعة برج العرب التكنولوجية (BATU)
+            </h1>
+            <h2 className="text-sm font-bold text-slate-800 mt-0.5">
+              كلية تكنولوجيا الصناعة والطاقة • قسم تكنولوجيا المعلومات
+            </h2>
+            <h3 className="text-base font-extrabold text-blue-900 mt-2 bg-slate-100 px-4 py-1 rounded-lg border border-slate-300 inline-block">
+              الجدول الرسمي المعتمد لتسجيل بصمة الوجه {filterYear !== "ALL" ? `(${filterYear})` : ""}
+            </h3>
+            <div className="flex items-center justify-center gap-4 text-xs font-bold text-slate-700 mt-2">
+              <span>العام الجامعي: 2026 / 2027</span>
+              <span>•</span>
+              <span>تاريخ الطباعة: {new Date().toLocaleDateString("ar-EG")}</span>
+              <span>•</span>
+              <span className="text-emerald-800 font-bold">معتمد رسمياً للنشر</span>
             </div>
           </div>
 
-          <div className="text-xs text-slate-400 font-mono">
-            المواعيد المعروضة:{" "}
-            <span className="text-white font-bold">
-              {
-                schedules.filter((sc) => {
-                  if (filterGroupId !== "ALL" && sc.groupId !== filterGroupId) return false;
-                  if (filterSubSection !== "ALL" && sc.subSection !== "ALL" && sc.subSection !== filterSubSection)
-                    return false;
-                  return true;
-                }).length
-              }
-            </span>{" "}
-            من أصل {schedules.length}
+          {/* Schedule Title (Screen Only) */}
+          <div className="print:hidden text-center">
+            <h2 className="text-xl sm:text-2xl font-black text-white">
+              الجدول الرسمي المعتمد لتسجيل بصمة الوجه
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-400 mt-1">
+              قسم تكنولوجيا المعلومات — يرجى الالتزام التام بالمواعيد والمقرات المحددة لكل سكشن
+            </p>
           </div>
-        </div>
 
-        {/* Schedule Table (Standard rows and columns with clear borders) */}
-        {loading ? (
-          <div className="p-16 text-center text-slate-400 text-sm space-y-3">
-            <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
-            <p>جاري تحميل مواعيد السكاشن...</p>
+          {/* Biometrics Filter Controls */}
+          <div className="print:hidden p-4 rounded-2xl bg-slate-950/60 border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+              {/* Year Filter */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-slate-400">الفرقة:</span>
+                <select
+                  value={filterYear}
+                  onChange={(e) => {
+                    setFilterYear(e.target.value);
+                    setFilterGroupId("ALL");
+                  }}
+                  className="px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-900 text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                >
+                  <option value="ALL">جميع الفرق</option>
+                  {ACADEMIC_YEARS.map((yr) => (
+                    <option key={yr} value={yr}>
+                      {yr}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Specialization Filter */}
+              {(filterYear === "ALL" || filterYear === "الفرقة الثالثة" || filterYear === "الفرقة الرابعة") && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-slate-400">الشعبة:</span>
+                  <select
+                    value={filterSpecialization}
+                    onChange={(e) => {
+                      setFilterSpecialization(e.target.value);
+                      setFilterGroupId("ALL");
+                    }}
+                    className="px-3 py-1.5 rounded-xl border border-purple-500/40 bg-slate-900 text-xs text-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-500 font-semibold"
+                  >
+                    <option value="ALL">جميع الشعب</option>
+                    {SPECIALIZATIONS.map((sp) => (
+                      <option key={sp} value={sp}>
+                        {sp}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Group Filter */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-slate-400">المجموعة:</span>
+                <select
+                  value={filterGroupId}
+                  onChange={(e) => setFilterGroupId(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-900 text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                >
+                  <option value="ALL">جميع المجموعات</option>
+                  {groups
+                    .filter((g) => {
+                      if (filterYear !== "ALL" && (g.academicYear || "الفرقة الثانية") !== filterYear) return false;
+                      if (filterSpecialization !== "ALL" && g.specialization && g.specialization !== filterSpecialization)
+                        return false;
+                      return true;
+                    })
+                    .map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              {/* SubSection Filter */}
+              <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-700 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setFilterSubSection("ALL")}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                    filterSubSection === "ALL"
+                      ? "bg-slate-700 text-white shadow"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  الكل
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterSubSection("A")}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                    filterSubSection === "A"
+                      ? "bg-blue-600 text-white shadow"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  قسم A
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterSubSection("B")}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                    filterSubSection === "B"
+                      ? "bg-purple-600 text-white shadow"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  قسم B
+                </button>
+              </div>
+            </div>
+
+            <div className="text-xs text-slate-400 font-mono">
+              المواعيد المعروضة:{" "}
+              <span className="text-white font-bold">{filteredSchedules.length}</span> من أصل {schedules.length}
+            </div>
           </div>
-        ) : schedules.length === 0 ? (
-          <div className="p-12 text-center text-slate-400 text-sm">
-            لا توجد مواعيد مضافة في الجدول حتى الآن. اضغط على «إضافة موعد ومكان لسكشن» للبدء.
-          </div>
-        ) : (
-          <div className="overflow-x-auto custom-scrollbar print:overflow-visible">
-            <table className="w-full text-right border-collapse border border-slate-700 print:border-2 print:border-black text-xs sm:text-sm min-w-[760px] print:min-w-0">
-              <thead>
-                <tr className="bg-[#0b101d] border-b-2 border-slate-700 text-slate-200 text-xs font-black print:bg-slate-100 print:text-black print:border-b-2 print:border-black">
-                  <th className="p-3 border border-slate-700 print:border print:border-black text-center w-12 bg-slate-900/90 print:bg-slate-100">
-                    م
-                  </th>
-                  <th className="p-3 border border-slate-700 print:border print:border-black bg-slate-900/90 print:bg-slate-100">
-                    المجموعة
-                  </th>
-                  <th className="p-3 border border-slate-700 print:border print:border-black bg-slate-900/90 print:bg-slate-100">
-                    السكشن
-                  </th>
-                  <th className="p-3 border border-slate-700 print:border print:border-black text-center bg-slate-900/90 print:bg-slate-100">
-                    القسم (A / B)
-                  </th>
-                  <th className="p-3 border border-slate-700 print:border print:border-black text-center bg-slate-900/90 print:bg-slate-100">
-                    اليوم والتاريخ
-                  </th>
-                  <th className="p-3 border border-slate-700 print:border print:border-black text-center bg-slate-900/90 print:bg-slate-100">
-                    فترة الحضور
-                  </th>
-                  <th className="p-3 border border-slate-700 print:border print:border-black bg-slate-900/90 print:bg-slate-100">
-                    المقر وقاعة البصمة بالتفصيل
-                  </th>
-                  <th className="p-3 border border-slate-700 print:hidden text-center bg-slate-900/90">
-                    إجراءات
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/80 text-xs sm:text-sm">
-                {schedules
-                  .filter((sc) => {
-                    if (filterGroupId !== "ALL" && sc.groupId !== filterGroupId) return false;
-                    if (filterSubSection !== "ALL" && sc.subSection !== "ALL" && sc.subSection !== filterSubSection)
-                      return false;
-                    return true;
-                  })
-                  .sort((a, b) => {
-                    if (a.date !== b.date) {
-                      return (a.date || "").localeCompare(b.date || "");
-                    }
-                    const aMin = getAcademicTimeMinutes(a.startTime);
-                    const bMin = getAcademicTimeMinutes(b.startTime);
-                    return aMin - bMin;
-                  })
-                  .map((sc, idx) => (
+
+          {/* Schedule Table */}
+          {loading ? (
+            <div className="p-16 text-center text-slate-400 text-sm space-y-3">
+              <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
+              <p>جاري تحميل مواعيد السكاشن...</p>
+            </div>
+          ) : filteredSchedules.length === 0 ? (
+            <div className="p-12 text-center text-slate-400 text-sm">
+              لا توجد مواعيد مضافة في الجدول تطابق الفلاتر المحددة. اضغط على «إضافة موعد ومكان لسكشن» للبدء.
+            </div>
+          ) : (
+            <div className="overflow-x-auto custom-scrollbar print:overflow-visible">
+              <table className="w-full text-right border-collapse border border-slate-700 print:border-2 print:border-black text-xs sm:text-sm min-w-[850px] print:min-w-0">
+                <thead>
+                  <tr className="bg-[#0b101d] border-b-2 border-slate-700 text-slate-200 text-xs font-black print:bg-slate-100 print:text-black print:border-b-2 print:border-black">
+                    <th className="p-3 border border-slate-700 print:border print:border-black text-center w-12 bg-slate-900/90 print:bg-slate-100">
+                      م
+                    </th>
+                    <th className="p-3 border border-slate-700 print:border print:border-black bg-slate-900/90 print:bg-slate-100">
+                      الفرقة والشعبة
+                    </th>
+                    <th className="p-3 border border-slate-700 print:border print:border-black bg-slate-900/90 print:bg-slate-100">
+                      المجموعة
+                    </th>
+                    <th className="p-3 border border-slate-700 print:border print:border-black bg-slate-900/90 print:bg-slate-100">
+                      السكشن
+                    </th>
+                    <th className="p-3 border border-slate-700 print:border print:border-black text-center bg-slate-900/90 print:bg-slate-100">
+                      القسم (A / B)
+                    </th>
+                    <th className="p-3 border border-slate-700 print:border print:border-black text-center bg-slate-900/90 print:bg-slate-100">
+                      اليوم والتاريخ
+                    </th>
+                    <th className="p-3 border border-slate-700 print:border print:border-black text-center bg-slate-900/90 print:bg-slate-100">
+                      فترة الحضور
+                    </th>
+                    <th className="p-3 border border-slate-700 print:border print:border-black bg-slate-900/90 print:bg-slate-100">
+                      المقر وقاعة البصمة بالتفصيل
+                    </th>
+                    <th className="p-3 border border-slate-700 print:hidden text-center bg-slate-900/90">
+                      إجراءات
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-700/80 text-xs sm:text-sm">
+                  {filteredSchedules.map((sc, idx) => (
                     <tr
                       key={sc.id}
                       className="hover:bg-blue-950/20 even:bg-slate-900/40 odd:bg-[#070b14]/60 border-b border-slate-700/80 transition print:bg-white print:border print:border-black print:text-black"
                     >
                       <td className="p-3 border border-slate-700 print:border print:border-black text-center font-bold font-mono print:text-black bg-slate-950/40 print:bg-transparent">
                         {idx + 1}
+                      </td>
+                      <td className="p-3 border border-slate-700 print:border print:border-black font-bold text-slate-200 print:text-black">
+                        <div>{sc.academicYear || "الفرقة الثانية"}</div>
+                        {sc.specialization && sc.specialization !== "عام" ? (
+                          <div className="text-[11px] font-semibold text-cyan-400 print:text-slate-700">
+                            {sc.specialization}
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-slate-500 print:text-slate-600">عام</div>
+                        )}
                       </td>
                       <td className="p-3 border border-slate-700 print:border print:border-black font-bold text-white print:text-black">
                         {sc.groupName}
@@ -458,7 +757,7 @@ export default function AdminSchedulesPage() {
                           </span>
                         ) : (
                           <span className="inline-block px-2.5 py-1 rounded-full text-xs font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 print:border print:border-emerald-900 print:bg-emerald-50 print:text-emerald-950 font-bold">
-                            A و B معاً (الكامل)
+                            A و B معاً
                           </span>
                         )}
                       </td>
@@ -504,20 +803,228 @@ export default function AdminSchedulesPage() {
                       </td>
                     </tr>
                   ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
-      {/* Add / Edit Schedule Modal */}
+      {/* TAB 2: DELEGATE FREE SLOTS MANAGEMENT */}
+      {activeTab === "FREE_SLOTS" && (
+        <div className="space-y-6">
+          {/* Day Lock/Unlock Status Controls */}
+          <div className="bg-slate-900/90 rounded-3xl border border-slate-800 p-6 shadow-2xl backdrop-blur-xl">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-6">
+              <div>
+                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  <Power className="w-5 h-5 text-amber-400" />
+                  <span>التحكم في فتح وغلق أيام تسجيل فترات الفراغ للمناديب</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  اليوم المغلق يظهر مظلماً تماماً وغير قابل للاختيار في شاشة المندوب، واليوم المفتوح يتيح حجز الفترات المتاحة.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              {freeDays.map((d) => (
+                <div
+                  key={d.id || d.dayName}
+                  className={`p-4 rounded-2xl border transition flex flex-col items-center justify-between gap-3 text-center ${
+                    d.isOpen
+                      ? "bg-emerald-950/30 border-emerald-500/40 shadow-lg shadow-emerald-950/30"
+                      : "bg-slate-950/80 border-slate-800 text-slate-500 opacity-80"
+                  }`}
+                >
+                  <div className="space-y-1">
+                    <div className="text-sm font-black text-white">{d.dayName}</div>
+                    <span
+                      className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+                        d.isOpen
+                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                          : "bg-rose-500/10 text-rose-300 border border-rose-500/20"
+                      }`}
+                    >
+                      {d.isOpen ? "مفتوح للتسجيل" : "مغلق ومظلم"}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleToggleDay(d.dayName, d.isOpen)}
+                    disabled={togglingDay === d.dayName}
+                    className={`w-full py-1.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 ${
+                      d.isOpen
+                        ? "bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30"
+                        : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/30"
+                    } disabled:opacity-50`}
+                  >
+                    <Power className="w-3.5 h-3.5" />
+                    <span>{togglingDay === d.dayName ? "جاري الحفظ..." : d.isOpen ? "قفل اليوم" : "فتح اليوم"}</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Booked Slots Management Table */}
+          <div className="bg-slate-900/90 rounded-3xl border border-slate-800 p-6 shadow-2xl backdrop-blur-xl space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+              <div>
+                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  <Users className="w-5 h-5 text-purple-400" />
+                  <span>الفترات المحجوزة حالياً لسكاشن الفرقة الثالثة</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  يمكن للمشرف العام تعديل أي فترة، استبدال سكشن بآخر، أو إلغاء حجز مندوب ما بضغطة زر واحدة.
+                </p>
+              </div>
+
+              {/* Specialization Filter & Search */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+                  {["ALL", "سوفت وير", "نيتورك"].map((sp) => (
+                    <button
+                      key={sp}
+                      type="button"
+                      onClick={() => setFreeSpecFilter(sp)}
+                      className={`px-3 py-1.5 rounded-lg font-bold transition ${
+                        freeSpecFilter === sp
+                          ? "bg-purple-600 text-white shadow"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      {sp === "ALL" ? "جميع الشعب" : sp}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={freeSearch}
+                    onChange={(e) => setFreeSearch(e.target.value)}
+                    placeholder="بحث باسم المندوب أو السكشن..."
+                    className="px-3.5 py-1.5 rounded-xl border border-slate-700 bg-slate-950 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 w-48 sm:w-60"
+                  />
+                  {freeSearch && (
+                    <button
+                      onClick={() => setFreeSearch("")}
+                      className="absolute left-2.5 top-2 text-slate-400 hover:text-white"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {loadingFreeSlots ? (
+              <div className="p-16 text-center text-slate-400 text-sm space-y-3">
+                <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                <p>جاري تحميل فترات الفراغ...</p>
+              </div>
+            ) : filteredFreeSlots.length === 0 ? (
+              <div className="p-12 text-center text-slate-400 text-sm">
+                لا توجد فترات فراغ محجوزة تطابق الفلتر المحدد حتى الآن.
+              </div>
+            ) : (
+              <div className="overflow-x-auto custom-scrollbar">
+                <table className="w-full text-right border-collapse border border-slate-800 text-xs sm:text-sm min-w-[850px]">
+                  <thead>
+                    <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-300 text-xs font-black">
+                      <th className="p-3 border border-slate-800 text-center w-12">م</th>
+                      <th className="p-3 border border-slate-800">اليوم</th>
+                      <th className="p-3 border border-slate-800">الفترة والتوقيت</th>
+                      <th className="p-3 border border-slate-800">الشعبة</th>
+                      <th className="p-3 border border-slate-800">المجموعة والسكشن</th>
+                      <th className="p-3 border border-slate-800">اسم المندوب المسؤول</th>
+                      <th className="p-3 border border-slate-800">الملاحظات</th>
+                      <th className="p-3 border border-slate-800 text-center">إجراءات الإدارة</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800 text-xs sm:text-sm">
+                    {filteredFreeSlots.map((slot, idx) => (
+                      <tr key={slot.id} className="hover:bg-purple-950/20 even:bg-slate-950/40 odd:bg-slate-900/40 transition">
+                        <td className="p-3 border border-slate-800 text-center font-bold font-mono text-slate-400">
+                          {idx + 1}
+                        </td>
+                        <td className="p-3 border border-slate-800 font-bold text-amber-400">
+                          {slot.dayName}
+                        </td>
+                        <td className="p-3 border border-slate-800 font-bold text-white">
+                          <div className="text-cyan-300 font-bold">{slot.periodName}</div>
+                          <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+                            {format12HourTime(slot.startTime)} - {format12HourTime(slot.endTime)}
+                          </div>
+                        </td>
+                        <td className="p-3 border border-slate-800 font-bold">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
+                              slot.specialization === "سوفت وير"
+                                ? "bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
+                                : "bg-purple-500/15 text-purple-300 border border-purple-500/30"
+                            }`}
+                          >
+                            {slot.specialization}
+                          </span>
+                        </td>
+                        <td className="p-3 border border-slate-800">
+                          <div className="font-extrabold text-white text-sm">{slot.sectionName}</div>
+                          <div className="text-xs text-slate-400">{slot.groupName}</div>
+                        </td>
+                        <td className="p-3 border border-slate-800">
+                          <div className="font-bold text-white flex items-center gap-1.5 flex-wrap">
+                            <span>{slot.delegateName || "مندوب السكشن"}</span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 font-black">
+                              ⭐ مندوب
+                            </span>
+                          </div>
+                        </td>
+                        <td className="p-3 border border-slate-800 text-slate-400 text-xs">
+                          {slot.notes || "فترة فراغ سكشن رسمية"}
+                        </td>
+                        <td className="p-3 border border-slate-800 text-center">
+                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenAdminSlotModal(slot)}
+                              className="px-2.5 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-xs font-bold transition flex items-center gap-1"
+                              title="تعديل السكشن أو المندوب"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              <span>تعديل/تبديل</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteFreeSlot(slot.id, slot.sectionName)}
+                              className="px-2.5 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 text-xs font-bold transition flex items-center gap-1"
+                              title="إلغاء حجز هذه الفترة"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>إلغاء</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Biometrics Schedule Create/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-3.5 sm:p-4">
-          <div className="bg-slate-900 rounded-2xl sm:rounded-3xl p-4 sm:p-8 max-w-lg w-full max-h-[92vh] overflow-y-auto custom-scrollbar space-y-4 sm:space-y-5 animate-scale-up shadow-2xl border border-slate-800 text-white">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
-              <h3 className="font-extrabold text-lg text-white flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-blue-400" />
-                <span>{editingSchedule ? "تعديل موعد ومقر السكشن" : "إضافة موعد وتحديد المقر لسكشن"}</span>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-[#0b101d] rounded-2xl border border-slate-800 max-w-lg w-full p-6 space-y-4 shadow-2xl text-white my-8 max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <h3 className="font-bold text-lg text-white flex items-center gap-2">
+                <Clock className="w-5 h-5 text-blue-400" />
+                <span>{editingSchedule ? "تعديل موعد بصمة لسكشن" : "إضافة موعد ومقر جديد لسكشن"}</span>
               </h3>
               <button
                 onClick={() => setShowModal(false)}
@@ -527,45 +1034,81 @@ export default function AdminSchedulesPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveSchedule} className="space-y-4">
-              {/* Group */}
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">المجموعة:</label>
-                <select
-                  required
-                  value={formGroupId}
-                  onChange={(e) => setFormGroupId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-700 text-xs bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="" className="bg-slate-900 text-slate-400">-- اختر المجموعة الأكاديمية --</option>
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id} className="bg-slate-900 text-white">
-                      {g.name}
-                    </option>
-                  ))}
-                </select>
+            <form onSubmit={handleSaveSchedule} className="space-y-4 text-xs">
+              {/* Year & Specialization */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">الفرقة الدراسية:</label>
+                  <select
+                    value={formYear}
+                    onChange={(e) => setFormYear(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                  >
+                    {ACADEMIC_YEARS.map((yr) => (
+                      <option key={yr} value={yr}>
+                        {yr}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {(formYear === "الفرقة الثالثة" || formYear === "الفرقة الرابعة") && (
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">الشعبة التخصصية:</label>
+                    <select
+                      value={formSpecialization}
+                      onChange={(e) => setFormSpecialization(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-xl border border-cyan-500/40 bg-slate-950 text-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-500 font-bold"
+                    >
+                      {SPECIALIZATIONS.map((sp) => (
+                        <option key={sp} value={sp}>
+                          {sp}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
-              {/* Section */}
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">السكشن:</label>
-                <select
-                  required
-                  value={formSectionId}
-                  onChange={(e) => setFormSectionId(e.target.value)}
-                  disabled={!formGroupId || sections.length === 0}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-700 text-xs bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-900 disabled:text-slate-500 disabled:border-slate-800"
-                >
-                  <option value="" className="bg-slate-900 text-slate-400">-- اختر السكشن الأكاديمي --</option>
-                  {sections.map((s) => (
-                    <option key={s.id} value={s.id} className="bg-slate-900 text-white">
-                      {s.name} ({s.code})
-                    </option>
-                  ))}
-                </select>
+              {/* Group & Section */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">المجموعة:</label>
+                  <select
+                    required
+                    value={formGroupId}
+                    onChange={(e) => setFormGroupId(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                  >
+                    <option value="">اختر المجموعة...</option>
+                    {formGroups.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">السكشن:</label>
+                  <select
+                    required
+                    value={formSectionId}
+                    onChange={(e) => setFormSectionId(e.target.value)}
+                    disabled={!formGroupId || sections.length === 0}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 font-semibold"
+                  >
+                    <option value="">اختر السكشن...</option>
+                    {sections.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
-              {/* Sub-Section Selector (A / B / ALL) */}
+              {/* Sub-Section */}
               <div>
                 <label className="block text-xs font-bold text-slate-300 mb-1.5">
                   القسم المستهدف (تقسيم A و B للسكشن):
@@ -605,9 +1148,6 @@ export default function AdminSchedulesPage() {
                     قسم B فقط
                   </button>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  تحديد الموعد لطلاب قسم A أو قسم B أو السكشن بالكامل (تفعيل مطابق لفترات الحجز).
-                </p>
               </div>
 
               {/* Date */}
@@ -674,7 +1214,6 @@ export default function AdminSchedulesPage() {
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-700 text-xs bg-slate-950 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
 
-                {/* Quick Presets */}
                 <div className="mt-2 space-y-1">
                   <div className="text-[10px] text-slate-400 font-semibold">مقرات مقترحة سريعة:</div>
                   <div className="flex flex-wrap gap-1">
@@ -704,6 +1243,124 @@ export default function AdminSchedulesPage() {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
+                  className="py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Free Slot Edit / Swap Modal */}
+      {showAdminSlotModal && adminEditingSlot && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-[#0b101d] rounded-2xl border border-purple-500/40 max-w-lg w-full p-6 space-y-4 shadow-2xl text-white my-8 max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <h3 className="font-bold text-lg text-white flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-purple-400" />
+                <span>تعديل أو تبديل فترة سكشن (الفرقة الثالثة)</span>
+              </h3>
+              <button
+                onClick={() => {
+                  setShowAdminSlotModal(false);
+                  setAdminEditingSlot(null);
+                }}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-purple-950/30 border border-purple-500/30 text-xs text-purple-200">
+              <div className="font-bold text-white mb-1">تفاصيل الفترة المختارة:</div>
+              <div>اليوم: <b>{adminEditingSlot.dayName}</b> • الفترة: <b>{adminEditingSlot.periodName} ({format12HourTime(adminEditingSlot.startTime)} - {format12HourTime(adminEditingSlot.endTime)})</b></div>
+              <div>الشعبة: <b>{adminEditingSlot.specialization}</b></div>
+            </div>
+
+            <form onSubmit={handleSaveAdminSlot} className="space-y-4 text-xs">
+              {/* Group */}
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">المجموعة:</label>
+                <select
+                  required
+                  value={adminSlotGroupId}
+                  onChange={(e) => setAdminSlotGroupId(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 font-semibold"
+                >
+                  <option value="">اختر المجموعة...</option>
+                  {groups
+                    .filter((g) => {
+                      const y = g.academicYear || "الفرقة الثانية";
+                      return y === "الفرقة الثالثة" && g.specialization === adminEditingSlot.specialization;
+                    })
+                    .map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              {/* Section */}
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">السكشن الجديد المخصص للفترة:</label>
+                <select
+                  required
+                  value={adminSlotSectionId}
+                  onChange={(e) => setAdminSlotSectionId(e.target.value)}
+                  disabled={!adminSlotGroupId || adminSlotSections.length === 0}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 font-semibold"
+                >
+                  <option value="">اختر السكشن...</option>
+                  {adminSlotSections.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Delegate Name */}
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">اسم المندوب المسؤول:</label>
+                <input
+                  type="text"
+                  value={adminSlotDelegateName}
+                  onChange={(e) => setAdminSlotDelegateName(e.target.value)}
+                  placeholder="اسم المندوب..."
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-700 text-xs bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 font-semibold"
+                />
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">ملاحظات إضافية:</label>
+                <textarea
+                  rows={2}
+                  value={adminSlotNotes}
+                  onChange={(e) => setAdminSlotNotes(e.target.value)}
+                  placeholder="ملاحظات حول تبديل أو تخصيص الفترة..."
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-700 text-xs bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="submit"
+                  disabled={adminSlotSaving}
+                  className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 disabled:opacity-50 text-white font-bold text-xs shadow-md shadow-purple-600/30 transition flex items-center justify-center gap-2"
+                >
+                  {adminSlotSaving ? "جاري حفظ التعديلات..." : "حفظ التعديل وتبديل السكشن"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAdminSlotModal(false);
+                    setAdminEditingSlot(null);
+                  }}
                   className="py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition"
                 >
                   إلغاء

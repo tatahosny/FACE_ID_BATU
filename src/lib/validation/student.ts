@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ACADEMIC_YEARS, SPECIALIZATIONS } from "../constants/academic";
 
 const EGYPTIAN_GOV_CODES = new Set([
   "01", "02", "03", "04", "11", "12", "13", "14", "15", "16",
@@ -32,36 +33,64 @@ export function isValidEgyptianNationalId(id: string): boolean {
   return true;
 }
 
-export const studentRegistrationSchema = z.object({
-  fullName: z
-    .string({ required_error: "يرجى إدخال الاسم الرباعي" })
-    .trim()
-    .min(6, "الاسم يجب أن لا يقل عن 6 أحرف")
-    .max(100, "الاسم يجب ألا يتجاوز 100 حرف")
-    .refine((val) => val.split(/\s+/).length >= 3, {
-      message: "يرجى كتابة الاسم الثلاثي أو الرباعي على الأقل",
-    }),
-  academicNumber: z
-    .string({ required_error: "يرجى إدخال الرقم الأكاديمي / رقم القيد" })
-    .trim()
-    .min(4, "الرقم الأكاديمي يجب أن لا يقل عن 4 أرقام/رموز")
-    .max(30, "الرقم الأكاديمي غير صالح")
-    .regex(/^[a-zA-Z0-9\-_]+$/, "الرقم الأكاديمي يحتوي على رموز غير مسموحة"),
-  nationalId: z
-    .string({ required_error: "يرجى إدخال الرقم القومي" })
-    .trim()
-    .length(14, "الرقم القومي يجب أن يتكون من 14 رقماً بالضبط")
-    .regex(/^\d{14}$/, "الرقم القومي يجب أن يحتوي على أرقام فقط")
-    .refine(isValidEgyptianNationalId, {
-      message: "الرقم القومي غير صالح وفقاً لمعايير الهيئة المصرية",
-    }),
-  groupId: z
-    .string({ required_error: "يرجى اختيار المجموعة الأكاديمية" })
-    .uuid("معرف المجموعة غير صالح"),
-  sectionId: z
-    .string({ required_error: "يرجى اختيار السكشن الأكاديمي" })
-    .uuid("معرف السكشن غير صالح"),
-  subSection: z.enum(["A", "B"]).default("A").optional(),
-});
+export const studentRegistrationSchema = z
+  .object({
+    fullName: z
+      .string({ required_error: "يرجى إدخال الاسم الرباعي" })
+      .trim()
+      .min(6, "الاسم يجب أن لا يقل عن 6 أحرف")
+      .max(100, "الاسم يجب ألا يتجاوز 100 حرف")
+      .refine((val) => val.split(/\s+/).length >= 3, {
+        message: "يرجى كتابة الاسم الثلاثي أو الرباعي على الأقل",
+      }),
+    academicNumber: z
+      .string({ required_error: "يرجى إدخال الرقم الأكاديمي / رقم القيد" })
+      .trim()
+      .min(4, "الرقم الأكاديمي يجب أن لا يقل عن 4 أرقام/رموز")
+      .max(30, "الرقم الأكاديمي غير صالح")
+      .regex(/^[a-zA-Z0-9\-_]+$/, "الرقم الأكاديمي يحتوي على رموز غير مسموحة"),
+    nationalId: z
+      .string({ required_error: "يرجى إدخال الرقم القومي" })
+      .trim()
+      .length(14, "الرقم القومي يجب أن يتكون من 14 رقماً بالضبط")
+      .regex(/^\d{14}$/, "الرقم القومي يجب أن يحتوي على أرقام فقط")
+      .refine(isValidEgyptianNationalId, {
+        message: "الرقم القومي غير صالح وفقاً لمعايير الهيئة المصرية",
+      }),
+    academicYear: z
+      .enum(ACADEMIC_YEARS, {
+        required_error: "يرجى اختيار الفرقة الأكاديمية",
+      })
+      .default("الفرقة الثانية"),
+    specialization: z
+      .enum(SPECIALIZATIONS, {
+        invalid_type_error: "يرجى اختيار الشعبة الأكاديمية (سوفت وير أو نيتورك)",
+      })
+      .nullable()
+      .optional(),
+    groupId: z
+      .string({ required_error: "يرجى اختيار المجموعة الأكاديمية" })
+      .uuid("معرف المجموعة غير صالح"),
+    sectionId: z
+      .string({ required_error: "يرجى اختيار السكشن الأكاديمي" })
+      .uuid("معرف السكشن غير صالح"),
+    subSection: z.enum(["A", "B"]).default("A").optional(),
+    isDelegate: z.boolean().default(false).optional(),
+  })
+  .refine(
+    (data) => {
+      if (
+        (data.academicYear === "الفرقة الثالثة" || data.academicYear === "الفرقة الرابعة") &&
+        !data.specialization
+      ) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: "يرجى اختيار الشعبة (سوفت وير أو نيتورك) لطلاب الفرقة الثالثة والرابعة",
+      path: ["specialization"],
+    }
+  );
 
 export type StudentRegistrationInput = z.input<typeof studentRegistrationSchema>;

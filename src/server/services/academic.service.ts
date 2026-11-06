@@ -3,9 +3,20 @@ import { groups, sections, sectionSchedules } from "@/db/schema";
 import { eq, and, asc } from "drizzle-orm";
 
 export class AcademicService {
-  static async getGroups(activeOnly = true) {
+  static async getGroups(activeOnly = true, filters?: { academicYear?: string; specialization?: string }) {
+    const conditions = [];
     if (activeOnly) {
-      return db.select().from(groups).where(eq(groups.isActive, true)).orderBy(asc(groups.name));
+      conditions.push(eq(groups.isActive, true));
+    }
+    if (filters?.academicYear) {
+      conditions.push(eq(groups.academicYear, filters.academicYear));
+    }
+    if (filters?.specialization) {
+      conditions.push(eq(groups.specialization, filters.specialization));
+    }
+
+    if (conditions.length > 0) {
+      return db.select().from(groups).where(and(...conditions)).orderBy(asc(groups.name));
     }
     return db.select().from(groups).orderBy(asc(groups.name));
   }

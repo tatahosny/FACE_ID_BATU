@@ -15,6 +15,10 @@ export async function GET(req: NextRequest) {
     const groupId = searchParams.get("groupId") || undefined;
     const sectionId = searchParams.get("sectionId") || undefined;
     const subSection = searchParams.get("subSection") || undefined;
+    const academicYear = searchParams.get("academicYear") || undefined;
+    const specialization = searchParams.get("specialization") || undefined;
+    const isDelegateParam = searchParams.get("isDelegate");
+    const isDelegate = isDelegateParam !== null ? isDelegateParam === "true" : undefined;
     const activationStatus = searchParams.get("activationStatus") || undefined;
     const search = searchParams.get("search") || undefined;
     const staffId = searchParams.get("staffId") || undefined;
@@ -26,6 +30,9 @@ export async function GET(req: NextRequest) {
       groupId,
       sectionId,
       subSection,
+      academicYear,
+      specialization,
+      isDelegate,
       activationStatus,
       staffId,
       activationDate,

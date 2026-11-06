@@ -39,7 +39,7 @@ export class StudentService {
       .trim()
       .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632))
       .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 1776));
-    const { groupId, sectionId, subSection } = input;
+    const { groupId, sectionId, subSection, academicYear, specialization, isDelegate } = input;
 
     // 1. Verify that selected section belongs to the selected group
     const [section] = await db
@@ -85,6 +85,9 @@ export class StudentService {
             groupId: existingByAcademic.groupId,
             sectionId: existingByAcademic.sectionId,
             subSection: existingByAcademic.subSection,
+            academicYear: existingByAcademic.academicYear,
+            specialization: existingByAcademic.specialization,
+            isDelegate: existingByAcademic.isDelegate,
             createdAt: existingByAcademic.createdAt,
           },
           message: "البيانات مسجلة مسبقاً في المنظومة، تم توجيهك تلقائياً إلى صفحة حجز الدور.",
@@ -119,6 +122,9 @@ export class StudentService {
           groupId,
           sectionId,
           subSection: subSection || "A",
+          academicYear: academicYear || "الفرقة الثانية",
+          specialization: specialization || null,
+          isDelegate: isDelegate || false,
         })
         .returning();
 
@@ -143,6 +149,9 @@ export class StudentService {
           groupId,
           sectionId,
           subSection: subSection || "A",
+          academicYear: createdStudent.academicYear,
+          specialization: createdStudent.specialization,
+          isDelegate: createdStudent.isDelegate,
         },
       });
 
@@ -153,6 +162,10 @@ export class StudentService {
           academicNumber: createdStudent.academicNumber,
           groupId: createdStudent.groupId,
           sectionId: createdStudent.sectionId,
+          subSection: createdStudent.subSection,
+          academicYear: createdStudent.academicYear,
+          specialization: createdStudent.specialization,
+          isDelegate: createdStudent.isDelegate,
           createdAt: createdStudent.createdAt,
           isExistingUpdated: false,
         },
@@ -218,6 +231,9 @@ export class StudentService {
     groupId: string;
     sectionId: string;
     subSection: string;
+    academicYear?: string;
+    specialization?: string | null;
+    isDelegate?: boolean;
     isFingerprintActivated?: boolean;
     overwrite?: boolean;
     performedByUserId?: string;
@@ -231,7 +247,7 @@ export class StudentService {
       .trim()
       .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632))
       .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 1776));
-    const { groupId, sectionId, subSection, overwrite, isFingerprintActivated, performedByUserId } = input;
+    const { groupId, sectionId, subSection, academicYear, specialization, isDelegate, overwrite, isFingerprintActivated, performedByUserId } = input;
 
     if (!rawFullName || rawFullName.length < 3) {
       throw new Error("يرجى إدخال اسم الطالب ثلاثي أو رباعي بشكل صحيح");
@@ -254,7 +270,12 @@ export class StudentService {
     }
 
     const [group] = await db
-      .select({ id: groups.id, name: groups.name })
+      .select({
+        id: groups.id,
+        name: groups.name,
+        academicYear: groups.academicYear,
+        specialization: groups.specialization,
+      })
       .from(groups)
       .where(eq(groups.id, groupId));
 
@@ -349,6 +370,9 @@ export class StudentService {
             groupId,
             sectionId,
             subSection: subSection || "A",
+            academicYear: academicYear || group?.academicYear || "الفرقة الثانية",
+            specialization: specialization !== undefined ? specialization : (group?.specialization || null),
+            isDelegate: isDelegate !== undefined ? Boolean(isDelegate) : false,
             updatedAt: new Date(),
           })
           .where(eq(students.id, studentIdToUpdate))
@@ -411,6 +435,9 @@ export class StudentService {
           groupId,
           sectionId,
           subSection: subSection || "A",
+          academicYear: academicYear || group?.academicYear || "الفرقة الثانية",
+          specialization: specialization !== undefined ? specialization : (group?.specialization || null),
+          isDelegate: Boolean(isDelegate),
         })
         .returning();
 
@@ -551,6 +578,9 @@ export class StudentService {
     groupId?: string;
     sectionId?: string;
     subSection?: string; // 'A' | 'B' | 'ALL' | ''
+    academicYear?: string;
+    specialization?: string;
+    isDelegate?: boolean;
     activationStatus?: string; // 'ACTIVATED' | 'NOT_ACTIVATED' | ''
     staffId?: string;
     activationDate?: string; // 'YYYY-MM-DD'
@@ -564,6 +594,15 @@ export class StudentService {
 
     const conditions = [];
 
+    if (params.academicYear && params.academicYear !== "ALL") {
+      conditions.push(eq(students.academicYear, params.academicYear));
+    }
+    if (params.specialization && params.specialization !== "ALL") {
+      conditions.push(eq(students.specialization, params.specialization));
+    }
+    if (params.isDelegate !== undefined) {
+      conditions.push(eq(students.isDelegate, params.isDelegate));
+    }
     if (params.groupId) {
       conditions.push(eq(students.groupId, params.groupId));
     }
@@ -612,12 +651,15 @@ export class StudentService {
         id: students.id,
         fullName: students.fullName,
         academicNumber: students.academicNumber,
+        academicYear: students.academicYear,
+        specialization: students.specialization,
         nationalIdEncrypted: students.nationalIdEncrypted,
         groupId: students.groupId,
         groupName: groups.name,
         sectionId: students.sectionId,
         sectionName: sections.name,
         subSection: students.subSection,
+        isDelegate: students.isDelegate,
         telegramUserId: students.telegramUserId,
         telegramUsername: students.telegramUsername,
         telegramLinkedAt: students.telegramLinkedAt,
@@ -681,6 +723,9 @@ export class StudentService {
         sectionId: s.sectionId,
         sectionName: s.sectionName,
         subSection: s.subSection || "A",
+        academicYear: s.academicYear || "الفرقة الثانية",
+        specialization: s.specialization || null,
+        isDelegate: !!s.isDelegate,
         hasTelegram: !!s.telegramUserId,
         telegramUsername: s.telegramUsername,
         telegramLinkedAt: s.telegramLinkedAt,
@@ -812,12 +857,15 @@ export class StudentService {
         id: students.id,
         fullName: students.fullName,
         academicNumber: students.academicNumber,
+        academicYear: students.academicYear,
+        specialization: students.specialization,
         nationalIdEncrypted: students.nationalIdEncrypted,
         groupId: students.groupId,
         groupName: groups.name,
         sectionId: students.sectionId,
         sectionName: sections.name,
         subSection: students.subSection,
+        isDelegate: students.isDelegate,
         telegramUserId: students.telegramUserId,
         telegramUsername: students.telegramUsername,
         createdAt: students.createdAt,
@@ -870,6 +918,9 @@ export class StudentService {
       return {
         "م": index + 1,
         "اسم الطالب بالكامل": s.fullName,
+        "الفرقة الأكاديمية": s.academicYear || "الفرقة الثانية",
+        "الشعبة": s.specialization || "عام",
+        "الصفة": s.isDelegate ? "مندوب سكشن" : "طالب",
         "الرقم القومي": nationalId,
         "الرقم الأكاديمي": s.academicNumber,
         "المجموعة الدراسية": s.groupName,
@@ -900,6 +951,9 @@ export class StudentService {
       return {
         "م": index + 1,
         "اسم الطالب بالكامل": s.fullName,
+        "الفرقة الأكاديمية": s.academicYear || "الفرقة الثانية",
+        "الشعبة": s.specialization || "عام",
+        "الصفة": s.isDelegate ? "مندوب سكشن" : "طالب",
         "الرقم القومي": nationalId,
         "الرقم الأكاديمي": s.academicNumber,
         "المجموعة الدراسية": s.groupName,
@@ -1009,6 +1063,8 @@ export class StudentService {
         id: students.id,
         fullName: students.fullName,
         academicNumber: students.academicNumber,
+        academicYear: students.academicYear,
+        specialization: students.specialization,
         nationalIdEncrypted: students.nationalIdEncrypted,
         groupName: groups.name,
         sectionName: sections.name,
@@ -1030,6 +1086,8 @@ export class StudentService {
       return {
         "م": index + 1,
         "الاسم": s.fullName,
+        "الفرقة": s.academicYear || "الفرقة الثانية",
+        "الشعبة": s.specialization || "عام",
         "الرقم الأكاديمي": s.academicNumber,
         "المجموعة": s.groupName,
         "السكشن": s.sectionName,

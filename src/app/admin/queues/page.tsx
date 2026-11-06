@@ -689,6 +689,7 @@ export default function AdminQueuesPage() {
                   <th className="p-4">اسم الطالب</th>
                   <th className="p-4">الرقم القومي</th>
                   <th className="p-4">الرقم الأكاديمي</th>
+                  <th className="p-4">الفرقة والشعبة</th>
                   <th className="p-4">السكشن والمجموعة</th>
                   <th className="p-4">حالة البصمة</th>
                   <th className="p-4">حالة الدور</th>
@@ -735,7 +736,14 @@ export default function AdminQueuesPage() {
 
                       {/* Student Name */}
                       <td className="p-4">
-                        <div className="font-extrabold text-white">{item.studentName}</div>
+                        <div className="font-extrabold text-white flex items-center gap-1.5 flex-wrap">
+                          <span>{item.studentName}</span>
+                          {item.isDelegate && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                              ⭐ مندوب سكشن
+                            </span>
+                          )}
+                        </div>
                         {item.hasTelegram ? (
                           <span className="text-[10px] font-semibold text-cyan-400 flex items-center gap-1 mt-0.5">
                             <Send className="w-3 h-3" />
@@ -756,6 +764,16 @@ export default function AdminQueuesPage() {
                       {/* Academic Number */}
                       <td className="p-4 font-mono text-slate-300 text-xs">
                         {item.academicNumber}
+                      </td>
+
+                      {/* Academic Year & Specialization */}
+                      <td className="p-4 text-xs">
+                        <div className="font-bold text-slate-200">{item.academicYear || "الفرقة الثانية"}</div>
+                        {item.specialization && item.specialization !== "عام" ? (
+                          <div className="text-[11px] font-semibold text-cyan-400">{item.specialization}</div>
+                        ) : (
+                          <div className="text-[11px] text-slate-400">عام</div>
+                        )}
                       </td>
 
                       {/* Section & Group */}

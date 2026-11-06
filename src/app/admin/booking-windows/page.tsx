@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { formatCairoDateTime } from "@/lib/utils/datetime";
+import { ACADEMIC_YEARS, SPECIALIZATIONS } from "@/lib/constants/academic";
 import {
   Clock,
   Play,
@@ -33,9 +34,13 @@ export default function AdminBookingWindowsPage() {
   // Bulk Selection State
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  const [filterYear, setFilterYear] = useState<string>("ALL");
+  const [filterSpecialization, setFilterSpecialization] = useState<string>("ALL");
   const [filterGroupId, setFilterGroupId] = useState<string>("ALL");
 
   // Form State
+  const [formYear, setFormYear] = useState<string>("الفرقة الثانية");
+  const [formSpecialization, setFormSpecialization] = useState<string>("سوفت وير");
   const [formGroupId, setFormGroupId] = useState("");
   const [formSectionId, setFormSectionId] = useState("");
   const [formSubSection, setFormSubSection] = useState<"ALL" | "A" | "B">("ALL");
@@ -232,9 +237,40 @@ export default function AdminBookingWindowsPage() {
     }
   };
 
-  const displayedWindows = filterGroupId === "ALL"
-    ? windows
-    : windows.filter((w) => w.groupId === filterGroupId);
+  // Synchronize form group options with selected year & specialization
+  useEffect(() => {
+    if (groups.length === 0) return;
+    const matching = groups.filter((g) => {
+      const y = g.academicYear || "الفرقة الثانية";
+      if (y !== formYear) return false;
+      if (formYear === "الفرقة الثالثة" || formYear === "الفرقة الرابعة") {
+        if (g.specialization !== formSpecialization) return false;
+      }
+      return true;
+    });
+    if (matching.length > 0) {
+      if (!matching.some((m) => m.id === formGroupId)) {
+        setFormGroupId(matching[0].id);
+      }
+    } else {
+      setFormGroupId("");
+      setSections([]);
+      setFormSectionId("");
+    }
+  }, [formYear, formSpecialization, groups]);
+
+  const displayedWindows = windows.filter((w) => {
+    if (filterYear !== "ALL" && (w.academicYear || "الفرقة الثانية") !== filterYear) return false;
+    if (filterSpecialization !== "ALL" && w.specialization !== filterSpecialization) return false;
+    if (filterGroupId !== "ALL" && w.groupId !== filterGroupId) return false;
+    return true;
+  });
+
+  const availableGroups = groups.filter((g) => {
+    if (filterYear !== "ALL" && (g.academicYear || "الفرقة الثانية") !== filterYear) return false;
+    if (filterSpecialization !== "ALL" && g.specialization !== filterSpecialization) return false;
+    return true;
+  });
 
   const allSelected = displayedWindows.length > 0 && selectedIds.length === displayedWindows.length;
   const isIndeterminate = selectedIds.length > 0 && selectedIds.length < displayedWindows.length;
@@ -363,6 +399,54 @@ export default function AdminBookingWindowsPage() {
         </div>
       )}
 
+      {/* Year & Specialization Filters */}
+      <div className="bg-slate-900/90 rounded-2xl border border-slate-800 p-4 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4 backdrop-blur-xl">
+        <div className="flex items-center gap-2 flex-wrap w-full md:w-auto">
+          <span className="text-xs font-bold text-slate-400">الفرقة الدراسية:</span>
+          {["ALL", ...ACADEMIC_YEARS].map((yr) => (
+            <button
+              key={yr}
+              onClick={() => {
+                setFilterYear(yr);
+                if (yr !== "ALL" && yr !== "الفرقة الثالثة" && yr !== "الفرقة الرابعة") {
+                  setFilterSpecialization("ALL");
+                }
+                setFilterGroupId("ALL");
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                filterYear === yr
+                  ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30 ring-1 ring-blue-400"
+                  : "bg-slate-950 border border-slate-800 text-slate-300 hover:text-white"
+              }`}
+            >
+              {yr === "ALL" ? "جميع الفرق" : yr}
+            </button>
+          ))}
+        </div>
+
+        {(filterYear === "ALL" || filterYear === "الفرقة الثالثة" || filterYear === "الفرقة الرابعة") && (
+          <div className="flex items-center gap-2 flex-wrap w-full md:w-auto">
+            <span className="text-xs font-bold text-slate-400">الشعبة:</span>
+            {["ALL", ...SPECIALIZATIONS].map((sp) => (
+              <button
+                key={sp}
+                onClick={() => {
+                  setFilterSpecialization(sp);
+                  setFilterGroupId("ALL");
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                  filterSpecialization === sp
+                    ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md shadow-purple-600/30 ring-1 ring-purple-400"
+                    : "bg-slate-950 border border-slate-800 text-slate-300 hover:text-white"
+                }`}
+              >
+                {sp === "ALL" ? "جميع الشعب" : sp}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Group Navigation Tabs */}
       <div className="flex items-center gap-2 flex-wrap">
         <button
@@ -374,9 +458,9 @@ export default function AdminBookingWindowsPage() {
           }`}
         >
           <Layers className="w-3.5 h-3.5" />
-          <span>جميع المجموعات ({windows.length} سكشن)</span>
+          <span>الكل ({displayedWindows.length} سكشن)</span>
         </button>
-        {groups.map((g) => {
+        {availableGroups.map((g) => {
           const groupCount = windows.filter((w) => w.groupId === g.id).length;
           const isCurrent = filterGroupId === g.id;
           return (
@@ -453,6 +537,9 @@ export default function AdminBookingWindowsPage() {
                             <div className="flex items-center gap-2 text-xs font-black text-amber-400">
                               <Layers className="w-3.5 h-3.5" />
                               <span>{w.groupName}</span>
+                              <span className="text-xs font-bold text-slate-300">
+                                ({w.academicYear || "الفرقة الثانية"}{w.specialization && w.specialization !== "عام" ? ` - ${w.specialization}` : ""})
+                              </span>
                               <span className="text-[11px] text-slate-500 font-normal">
                                 (4 سكاشن: سكشن 1، 2، 3، 4)
                               </span>
@@ -483,6 +570,9 @@ export default function AdminBookingWindowsPage() {
                       <td className="py-4 px-4">
                         <div className="font-bold text-white text-base">{w.sectionName}</div>
                         <div className="text-xs text-slate-400">{w.groupName}</div>
+                        <div className="text-[11px] font-semibold text-cyan-400 mt-0.5">
+                          {w.academicYear || "الفرقة الثانية"} {w.specialization && w.specialization !== "عام" ? `• ${w.specialization}` : ""}
+                        </div>
                       </td>
 
                       {/* Targeted Sub-Section Selection */}
@@ -721,6 +811,40 @@ export default function AdminBookingWindowsPage() {
             </div>
 
             <form onSubmit={handleCreateSubmit} className="space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">الفرقة الدراسية:</label>
+                  <select
+                    value={formYear}
+                    onChange={(e) => setFormYear(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                  >
+                    {ACADEMIC_YEARS.map((yr) => (
+                      <option key={yr} value={yr}>
+                        {yr}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {(formYear === "الفرقة الثالثة" || formYear === "الفرقة الرابعة") && (
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">الشعبة التخصصية:</label>
+                    <select
+                      value={formSpecialization}
+                      onChange={(e) => setFormSpecialization(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-xl border border-cyan-500/40 bg-slate-950 text-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-500 font-bold"
+                    >
+                      {SPECIALIZATIONS.map((sp) => (
+                        <option key={sp} value={sp}>
+                          {sp}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="block text-slate-300 font-bold mb-1">المجموعة الدراسية:</label>
                 <select
@@ -730,11 +854,20 @@ export default function AdminBookingWindowsPage() {
                   className="w-full px-3 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">اختر المجموعة...</option>
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name} ({g.code})
-                    </option>
-                  ))}
+                  {groups
+                    .filter((g) => {
+                      const y = g.academicYear || "الفرقة الثانية";
+                      if (y !== formYear) return false;
+                      if (formYear === "الفرقة الثالثة" || formYear === "الفرقة الرابعة") {
+                        if (g.specialization !== formSpecialization) return false;
+                      }
+                      return true;
+                    })
+                    .map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name} ({g.code})
+                      </option>
+                    ))}
                 </select>
               </div>
 

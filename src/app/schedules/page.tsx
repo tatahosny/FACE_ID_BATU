@@ -19,16 +19,23 @@ import {
   UserPlus,
   Send,
   Sparkles,
+  Users,
 } from "lucide-react";
 import { getArabicDayName, format12HourTime, getAcademicTimeMinutes } from "@/lib/utils/datetime";
 
 export default function PublicSchedulesPage() {
   const [schedules, setSchedules] = useState<any[]>([]);
+  const [freeSlots, setFreeSlots] = useState<any[]>([]);
   const [groups, setGroups] = useState<any[]>([]);
   const [sections, setSections] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Active Tab - Default is Free Slots as primary printable schedule
+  const [activeTab, setActiveTab] = useState<"BIOMETRICS" | "FREE_SLOTS">("FREE_SLOTS");
+
   // Filters
+  const [selectedAcademicYear, setSelectedAcademicYear] = useState("ALL");
+  const [selectedSpecialization, setSelectedSpecialization] = useState("ALL");
   const [selectedGroup, setSelectedGroup] = useState("ALL");
   const [selectedSubSection, setSelectedSubSection] = useState<"ALL" | "A" | "B">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
@@ -52,6 +59,12 @@ export default function PublicSchedulesPage() {
 
     fetchSchedules();
 
+    // Fetch Free Slots for 3rd year
+    fetch("/api/free-slots")
+      .then((r) => r.json())
+      .then((j) => j.success && setFreeSlots(j.data.slots || []))
+      .catch(console.error);
+
     // Fetch Groups
     fetch("/api/groups")
       .then((r) => r.json())
@@ -66,6 +79,8 @@ export default function PublicSchedulesPage() {
   // Filtered & Chronologically Sorted schedules (Morning first, 10:20 before 01:00)
   const filtered = schedules
     .filter((sc) => {
+      if (selectedAcademicYear !== "ALL" && sc.academicYear !== selectedAcademicYear) return false;
+      if (selectedSpecialization !== "ALL" && sc.specialization !== selectedSpecialization) return false;
       if (selectedGroup !== "ALL" && sc.groupId !== selectedGroup) return false;
       if (selectedSubSection !== "ALL" && sc.subSection !== "ALL" && sc.subSection !== selectedSubSection)
         return false;
@@ -88,6 +103,40 @@ export default function PublicSchedulesPage() {
       const aMinutes = getAcademicTimeMinutes(a.startTime);
       const bMinutes = getAcademicTimeMinutes(b.startTime);
       return aMinutes - bMinutes;
+    });
+
+  // Day Order Map for Chronological Sorting
+  const DAY_ORDER: Record<string, number> = {
+    "السبت": 1,
+    "الأحد": 2,
+    "الإثنين": 3,
+    "الاثنين": 3,
+    "الثلاثاء": 4,
+    "الأربعاء": 5,
+    "الاربعاء": 5,
+    "الخميس": 6,
+    "الجمعة": 7,
+  };
+
+  // Filtered & Chronologically Sorted Free Slots (Saturday -> Thursday, Period 1 -> 9)
+  const filteredFreeSlots = freeSlots
+    .filter((fs) => {
+      if (selectedSpecialization !== "ALL" && fs.specialization !== selectedSpecialization) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const matchSection = fs.sectionName?.toLowerCase().includes(q);
+        const matchGroup = fs.groupName?.toLowerCase().includes(q);
+        const matchDelegate = fs.delegateName?.toLowerCase().includes(q);
+        const matchDay = fs.dayName?.toLowerCase().includes(q);
+        if (!matchSection && !matchGroup && !matchDelegate && !matchDay) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const dayA = DAY_ORDER[a.dayName] || 99;
+      const dayB = DAY_ORDER[b.dayName] || 99;
+      if (dayA !== dayB) return dayA - dayB;
+      return (a.periodIndex || 0) - (b.periodIndex || 0);
     });
 
   const handlePrint = () => {
@@ -187,36 +236,102 @@ export default function PublicSchedulesPage() {
           </div>
         </div>
 
+        {/* View Switcher Tabs (Hidden in Print) */}
+        <div className="print:hidden flex items-center gap-2 p-1.5 bg-slate-900/90 rounded-2xl border border-slate-800">
+          <button
+            onClick={() => setActiveTab("FREE_SLOTS")}
+            className={`flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-extrabold transition flex items-center justify-center gap-2 ${
+              activeTab === "FREE_SLOTS"
+                ? "bg-gradient-to-r from-cyan-600 to-teal-600 text-white shadow-lg shadow-cyan-600/30"
+                : "text-slate-400 hover:text-white"
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-cyan-300" />
+            <span>جدول فترات فراغ سكاشن الفرقة الثالثة (المعتمد بواسطة المناديب)</span>
+            <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-200 text-[10px] font-bold border border-cyan-500/30">
+              الأساسي للطباعة
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("BIOMETRICS")}
+            className={`flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-extrabold transition flex items-center justify-center gap-2 ${
+              activeTab === "BIOMETRICS"
+                ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-600/30"
+                : "text-slate-400 hover:text-white"
+            }`}
+          >
+            <Calendar className="w-4 h-4" />
+            <span>جدول مواعيد تسجيل بصمة الوجه ومقرات اللجان</span>
+          </button>
+        </div>
+
         {/* Filter & Search Bar (Hidden in Print) */}
         <div className="print:hidden bg-slate-900/80 rounded-2xl border border-slate-800/80 p-4 space-y-3">
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 flex-wrap">
             {/* Search Input */}
-            <div className="relative flex-1">
+            <div className="relative flex-1 min-w-[200px]">
               <Search className="w-4 h-4 text-slate-500 absolute top-1/2 -translate-y-1/2 right-3.5" />
               <input
                 type="text"
-                placeholder="ابحث برقم السكشن، اسم المجموعة، أو المقر..."
+                placeholder={
+                  activeTab === "BIOMETRICS"
+                    ? "ابحث برقم السكشن، اسم المجموعة، أو المقر..."
+                    : "ابحث برقم السكشن، اسم المندوب، أو اليوم..."
+                }
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pr-10 pl-4 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
-            {/* Filter by Group */}
+            {/* Specialization Filter (Shown for both or free slots) */}
             <div className="flex items-center gap-2">
               <select
-                value={selectedGroup}
-                onChange={(e) => setSelectedGroup(e.target.value)}
-                className="px-3 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={selectedSpecialization}
+                onChange={(e) => setSelectedSpecialization(e.target.value)}
+                className="px-3 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-xs text-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
               >
-                <option value="ALL">جميع المجموعات الأكاديمية</option>
-                {groups.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name}
-                  </option>
-                ))}
+                <option value="ALL">جميع الشُعب</option>
+                <option value="سوفت وير">💻 شعبة سوفت وير</option>
+                <option value="نيتورك">🌐 شعبة نيتورك</option>
               </select>
             </div>
+
+            {activeTab === "BIOMETRICS" && (
+              <>
+                {/* Academic Year Filter */}
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selectedAcademicYear}
+                    onChange={(e) => setSelectedAcademicYear(e.target.value)}
+                    className="px-3 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="ALL">جميع الفرق</option>
+                    <option value="الفرقة الأولى">الفرقة الأولى</option>
+                    <option value="الفرقة الثانية">الفرقة الثانية</option>
+                    <option value="الفرقة الثالثة">الفرقة الثالثة</option>
+                    <option value="الفرقة الرابعة">الفرقة الرابعة</option>
+                  </select>
+                </div>
+
+                {/* Filter by Group */}
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selectedGroup}
+                    onChange={(e) => setSelectedGroup(e.target.value)}
+                    className="px-3 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="ALL">جميع المجموعات الأكاديمية</option>
+                    {groups.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Sub-Section Filter Chips (A / B / All) */}
@@ -287,7 +402,9 @@ export default function PublicSchedulesPage() {
               كلية تكنولوجيا الصناعة والطاقة • قسم تكنولوجيا المعلومات
             </h2>
             <h3 className="text-base font-extrabold text-blue-900 mt-2 bg-slate-100 px-4 py-1 rounded-lg border border-slate-300 inline-block">
-              الجدول الرسمي المعتمد لتسجيل بصمة الوجه (الفرقة الثانية)
+              {activeTab === "FREE_SLOTS"
+                ? "الجدول الرسمي المعتمد لفترات فراغ سكاشن الفرقة الثالثة (المعتمد بواسطة المناديب)"
+                : "الجدول الرسمي المعتمد لتسجيل بصمة الوجه ومقرات اللجان"}
             </h3>
             <div className="flex items-center justify-center gap-4 text-xs font-bold text-slate-700 mt-2">
               <span>العام الجامعي: 2026 / 2027</span>
@@ -299,115 +416,226 @@ export default function PublicSchedulesPage() {
           </div>
 
           {/* Schedule Title for Screen (Hidden in Print) */}
-          <div className="print:hidden text-center mb-6">
+          <div className="print:hidden text-center mb-6 space-y-1">
             <h2 className="text-xl sm:text-2xl font-black text-white">
-              الجدول الرسمي المعتمد لتسجيل بصمة الوجه (الفرقة الثانية)
+              {activeTab === "BIOMETRICS"
+                ? "الجدول الرسمي المعتمد لتسجيل بصمة الوجه"
+                : "جدول مواعيد فترات فراغ سكاشن الفرقة الثالثة (المعتمد بواسطة المناديب)"}
             </h2>
-            <p className="text-xs sm:text-sm text-slate-400 mt-1">
-              قسم تكنولوجيا المعلومات — يرجى الالتزام التام بالمواعيد والمقرات المحددة لكل سكشن وقسم (A / B)
+            <p className="text-xs sm:text-sm text-slate-400">
+              {activeTab === "BIOMETRICS"
+                ? "قسم تكنولوجيا المعلومات — يرجى الالتزام التام بالمواعيد والمقرات المحددة لكل سكشن وقسم (A / B)"
+                : "الفترات الزمنية المعتمدة رسمياً لكل سكشن بالفرقة الثالثة وفق اختيار المناديب"}
             </p>
+
+            {activeTab === "FREE_SLOTS" && (
+              <div className="pt-2">
+                <Link
+                  href="/free-slots"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-extrabold text-xs shadow-lg shadow-cyan-600/30 transition"
+                >
+                  <Users className="w-4 h-4" />
+                  <span>بوابة مناديب السكاشن (حجز أو تعديل فترات الفراغ) ←</span>
+                </Link>
+              </div>
+            )}
           </div>
 
-          {/* Schedule Table (Standard rows and columns with clear borders) */}
-          {loading ? (
-            <div className="p-16 text-center text-slate-400 text-sm space-y-3">
-              <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
-              <p>جاري تحميل جدول المواعيد الرسمي...</p>
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="p-12 text-center text-slate-400 text-sm space-y-2">
-              <AlertCircle className="w-8 h-8 mx-auto text-amber-400 opacity-60" />
-              <p>لا توجد مواعيد تطابق شروط البحث الحالية.</p>
-              <button
-                onClick={() => {
-                  setSelectedGroup("ALL");
-                  setSelectedSubSection("ALL");
-                  setSearchQuery("");
-                }}
-                className="text-xs text-blue-400 hover:underline font-bold"
-              >
-                إعادة ضبط خيارات التصفية
-              </button>
-            </div>
-          ) : (
-            <div className="overflow-x-auto print:overflow-visible">
-              <table className="w-full text-right border-collapse border border-slate-700 print:border-2 print:border-black text-xs sm:text-sm">
-                <thead>
-                  <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-300 text-xs font-black print:bg-slate-100 print:text-black print:border-b-2 print:border-black">
-                    <th className="p-3 border border-slate-800 print:border print:border-black text-center w-10">
-                      م
-                    </th>
-                    <th className="p-3 border border-slate-800 print:border print:border-black">المجموعة</th>
-                    <th className="p-3 border border-slate-800 print:border print:border-black">السكشن</th>
-                    <th className="p-3 border border-slate-800 print:border print:border-black text-center">
-                      القسم (A / B)
-                    </th>
-                    <th className="p-3 border border-slate-800 print:border print:border-black text-center">
-                      اليوم والتاريخ
-                    </th>
-                    <th className="p-3 border border-slate-800 print:border print:border-black text-center">
-                      فترة الحضور
-                    </th>
-                    <th className="p-3 border border-slate-800 print:border print:border-black">
-                      المقر وقاعة البصمة بالتفصيل
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/80 text-xs sm:text-sm">
-                  {filtered.map((sc, idx) => (
-                    <tr
-                      key={sc.id}
-                      className="hover:bg-slate-800/40 border-b border-slate-800/60 transition print:bg-white print:border print:border-black print:text-black"
-                    >
-                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-bold font-mono print:text-black">
-                        {idx + 1}
-                      </td>
-                      <td className="p-3 border border-slate-800/80 print:border print:border-black font-bold text-white print:text-black">
-                        {sc.groupName}
-                      </td>
-                      <td className="p-3 border border-slate-800/80 print:border print:border-black font-black text-blue-400 font-mono print:text-black">
-                        {sc.sectionName} ({sc.sectionCode})
-                      </td>
-                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-center">
-                        {sc.subSection === "A" ? (
-                          <span className="inline-block px-2.5 py-1 rounded-full text-xs font-black bg-blue-500/10 text-blue-400 border border-blue-500/30 print:border print:border-blue-900 print:bg-blue-50 print:text-blue-950 font-bold">
-                            قسم A فقط
-                          </span>
-                        ) : sc.subSection === "B" ? (
-                          <span className="inline-block px-2.5 py-1 rounded-full text-xs font-black bg-purple-500/10 text-purple-400 border border-purple-500/30 print:border print:border-purple-900 print:bg-purple-50 print:text-purple-950 font-bold">
-                            قسم B فقط
-                          </span>
-                        ) : (
-                          <span className="inline-block px-2.5 py-1 rounded-full text-xs font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 print:border print:border-emerald-900 print:bg-emerald-50 print:text-emerald-950 font-bold">
-                            A و B معاً (الكامل)
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-center">
-                        <div className="inline-flex flex-col items-center justify-center">
-                          <span className="font-black text-amber-400 print:text-black text-sm">
-                            {getArabicDayName(sc.date) || "—"}
-                          </span>
-                          <span className="text-[11px] font-mono text-slate-300 print:text-slate-800 mt-0.5" dir="ltr">
-                            {sc.date}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-bold text-slate-200 print:text-black">
-                        <span className="inline-flex items-center gap-1 font-mono text-xs sm:text-sm">
-                          <span>من {format12HourTime(sc.startTime)}</span>
-                          <span className="text-slate-500 print:text-black">إلى</span>
-                          <span>{format12HourTime(sc.endTime)}</span>
-                        </span>
-                      </td>
-                      <td className="p-3 border border-slate-800/80 print:border print:border-black text-xs text-slate-300 font-medium print:text-black">
-                        {sc.notes || "الواحة — مبنى الشؤون (شباك بصمة الوجه)"}
-                      </td>
+          {/* Conditional Table View: Biometrics vs Free Slots */}
+          {activeTab === "FREE_SLOTS" ? (
+            /* Free Slots Table */
+            filteredFreeSlots.length === 0 ? (
+              <div className="p-12 text-center text-slate-400 text-sm space-y-2">
+                <AlertCircle className="w-8 h-8 mx-auto text-amber-400 opacity-60" />
+                <p>لا توجد فترات فراغ محجوزة تطابق البحث حالياً.</p>
+                <div className="pt-2">
+                  <Link
+                    href="/free-slots"
+                    className="text-xs text-cyan-400 hover:underline font-bold"
+                  >
+                    الانتقال لبوابة المناديب لحجز فترات الفراغ
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <div className="overflow-x-auto print:overflow-visible">
+                <table className="w-full text-right border-collapse border border-slate-700 print:border-2 print:border-black text-xs sm:text-sm">
+                  <thead>
+                    <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-300 text-xs font-black print:bg-slate-100 print:text-black">
+                      <th className="p-3 border border-slate-800 print:border print:border-black text-center w-10">
+                        م
+                      </th>
+                      <th className="p-3 border border-slate-800 print:border print:border-black">
+                        السكشن
+                      </th>
+                      <th className="p-3 border border-slate-800 print:border print:border-black">
+                        المجموعة
+                      </th>
+                      <th className="p-3 border border-slate-800 print:border print:border-black text-center">
+                        الشعبة التخصصية
+                      </th>
+                      <th className="p-3 border border-slate-800 print:border print:border-black text-center">
+                        اليوم المحدد
+                      </th>
+                      <th className="p-3 border border-slate-800 print:border print:border-black text-center">
+                        فترة الفراغ المعتمدة
+                      </th>
+                      <th className="p-3 border border-slate-800 print:border print:border-black">
+                        اسم المندوب المعتمد
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/80 text-xs sm:text-sm">
+                    {filteredFreeSlots.map((fs, idx) => (
+                      <tr
+                        key={fs.id}
+                        className="hover:bg-slate-800/40 border-b border-slate-800/60 transition print:bg-white print:border print:border-black"
+                      >
+                        <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-bold font-mono">
+                          {idx + 1}
+                        </td>
+                        <td className="p-3 border border-slate-800/80 print:border print:border-black font-black text-cyan-400 font-mono">
+                          {fs.sectionName} ({fs.sectionCode})
+                        </td>
+                        <td className="p-3 border border-slate-800/80 print:border print:border-black font-bold text-white">
+                          {fs.groupName}
+                        </td>
+                        <td className="p-3 border border-slate-800/80 print:border print:border-black text-center">
+                          <span
+                            className={`inline-block px-2.5 py-1 rounded-full text-xs font-bold border ${
+                              fs.specialization === "سوفت وير"
+                                ? "bg-cyan-500/10 text-cyan-300 border-cyan-500/30"
+                                : "bg-purple-500/10 text-purple-300 border-purple-500/30"
+                            }`}
+                          >
+                            {fs.specialization}
+                          </span>
+                        </td>
+                        <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-black text-amber-400">
+                          {fs.dayName}
+                        </td>
+                        <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-mono">
+                          <div className="font-bold text-white">{fs.periodName}</div>
+                          <div className="text-[11px] text-cyan-400">
+                            من {fs.startTime} إلى {fs.endTime}
+                          </div>
+                        </td>
+                        <td className="p-3 border border-slate-800/80 print:border print:border-black font-semibold text-emerald-300">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                            <span>{fs.delegateName}</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ) : (
+            /* Biometrics Table */
+            loading ? (
+              <div className="p-16 text-center text-slate-400 text-sm space-y-3">
+                <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                <p>جاري تحميل جدول المواعيد الرسمي...</p>
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="p-12 text-center text-slate-400 text-sm space-y-2">
+                <AlertCircle className="w-8 h-8 mx-auto text-amber-400 opacity-60" />
+                <p>لا توجد مواعيد تطابق شروط البحث الحالية.</p>
+                <button
+                  onClick={() => {
+                    setSelectedAcademicYear("ALL");
+                    setSelectedSpecialization("ALL");
+                    setSelectedGroup("ALL");
+                    setSelectedSubSection("ALL");
+                    setSearchQuery("");
+                  }}
+                  className="text-xs text-blue-400 hover:underline font-bold"
+                >
+                  إعادة ضبط خيارات التصفية
+                </button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto print:overflow-visible">
+                <table className="w-full text-right border-collapse border border-slate-700 print:border-2 print:border-black text-xs sm:text-sm">
+                  <thead>
+                    <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-300 text-xs font-black print:bg-slate-100 print:text-black print:border-b-2 print:border-black">
+                      <th className="p-3 border border-slate-800 print:border print:border-black text-center w-10">
+                        م
+                      </th>
+                      <th className="p-3 border border-slate-800 print:border print:border-black">المجموعة</th>
+                      <th className="p-3 border border-slate-800 print:border print:border-black">السكشن</th>
+                      <th className="p-3 border border-slate-800 print:border print:border-black text-center">
+                        القسم (A / B)
+                      </th>
+                      <th className="p-3 border border-slate-800 print:border print:border-black text-center">
+                        اليوم والتاريخ
+                      </th>
+                      <th className="p-3 border border-slate-800 print:border print:border-black text-center">
+                        فترة الحضور
+                      </th>
+                      <th className="p-3 border border-slate-800 print:border print:border-black">
+                        المقر وقاعة البصمة بالتفصيل
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/80 text-xs sm:text-sm">
+                    {filtered.map((sc, idx) => (
+                      <tr
+                        key={sc.id}
+                        className="hover:bg-slate-800/40 border-b border-slate-800/60 transition print:bg-white print:border print:border-black print:text-black"
+                      >
+                        <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-bold font-mono print:text-black">
+                          {idx + 1}
+                        </td>
+                        <td className="p-3 border border-slate-800/80 print:border print:border-black font-bold text-white print:text-black">
+                          {sc.groupName}
+                        </td>
+                        <td className="p-3 border border-slate-800/80 print:border print:border-black font-black text-blue-400 font-mono print:text-black">
+                          {sc.sectionName} ({sc.sectionCode})
+                        </td>
+                        <td className="p-3 border border-slate-800/80 print:border print:border-black text-center">
+                          {sc.subSection === "A" ? (
+                            <span className="inline-block px-2.5 py-1 rounded-full text-xs font-black bg-blue-500/10 text-blue-400 border border-blue-500/30 print:border print:border-blue-900 print:bg-blue-50 print:text-blue-950 font-bold">
+                              قسم A فقط
+                            </span>
+                          ) : sc.subSection === "B" ? (
+                            <span className="inline-block px-2.5 py-1 rounded-full text-xs font-black bg-purple-500/10 text-purple-400 border border-purple-500/30 print:border print:border-purple-900 print:bg-purple-50 print:text-purple-950 font-bold">
+                              قسم B فقط
+                            </span>
+                          ) : (
+                            <span className="inline-block px-2.5 py-1 rounded-full text-xs font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 print:border print:border-emerald-900 print:bg-emerald-50 print:text-emerald-950 font-bold">
+                              A و B معاً (الكامل)
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3 border border-slate-800/80 print:border print:border-black text-center">
+                          <div className="inline-flex flex-col items-center justify-center">
+                            <span className="font-black text-amber-400 print:text-black text-sm">
+                              {getArabicDayName(sc.date) || "—"}
+                            </span>
+                            <span className="text-[11px] font-mono text-slate-300 print:text-slate-800 mt-0.5" dir="ltr">
+                              {sc.date}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-bold text-slate-200 print:text-black">
+                          <span className="inline-flex items-center gap-1 font-mono text-xs sm:text-sm">
+                            <span>من {format12HourTime(sc.startTime)}</span>
+                            <span className="text-slate-500 print:text-black">إلى</span>
+                            <span>{format12HourTime(sc.endTime)}</span>
+                          </span>
+                        </td>
+                        <td className="p-3 border border-slate-800/80 print:border print:border-black text-xs text-slate-300 font-medium print:text-black">
+                          {sc.notes || "الواحة — مبنى الشؤون (شباك بصمة الوجه)"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
           )}
         </div>
 

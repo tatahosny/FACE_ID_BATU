@@ -12,9 +12,12 @@ const createGroupSchema = z.object({
   code: z.string().trim().min(2, "رمز المجموعة مطلوب").max(50),
 });
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const groupsList = await AcademicService.getGroups(true);
+    const { searchParams } = new URL(req.url);
+    const academicYear = searchParams.get("academicYear") || undefined;
+    const specialization = searchParams.get("specialization") || undefined;
+    const groupsList = await AcademicService.getGroups(true, { academicYear, specialization });
     return apiSuccess({ groups: groupsList });
   } catch (error: any) {
     return apiError(error.message || "فشل جلب المجموعات", 500);

@@ -72,6 +72,8 @@ export async function PATCH(
       .select({
         sectionName: sections.name,
         groupName: groups.name,
+        academicYear: groups.academicYear,
+        specialization: groups.specialization,
       })
       .from(sections)
       .innerJoin(groups, eq(sections.groupId, groups.id))
@@ -90,6 +92,9 @@ export async function PATCH(
       .select({
         id: students.id,
         fullName: students.fullName,
+        academicNumber: students.academicNumber,
+        academicYear: students.academicYear,
+        specialization: students.specialization,
         subSection: students.subSection,
         telegramUserId: students.telegramUserId,
       })
@@ -104,13 +109,26 @@ export async function PATCH(
         ? " (قسم B فقط)"
         : " (قسمي A و B)";
 
+    const subSecLabel =
+      updated.subSection === "A"
+        ? "قسم A فقط"
+        : updated.subSection === "B"
+        ? "قسم B فقط"
+        : "قسمي A و B معاً";
+
     let queuedTelegramCount = 0;
 
     // 1. If opened, broadcast Telegram opening notification via reliable outbox queue
     if (parsed.data.status === "OPEN") {
       for (const st of sectionStudents) {
         if (!st.telegramUserId) continue;
-        const openMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تم فتح حجز دور البصمة للسكشن الخاص بكم الآن!</b>\n\n<b>السكشن:</b> ${sec?.sectionName || "السكشن الأكاديمي"}${subSectionText} (${sec?.groupName || "المجموعة"})\n<b>عزيزي الطالب:</b> ${st.fullName}\n\n<b>المقر:</b> الواحة — مبنى الشؤون (شباك بصمة الوجه)\n\n<b>يمكنك الآن الدخول إلى المنصة وحجز رقم دورك فوراً:</b>\n<a href="${appUrl}/booking">${appUrl}/booking</a>\n\nيرجى الدخول فوراً لحجز دورك (سيتم تخصيص شباك T أو شباك D لك تلقائياً بالتناوب).`;
+
+        const acadYear = sec?.academicYear || st.academicYear || "الفرقة الثالثة";
+        const specText = (sec?.specialization || st.specialization)
+          ? `\n📌 <b>الشعبة التخصصية:</b> ${sec?.specialization || st.specialization}`
+          : "";
+
+        const openMsg = `<b>🏛️ جامعة برج العرب التكنولوجية (BATU)</b>\n<b>نظام حجز بصمة الوجه وإدارة الطابور الذكي</b>\n\n📢 <b>تم فتح باب حجز دور البصمة للسكشن الخاص بك الآن!</b>\n\n👤 <b>عزيزي الطالب:</b> ${st.fullName}\n🆔 <b>الرقم الأكاديمي:</b> <code>${st.academicNumber}</code>\n🎓 <b>الفرقة الدراسية:</b> ${acadYear}${specText}\n👥 <b>المجموعة:</b> ${sec?.groupName || "المجموعة"}\n🔢 <b>السكشن:</b> ${sec?.sectionName || "السكشن الأكاديمي"}\n🎯 <b>القسم المسموح له بالحجز:</b> ${subSecLabel}\n\n📍 <b>المقر:</b> الواحة — مبنى شؤون الطلاب (شباك بصمة الوجه)\n\n🎟️ <b>احجز رقم دورك في الطابور الآن فوراً:</b>\n👉 <a href="${appUrl}/booking">${appUrl}/booking</a>\n\n<i>يرجى الدخول فوراً عبر الرابط أعلاه بالرقم الأكاديمي لحجز تذكرتك قبل اكتمال السعة المحددة.</i>`;
 
         const idempotencyKey = `window_open_${updated.id}_${st.id}_${Date.now()}`;
         await db
@@ -121,6 +139,9 @@ export async function PATCH(
             telegramChatId: st.telegramUserId,
             payload: {
               studentName: st.fullName,
+              academicNumber: st.academicNumber,
+              academicYear: acadYear,
+              specialization: sec?.specialization || st.specialization,
               sectionName: `${sec?.sectionName || ""}${subSectionText} (${sec?.groupName || ""})`,
               bookingUrl: `${appUrl}/booking`,
               message: openMsg,
@@ -135,23 +156,36 @@ export async function PATCH(
       NotificationService.triggerBackgroundWorker();
     }
 
-    // 2. If paused or stopped, broadcast Telegram pause notice via reliable outbox queue
+    // 2. If paused or closed, broadcast Telegram close/pause notice via reliable outbox queue
     if (parsed.data.status === "PAUSED" || parsed.data.status === "CLOSED") {
+      const isPaused = parsed.data.status === "PAUSED";
+      const statusTitle = isPaused ? "⏸️ تنبيه إيقاف مؤقت لحجز دور البصمة" : "⛔ إغلاق باب حجز دور البصمة";
+      const statusAction = isPaused ? "إيقاف حجز دور البصمة لسكشنكم مؤقتاً" : "إغلاق باب حجز دور البصمة لسكشنكم";
+
       for (const st of sectionStudents) {
         if (!st.telegramUserId) continue;
-        const pauseMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>تنبيه إيقاف حجز دور البصمة:</b>\n\nأعزائنا طلاب <b>${sec?.sectionName || "السكشن الأكاديمي"}${subSectionText}</b> (${sec?.groupName || "المجموعة"})،\nنحيطكم علماً بأنه قد <b>تم إيقاف حجز دور البصمة لسكشنكم مؤقتاً لحين إشعار آخر بالفتح</b>.\n\nستصلكم رسالة فورية عبر التيليجرام فور استئناف وفتح الحجز لسكشنكم مرة أخرى.`;
 
-        const idempotencyKey = `window_pause_${updated.id}_${st.id}_${Date.now()}`;
+        const acadYear = sec?.academicYear || st.academicYear || "الفرقة الثالثة";
+        const specText = (sec?.specialization || st.specialization)
+          ? `\n📌 <b>الشعبة التخصصية:</b> ${sec?.specialization || st.specialization}`
+          : "";
+
+        const closeMsg = `<b>🏛️ جامعة برج العرب التكنولوجية (BATU)</b>\n<b>نظام حجز بصمة الوجه وإدارة الطابور الذكي</b>\n\n${statusTitle}\n\n👤 <b>عزيزي الطالب:</b> ${st.fullName}\n🆔 <b>الرقم الأكاديمي:</b> <code>${st.academicNumber}</code>\n🎓 <b>الفرقة الدراسية:</b> ${acadYear}${specText}\n👥 <b>المجموعة:</b> ${sec?.groupName || "المجموعة"}\n🔢 <b>السكشن:</b> ${sec?.sectionName || "السكشن الأكاديمي"}\n🎯 <b>القسم:</b> ${subSecLabel}\n\nنحيطكم علماً بأنه قد <b>تم ${statusAction}</b> في الوقت الحالي بناءً على تعليمات إدارة الكلية.\n\n🔔 <b>ستصلكم رسالة فورية عبر التيليجرام فور إعادة فتح الحجز لسكشنكم مرة أخرى.</b>`;
+
+        const idempotencyKey = `window_${isPaused ? "pause" : "close"}_${updated.id}_${st.id}_${Date.now()}`;
         await db
           .insert(notificationOutbox)
           .values({
-            eventType: "WINDOW_PAUSED",
+            eventType: isPaused ? "WINDOW_PAUSED" : "WINDOW_CLOSED",
             recipientId: st.id,
             telegramChatId: st.telegramUserId,
             payload: {
               studentName: st.fullName,
+              academicNumber: st.academicNumber,
+              academicYear: acadYear,
+              specialization: sec?.specialization || st.specialization,
               sectionName: `${sec?.sectionName || ""}${subSectionText} (${sec?.groupName || ""})`,
-              message: pauseMsg,
+              message: closeMsg,
             },
             idempotencyKey,
             status: "PENDING",

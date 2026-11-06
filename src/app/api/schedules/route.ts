@@ -14,6 +14,8 @@ export async function GET(req: NextRequest) {
     const groupId = searchParams.get("groupId");
     const sectionId = searchParams.get("sectionId");
     const subSection = searchParams.get("subSection");
+    const academicYear = searchParams.get("academicYear");
+    const specialization = searchParams.get("specialization");
 
     let query = db
       .select({
@@ -23,6 +25,8 @@ export async function GET(req: NextRequest) {
         sectionCode: sections.code,
         groupId: sections.groupId,
         groupName: groups.name,
+        academicYear: groups.academicYear,
+        specialization: groups.specialization,
         date: sectionSchedules.date,
         startTime: sectionSchedules.startTime,
         endTime: sectionSchedules.endTime,
@@ -36,6 +40,12 @@ export async function GET(req: NextRequest) {
       .$dynamic();
 
     const conditions = [];
+    if (academicYear && academicYear !== "ALL") {
+      conditions.push(eq(groups.academicYear, academicYear));
+    }
+    if (specialization && specialization !== "ALL") {
+      conditions.push(eq(groups.specialization, specialization));
+    }
     if (groupId) {
       conditions.push(eq(sections.groupId, groupId));
     }

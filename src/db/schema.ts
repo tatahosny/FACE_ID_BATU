@@ -20,6 +20,8 @@ export const groups = pgTable("groups", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: varchar("name", { length: 100 }).notNull(),
   code: varchar("code", { length: 50 }).notNull().unique(),
+  academicYear: varchar("academic_year", { length: 50 }).default("الفرقة الثانية").notNull(),
+  specialization: varchar("specialization", { length: 50 }), // 'سوفت وير' | 'نيتورك' | null
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -75,6 +77,9 @@ export const students = pgTable(
       .notNull()
       .references(() => sections.id, { onDelete: "restrict" }),
     subSection: varchar("sub_section", { length: 10 }).default("A").notNull(), // 'A' | 'B'
+    academicYear: varchar("academic_year", { length: 50 }).default("الفرقة الثانية").notNull(),
+    specialization: varchar("specialization", { length: 50 }), // 'سوفت وير' | 'نيتورك' | null
+    isDelegate: boolean("is_delegate").default(false).notNull(),
     telegramUserId: bigint("telegram_user_id", { mode: "number" }).unique(),
     telegramUsername: varchar("telegram_username", { length: 100 }),
     telegramLinkedAt: timestamp("telegram_linked_at", { withTimezone: true }),
@@ -105,6 +110,8 @@ export const sectionSchedules = pgTable(
     startTime: time("start_time").notNull(),
     endTime: time("end_time").notNull(),
     subSection: varchar("sub_section", { length: 10 }).default("ALL").notNull(), // 'ALL' | 'A' | 'B'
+    academicYear: varchar("academic_year", { length: 50 }).default("الفرقة الثانية"),
+    specialization: varchar("specialization", { length: 50 }),
     notes: text("notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -128,6 +135,8 @@ export const bookingWindows = pgTable(
     endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
     status: varchar("status", { length: 20 }).default("DRAFT").notNull(), // 'DRAFT' | 'OPEN' | 'PAUSED' | 'CLOSED'
     capacity: integer("capacity").default(50).notNull(),
+    academicYear: varchar("academic_year", { length: 50 }).default("الفرقة الثانية"),
+    specialization: varchar("specialization", { length: 50 }),
     subSection: varchar("sub_section", { length: 10 }).default("ALL").notNull(), // 'ALL' | 'A' | 'B'
     nextQueueNumber: integer("next_queue_number").default(1).notNull(), // Concurrency safe atomic counter
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
@@ -406,11 +415,56 @@ export const feedbackCampaignRecipients = pgTable(
   })
 );
 
+// 20. Delegate Slot Days Settings (Admin-controlled active booking days for delegate free periods)
+export const delegateSlotDays = pgTable("delegate_slot_days", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  dayName: varchar("day_name", { length: 50 }).notNull().unique(),
+  dayIndex: integer("day_index").notNull(),
+  isOpen: boolean("is_open").default(false).notNull(),
+  academicYear: varchar("academic_year", { length: 50 }).default("الفرقة الثالثة").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// 21. Section Free Slots (Third-year section free slots chosen by delegates)
+export const sectionFreeSlots = pgTable(
+  "section_free_slots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    academicYear: varchar("academic_year", { length: 50 }).default("الفرقة الثالثة").notNull(),
+    specialization: varchar("specialization", { length: 50 }).notNull(), // 'سوفت وير' | 'نيتورك'
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    sectionId: uuid("section_id")
+      .notNull()
+      .references(() => sections.id, { onDelete: "cascade" }),
+    delegateStudentId: uuid("delegate_student_id").references(() => students.id, { onDelete: "set null" }),
+    delegateName: varchar("delegate_name", { length: 255 }).notNull(),
+    dayName: varchar("day_name", { length: 50 }).notNull(), // 'السبت', 'الأحد', ...
+    periodIndex: integer("period_index").notNull(), // 1 to 9
+    periodName: varchar("period_name", { length: 50 }).notNull(), // 'الفترة الأولى', ...
+    startTime: varchar("start_time", { length: 20 }).notNull(), // '09:00'
+    endTime: varchar("end_time", { length: 20 }).notNull(), // '09:40'
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    specDayPeriodIdx: uniqueIndex("section_free_slots_spec_day_period_idx").on(
+      table.specialization,
+      table.dayName,
+      table.periodIndex
+    ),
+    sectionIdx: index("section_free_slots_section_idx").on(table.sectionId),
+  })
+);
+
 // Relations definitions
 export const groupsRelations = relations(groups, ({ many }) => ({
   sections: many(sections),
   students: many(students),
   bookingWindows: many(bookingWindows),
+  freeSlots: many(sectionFreeSlots),
 }));
 
 export const sectionsRelations = relations(sections, ({ one, many }) => ({
@@ -418,6 +472,7 @@ export const sectionsRelations = relations(sections, ({ one, many }) => ({
   students: many(students),
   schedules: many(sectionSchedules),
   bookingWindows: many(bookingWindows),
+  freeSlots: many(sectionFreeSlots),
 }));
 
 export const studentsRelations = relations(students, ({ one, many }) => ({
@@ -427,6 +482,13 @@ export const studentsRelations = relations(students, ({ one, many }) => ({
   bookings: many(bookings),
   activations: many(fingerprintActivations),
   feedbackRatings: many(feedbackRatings),
+  freeSlots: many(sectionFreeSlots),
+}));
+
+export const sectionFreeSlotsRelations = relations(sectionFreeSlots, ({ one }) => ({
+  group: one(groups, { fields: [sectionFreeSlots.groupId], references: [groups.id] }),
+  section: one(sections, { fields: [sectionFreeSlots.sectionId], references: [sections.id] }),
+  delegateStudent: one(students, { fields: [sectionFreeSlots.delegateStudentId], references: [students.id] }),
 }));
 
 export const feedbackRatingsRelations = relations(feedbackRatings, ({ one }) => ({

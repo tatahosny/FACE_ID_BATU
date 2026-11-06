@@ -14,11 +14,37 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const sectionId = searchParams.get("sectionId");
 
+    // Auto-ensure: guarantee that every active section across all academic years has a canonical booking window
+    try {
+      const allSecs = await db.select({ id: sections.id, groupId: sections.groupId }).from(sections);
+      const existingWins = await db.select({ sectionId: bookingWindows.sectionId }).from(bookingWindows);
+      const existingSet = new Set(existingWins.map((w) => w.sectionId));
+      const missingSecs = allSecs.filter((s) => !existingSet.has(s.id));
+      if (missingSecs.length > 0) {
+        await db.insert(bookingWindows).values(
+          missingSecs.map((s) => ({
+            groupId: s.groupId,
+            sectionId: s.id,
+            subSection: "ALL" as const,
+            startsAt: new Date(),
+            endsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            capacity: 50,
+            status: "CLOSED",
+            nextQueueNumber: 1,
+          }))
+        );
+      }
+    } catch (ensureErr) {
+      console.warn("Auto-ensure booking windows warning:", ensureErr);
+    }
+
     const query = db
       .select({
         id: bookingWindows.id,
         groupId: bookingWindows.groupId,
         groupName: groups.name,
+        academicYear: groups.academicYear,
+        specialization: groups.specialization,
         sectionId: bookingWindows.sectionId,
         sectionName: sections.name,
         startsAt: bookingWindows.startsAt,
@@ -78,6 +104,15 @@ export async function POST(req: NextRequest) {
 
     const subSec = parsed.data.subSection || "ALL";
 
+    const [groupRecord] = await db
+      .select({ academicYear: groups.academicYear, specialization: groups.specialization })
+      .from(groups)
+      .where(eq(groups.id, parsed.data.groupId))
+      .limit(1);
+
+    const academicYear = groupRecord?.academicYear || "الفرقة الثانية";
+    const specialization = groupRecord?.specialization || null;
+
     // Enforce exactly one canonical booking window per section
     const [existingWindow] = await db
       .select({ id: bookingWindows.id })
@@ -90,6 +125,8 @@ export async function POST(req: NextRequest) {
         .update(bookingWindows)
         .set({
           groupId: parsed.data.groupId,
+          academicYear,
+          specialization,
           subSection: subSec,
           startsAt: new Date(parsed.data.startsAt),
           endsAt: new Date(parsed.data.endsAt),
@@ -121,6 +158,8 @@ export async function POST(req: NextRequest) {
       .values({
         groupId: parsed.data.groupId,
         sectionId: parsed.data.sectionId,
+        academicYear,
+        specialization,
         startsAt: new Date(parsed.data.startsAt),
         endsAt: new Date(parsed.data.endsAt),
         capacity: parsed.data.capacity,

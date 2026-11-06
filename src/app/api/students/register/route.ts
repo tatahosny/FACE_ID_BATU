@@ -45,6 +45,9 @@ export async function POST(req: NextRequest) {
       academicNumber: result.student.academicNumber,
       groupId: result.student.groupId,
       sectionId: result.student.sectionId,
+      academicYear: result.student.academicYear,
+      specialization: result.student.specialization,
+      isDelegate: Boolean(result.student.isDelegate),
       role: "STUDENT",
     });
 

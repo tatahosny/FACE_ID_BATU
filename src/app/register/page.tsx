@@ -47,6 +47,8 @@ export default function RegisterPage() {
     fullName: "",
     academicNumber: "",
     nationalId: "",
+    academicYear: "الفرقة الثانية",
+    specialization: "",
     groupId: "",
     sectionId: "",
     subSection: "A",
@@ -106,12 +108,26 @@ export default function RegisterPage() {
     };
   }, [successResult?.student?.id, isLinked]);
 
-  // Fetch Groups on mount
+  // Fetch Groups dynamically when academicYear or specialization changes
   useEffect(() => {
     async function loadGroups() {
+      const isSpecRequired =
+        formData.academicYear === "الفرقة الثالثة" || formData.academicYear === "الفرقة الرابعة";
+
+      if (isSpecRequired && !formData.specialization) {
+        setGroups([]);
+        setSections([]);
+        setFormData((prev) => ({ ...prev, groupId: "", sectionId: "" }));
+        return;
+      }
+
       try {
         setLoadingAcademic(true);
-        const res = await fetch("/api/groups");
+        let url = `/api/groups?academicYear=${encodeURIComponent(formData.academicYear)}`;
+        if (isSpecRequired && formData.specialization) {
+          url += `&specialization=${encodeURIComponent(formData.specialization)}`;
+        }
+        const res = await fetch(url);
         const json = await res.json();
         if (json.success && json.data.groups) {
           setGroups(json.data.groups);
@@ -123,7 +139,7 @@ export default function RegisterPage() {
       }
     }
     loadGroups();
-  }, []);
+  }, [formData.academicYear, formData.specialization]);
 
   // Fetch Sections dynamically when Group changes
   useEffect(() => {
@@ -150,7 +166,24 @@ export default function RegisterPage() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    if (name === "academicYear") {
+      setFormData((prev) => ({
+        ...prev,
+        academicYear: value,
+        specialization: "",
+        groupId: "",
+        sectionId: "",
+      }));
+    } else if (name === "specialization") {
+      setFormData((prev) => ({
+        ...prev,
+        specialization: value,
+        groupId: "",
+        sectionId: "",
+      }));
+    } else {
+      setFormData((prev) => ({ ...prev, [name]: value }));
+    }
     setErrorMessage(null);
   };
 
@@ -166,6 +199,13 @@ export default function RegisterPage() {
 
     if (formData.nationalId.trim().length !== 14 || !/^\d{14}$/.test(formData.nationalId.trim())) {
       setErrorMessage("الرقم القومي يجب أن يتكون من 14 رقماً بالضبط");
+      return;
+    }
+
+    const isSpecRequired =
+      formData.academicYear === "الفرقة الثالثة" || formData.academicYear === "الفرقة الرابعة";
+    if (isSpecRequired && !formData.specialization) {
+      setErrorMessage("يرجى اختيار الشعبة الأكاديمية (سوفت وير أو نيتورك)");
       return;
     }
 
@@ -476,6 +516,20 @@ export default function RegisterPage() {
                   <span className="font-bold text-white font-mono">{successResult.student.academicNumber}</span>
                 </div>
                 <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                  <span className="text-slate-400">الفرقة الأكاديمية:</span>
+                  <span className="font-semibold text-cyan-300">
+                    {successResult.student.academicYear || formData.academicYear}
+                  </span>
+                </div>
+                {(successResult.student.specialization || formData.specialization) && (
+                  <div className="flex justify-between items-center py-1 border-b border-slate-800">
+                    <span className="text-slate-400">الشعبة:</span>
+                    <span className="font-semibold text-amber-300">
+                      {successResult.student.specialization || formData.specialization}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center py-1 border-b border-slate-800">
                   <span className="text-slate-400">المجموعة:</span>
                   <span className="font-semibold text-slate-200">
                     {groups.find((g) => g.id === successResult.student.groupId)?.name || "محددة"}
@@ -635,6 +689,70 @@ export default function RegisterPage() {
               </p>
             </div>
 
+            {/* Academic Year Selection */}
+            <div>
+              <label htmlFor="academicYear" className="block text-sm font-bold text-slate-200 mb-1">
+                الفرقة الأكاديمية <span className="text-red-400">*</span>
+              </label>
+              <select
+                id="academicYear"
+                name="academicYear"
+                required
+                value={formData.academicYear}
+                onChange={handleChange}
+                className="w-full px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              >
+                <option value="الفرقة الأولى">الفرقة الأولى</option>
+                <option value="الفرقة الثانية">الفرقة الثانية</option>
+                <option value="الفرقة الثالثة">الفرقة الثالثة</option>
+                <option value="الفرقة الرابعة">الفرقة الرابعة</option>
+              </select>
+            </div>
+
+            {/* Specialization Selection (Shown ONLY for Year 3 and Year 4) */}
+            {(formData.academicYear === "الفرقة الثالثة" || formData.academicYear === "الفرقة الرابعة") && (
+              <div className="p-4 rounded-2xl bg-cyan-950/20 border border-cyan-500/30 space-y-2 animate-in fade-in duration-200">
+                <label className="block text-sm font-bold text-cyan-300 mb-1">
+                  الشعبة التخصصية <span className="text-red-400">*</span>
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleChange({
+                        target: { name: "specialization", value: "سوفت وير" },
+                      } as any)
+                    }
+                    className={`py-3 px-4 rounded-xl border text-sm font-bold transition flex items-center justify-center gap-2 ${
+                      formData.specialization === "سوفت وير"
+                        ? "bg-cyan-600/30 border-cyan-400 text-cyan-200 ring-2 ring-cyan-500/50"
+                        : "bg-slate-950 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600"
+                    }`}
+                  >
+                    <span>💻 شعبة سوفت وير</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleChange({
+                        target: { name: "specialization", value: "نيتورك" },
+                      } as any)
+                    }
+                    className={`py-3 px-4 rounded-xl border text-sm font-bold transition flex items-center justify-center gap-2 ${
+                      formData.specialization === "نيتورك"
+                        ? "bg-cyan-600/30 border-cyan-400 text-cyan-200 ring-2 ring-cyan-500/50"
+                        : "bg-slate-950 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600"
+                    }`}
+                  >
+                    <span>🌐 شعبة نيتورك</span>
+                  </button>
+                </div>
+                <p className="text-xs text-cyan-300/80">
+                  يرجى تحديد شعبتك لاختيار المجموعة الأكاديمية والسكشن المخصص لك.
+                </p>
+              </div>
+            )}
+
             {/* Group Selection */}
             <div>
               <label htmlFor="groupId" className="block text-sm font-bold text-slate-200 mb-1">
@@ -646,10 +764,21 @@ export default function RegisterPage() {
                 required
                 value={formData.groupId}
                 onChange={handleChange}
-                disabled={loadingAcademic}
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                disabled={
+                  loadingAcademic ||
+                  ((formData.academicYear === "الفرقة الثالثة" || formData.academicYear === "الفرقة الرابعة") &&
+                    !formData.specialization)
+                }
+                className="w-full px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm disabled:bg-slate-900 disabled:text-slate-500"
               >
-                <option value="">-- اختر المجموعة الأكاديمية --</option>
+                <option value="">
+                  {(formData.academicYear === "الفرقة الثالثة" || formData.academicYear === "الفرقة الرابعة") &&
+                  !formData.specialization
+                    ? "-- يرجى اختيار الشعبة أولاً --"
+                    : loadingAcademic
+                    ? "جاري تحميل المجموعات..."
+                    : "-- اختر المجموعة الأكاديمية --"}
+                </option>
                 {groups.map((g) => (
                   <option key={g.id} value={g.id} className="bg-slate-900 text-white">
                     {g.name}
