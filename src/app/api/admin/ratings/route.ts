@@ -22,6 +22,30 @@ export async function GET(req: NextRequest) {
     await requireRole([USER_ROLES.SUPER_ADMIN]);
 
     const { searchParams } = new URL(req.url);
+
+    // Audience preview mode for campaign composer
+    if (searchParams.get("preview") === "true") {
+      const targetType = (searchParams.get("targetType") || "ALL") as any;
+      const academicYear = searchParams.get("academicYear") || undefined;
+      const specialization = searchParams.get("specialization") || undefined;
+      const groupId = searchParams.get("groupId") || undefined;
+      const sectionId = searchParams.get("sectionId") || undefined;
+      const subSection = (searchParams.get("subSection") || "ALL") as any;
+      const studentId = searchParams.get("studentId") || undefined;
+
+      const preview = await FeedbackService.previewAudience({
+        targetType,
+        academicYear,
+        specialization,
+        groupId,
+        sectionId,
+        subSection,
+        studentId,
+      });
+
+      return apiSuccess(preview);
+    }
+
     const page = parseInt(searchParams.get("page") || "1", 10);
     const limit = parseInt(searchParams.get("limit") || "20", 10);
     const offset = (page - 1) * limit;
@@ -286,13 +310,46 @@ export async function POST(req: NextRequest) {
     const session = await requireRole([USER_ROLES.SUPER_ADMIN]);
 
     const body = await req.json();
-    const { title, targetType = "ALL", targetStudentId } = body;
+
+    // 1. High-speed batch processor endpoint (same as telegram broadcast campaigns)
+    if (body.action === "process_batch") {
+      const { campaignId, batchSize = 30 } = body;
+      if (!campaignId) {
+        return apiError("معرف الحملة مطلوب", 400);
+      }
+      const batchResult = await FeedbackService.processFeedbackBatch(campaignId, batchSize);
+      return apiSuccess(batchResult);
+    }
+
+    // 2. Pause campaign auto-delivery
+    if (body.action === "pause") {
+      const { campaignId } = body;
+      if (!campaignId) {
+        return apiError("معرف الحملة مطلوب", 400);
+      }
+      const res = await FeedbackService.pauseCampaign(campaignId);
+      return apiSuccess(res, "تم إيقاف إرسال الاستبيان مؤقتاً");
+    }
+
+    // 3. Resume campaign auto-delivery
+    if (body.action === "resume") {
+      const { campaignId } = body;
+      if (!campaignId) {
+        return apiError("معرف الحملة مطلوب", 400);
+      }
+      const res = await FeedbackService.resumeCampaign(campaignId);
+      return apiSuccess(res, "تم استئناف إرسال الاستبيان في دفعات");
+    }
+
+    // 4. Create new feedback campaign
+    const { title, targetType = "ALL", targetStudentId, targetFilters } = body;
 
     if (!title?.trim()) {
       return apiError("عنوان الحملة مطلوب", 400);
     }
 
-    if (!["ALL", "STUDENT"].includes(targetType)) {
+    const validTargets = ["ALL", "GROUP", "SECTION", "ACADEMIC_YEAR", "SPECIALIZATION", "STUDENT"];
+    if (!validTargets.includes(targetType)) {
       return apiError("نوع الهدف غير صالح", 400);
     }
 
@@ -305,6 +362,7 @@ export async function POST(req: NextRequest) {
       title: title.trim(),
       targetType,
       targetStudentId,
+      targetFilters,
       createdBy: session.userId,
     });
 
@@ -315,7 +373,7 @@ export async function POST(req: NextRequest) {
         totalRecipients: result.totalRecipients,
         status: result.campaign.status,
       },
-      `تم إطلاق حملة التقييم لـ ${result.totalRecipients} طالب بنجاح! يتم الإرسال تلقائياً في الخلفية.`
+      `تم إطلاق حملة التقييم لـ ${result.totalRecipients} طالب بنجاح! يتم الإرسال في دفعات سريعة.`
     );
   } catch (error: any) {
     if (error.message === "UNAUTHORIZED" || error.message === "FORBIDDEN") {

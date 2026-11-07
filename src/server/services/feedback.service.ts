@@ -12,60 +12,111 @@ import { TelegramService } from "./telegram.service";
 
 export class FeedbackService {
   /**
+   * Preview eligible audience metrics for feedback campaigns before confirming
+   */
+  static async previewAudience(params: {
+    targetType: "ALL" | "GROUP" | "SECTION" | "ACADEMIC_YEAR" | "SPECIALIZATION" | "STUDENT";
+    academicYear?: string;
+    specialization?: string;
+    groupId?: string;
+    sectionId?: string;
+    subSection?: "ALL" | "A" | "B";
+    studentId?: string;
+  }) {
+    const conditions = [];
+
+    if (params.targetType === "STUDENT" && params.studentId) {
+      conditions.push(eq(students.id, params.studentId));
+    } else {
+      if (params.academicYear && params.academicYear !== "ALL") {
+        conditions.push(eq(students.academicYear, params.academicYear));
+      }
+      if (params.specialization && params.specialization !== "ALL") {
+        conditions.push(eq(students.specialization, params.specialization));
+      }
+      if (params.targetType === "GROUP" && params.groupId) {
+        conditions.push(eq(students.groupId, params.groupId));
+      } else if (params.targetType === "SECTION" && params.sectionId) {
+        conditions.push(eq(students.sectionId, params.sectionId));
+      }
+      if (params.subSection && params.subSection !== "ALL") {
+        conditions.push(eq(students.subSection, params.subSection));
+      }
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [{ totalStudents }] = await db
+      .select({ totalStudents: sql<number>`cast(count(*) as integer)` })
+      .from(students)
+      .where(whereClause);
+
+    const [{ linkedStudents }] = await db
+      .select({ linkedStudents: sql<number>`cast(count(*) as integer)` })
+      .from(students)
+      .where(and(whereClause, isNotNull(students.telegramUserId), eq(students.isActive, true)));
+
+    return {
+      totalStudents,
+      eligibleTelegramRecipients: linkedStudents,
+      unlinkedStudents: totalStudents - linkedStudents,
+    };
+  }
+
+  /**
    * Create feedback campaign and launch autonomous background delivery
    */
   static async createAndDispatchCampaign(params: {
     title: string;
-    targetType: "ALL" | "STUDENT";
+    targetType: "ALL" | "GROUP" | "SECTION" | "ACADEMIC_YEAR" | "SPECIALIZATION" | "STUDENT";
     targetStudentId?: string;
+    targetFilters?: {
+      academicYear?: string;
+      specialization?: string;
+      groupId?: string;
+      sectionId?: string;
+      subSection?: "ALL" | "A" | "B";
+    };
     createdBy: string;
   }) {
-    const { title, targetType, targetStudentId, createdBy } = params;
+    const { title, targetType, targetStudentId, targetFilters, createdBy } = params;
 
     // 1. Resolve eligible students
-    let eligibleStudents: { id: string; telegramUserId: number; fullName: string }[] = [];
+    const conditions = [
+      isNotNull(students.telegramUserId),
+      eq(students.isActive, true),
+    ];
 
-    if (targetType === "ALL") {
-      const dbStudents = await db
-        .select({
-          id: students.id,
-          telegramUserId: students.telegramUserId,
-          fullName: students.fullName,
-        })
-        .from(students)
-        .where(and(isNotNull(students.telegramUserId), eq(students.isActive, true)));
-
-      eligibleStudents = dbStudents.map((s) => ({
-        id: s.id,
-        telegramUserId: s.telegramUserId!,
-        fullName: s.fullName,
-      }));
-    } else {
+    if (targetType === "STUDENT") {
       if (!targetStudentId) {
         throw new Error("معرف الطالب مطلوب عند الاستهداف الفردي");
       }
-
-      const [targetStudent] = await db
-        .select({
-          id: students.id,
-          telegramUserId: students.telegramUserId,
-          fullName: students.fullName,
-        })
-        .from(students)
-        .where(eq(students.id, targetStudentId));
-
-      if (!targetStudent?.telegramUserId) {
-        throw new Error("الطالب غير مرتبط بتيليجرام أو غير مسجل");
+      conditions.push(eq(students.id, targetStudentId));
+    } else {
+      if (targetFilters?.academicYear && targetFilters.academicYear !== "ALL") {
+        conditions.push(eq(students.academicYear, targetFilters.academicYear));
       }
-
-      eligibleStudents = [
-        {
-          id: targetStudent.id,
-          telegramUserId: targetStudent.telegramUserId,
-          fullName: targetStudent.fullName,
-        },
-      ];
+      if (targetFilters?.specialization && targetFilters.specialization !== "ALL") {
+        conditions.push(eq(students.specialization, targetFilters.specialization));
+      }
+      if (targetType === "GROUP" && targetFilters?.groupId) {
+        conditions.push(eq(students.groupId, targetFilters.groupId));
+      } else if (targetType === "SECTION" && targetFilters?.sectionId) {
+        conditions.push(eq(students.sectionId, targetFilters.sectionId));
+      }
+      if (targetFilters?.subSection && targetFilters.subSection !== "ALL") {
+        conditions.push(eq(students.subSection, targetFilters.subSection));
+      }
     }
+
+    const eligibleStudents = await db
+      .select({
+        id: students.id,
+        telegramUserId: students.telegramUserId,
+        fullName: students.fullName,
+      })
+      .from(students)
+      .where(and(...conditions));
 
     if (eligibleStudents.length === 0) {
       throw new Error("لا يوجد طلاب مرتبطين بتيليجرام في هذه الشريحة");
@@ -90,7 +141,7 @@ export class FeedbackService {
     const recipientRecords = eligibleStudents.map((s) => ({
       campaignId: campaign.id,
       studentId: s.id,
-      telegramUserId: s.telegramUserId,
+      telegramUserId: s.telegramUserId!,
       status: "PENDING",
     }));
 
@@ -103,7 +154,6 @@ export class FeedbackService {
     }
 
     // 4. Launch Autonomous Background Worker (detached execution)
-    // Runs in server background without waiting or blocking HTTP response
     setImmediate(() => {
       FeedbackService.runBackgroundWorker(campaign.id).catch((err) => {
         console.error(`[FeedbackWorker] Error running campaign ${campaign.id}:`, err);
@@ -117,81 +167,139 @@ export class FeedbackService {
   }
 
   /**
-   * Autonomous background worker that continuously sends batches until complete
+   * High-speed batch processor that sends a batch of feedback requests using a concurrent pool (6 parallel workers)
    */
-  static async runBackgroundWorker(campaignId: string) {
-    console.log(`[FeedbackWorker] Starting autonomous delivery for campaign ${campaignId}...`);
+  static async processFeedbackBatch(campaignId: string, batchSize = 30) {
+    const [campaign] = await db
+      .select()
+      .from(feedbackCampaigns)
+      .where(eq(feedbackCampaigns.id, campaignId));
 
-    const ratingMessage = FeedbackService.buildRatingRequestMessage();
-    const inlineKeyboard = FeedbackService.buildRatingInlineKeyboard(campaignId);
-
-    const BATCH_SIZE = 25;
-    let keepRunning = true;
-
-    while (keepRunning) {
-      // Fetch next batch of pending recipients
-      const pendingRecipients = await db
-        .select()
+    if (!campaign || campaign.status === "SENT" || campaign.status === "PAUSED") {
+      const [{ remainingPending = 0 } = {}] = await db
+        .select({ remainingPending: sql<number>`cast(count(*) as integer)` })
         .from(feedbackCampaignRecipients)
         .where(
           and(
             eq(feedbackCampaignRecipients.campaignId, campaignId),
             eq(feedbackCampaignRecipients.status, "PENDING")
           )
-        )
-        .limit(BATCH_SIZE);
+        );
 
-      if (pendingRecipients.length === 0) {
-        keepRunning = false;
-        break;
-      }
-
-      let batchSent = 0;
-      let batchFailed = 0;
-
-      for (const recipient of pendingRecipients) {
-        try {
-          await TelegramService.sendMessage(
-            recipient.telegramUserId,
-            ratingMessage,
-            "HTML",
-            inlineKeyboard
-          );
-
-          await db
-            .update(feedbackCampaignRecipients)
-            .set({ status: "SENT", sentAt: new Date() })
-            .where(eq(feedbackCampaignRecipients.id, recipient.id));
-
-          batchSent++;
-          // 40ms safe delay to respect Telegram's rate limit
-          await new Promise((r) => setTimeout(r, 40));
-        } catch (err: any) {
-          batchFailed++;
-          await db
-            .update(feedbackCampaignRecipients)
-            .set({
-              status: "FAILED",
-              lastError: err?.message || "Telegram send error",
-            })
-            .where(eq(feedbackCampaignRecipients.id, recipient.id));
-        }
-      }
-
-      // Increment campaign counters
-      await db
-        .update(feedbackCampaigns)
-        .set({
-          sentCount: sql`${feedbackCampaigns.sentCount} + ${batchSent}`,
-          failedCount: sql`${feedbackCampaigns.failedCount} + ${batchFailed}`,
-        })
-        .where(eq(feedbackCampaigns.id, campaignId));
-
-      // Small 250ms breather between batches
-      await new Promise((r) => setTimeout(r, 250));
+      return {
+        completed: campaign?.status === "SENT",
+        isPaused: campaign?.status === "PAUSED",
+        sentInBatch: 0,
+        failedInBatch: 0,
+        totalSent: campaign?.sentCount || 0,
+        totalFailed: campaign?.failedCount || 0,
+        totalRecipients: campaign?.totalRecipients || 0,
+        remainingPending: remainingPending ?? 0,
+      };
     }
 
-    // Check if any remain
+    if (campaign.status === "PENDING") {
+      await db
+        .update(feedbackCampaigns)
+        .set({ status: "SENDING" })
+        .where(eq(feedbackCampaigns.id, campaignId));
+    }
+
+    const pendingRecipients = await db
+      .select()
+      .from(feedbackCampaignRecipients)
+      .where(
+        and(
+          eq(feedbackCampaignRecipients.campaignId, campaignId),
+          eq(feedbackCampaignRecipients.status, "PENDING")
+        )
+      )
+      .limit(batchSize);
+
+    if (pendingRecipients.length === 0) {
+      await db
+        .update(feedbackCampaigns)
+        .set({ status: "SENT", sentAt: new Date() })
+        .where(eq(feedbackCampaigns.id, campaignId));
+
+      return {
+        completed: true,
+        isPaused: false,
+        sentInBatch: 0,
+        failedInBatch: 0,
+        totalSent: campaign.sentCount,
+        totalFailed: campaign.failedCount,
+        totalRecipients: campaign.totalRecipients,
+        remainingPending: 0,
+      };
+    }
+
+    const ratingMessage = FeedbackService.buildRatingRequestMessage();
+    const inlineKeyboard = FeedbackService.buildRatingInlineKeyboard(campaignId);
+
+    // High speed concurrent pool (6 parallel workers) with sliding rate-limiter
+    const CONCURRENCY = 6;
+    const MIN_INTERVAL_MS = 35; // Safe ~28 msgs/sec globally
+    let lastDispatchTime = 0;
+    let sentCount = 0;
+    let failedCount = 0;
+    let itemIndex = 0;
+
+    const workers = Array.from(
+      { length: Math.min(CONCURRENCY, pendingRecipients.length) },
+      async () => {
+        while (itemIndex < pendingRecipients.length) {
+          const recipient = pendingRecipients[itemIndex++];
+          if (!recipient) break;
+
+          const nowMs = Date.now();
+          const elapsed = nowMs - lastDispatchTime;
+          if (elapsed < MIN_INTERVAL_MS) {
+            await new Promise((r) => setTimeout(r, MIN_INTERVAL_MS - elapsed));
+          }
+          lastDispatchTime = Date.now();
+
+          try {
+            await TelegramService.sendMessage(
+              recipient.telegramUserId,
+              ratingMessage,
+              "HTML",
+              inlineKeyboard
+            );
+
+            await db
+              .update(feedbackCampaignRecipients)
+              .set({ status: "SENT", sentAt: new Date() })
+              .where(eq(feedbackCampaignRecipients.id, recipient.id));
+
+            sentCount++;
+          } catch (err: any) {
+            failedCount++;
+            await db
+              .update(feedbackCampaignRecipients)
+              .set({
+                status: "FAILED",
+                lastError: err?.message || "Telegram send error",
+              })
+              .where(eq(feedbackCampaignRecipients.id, recipient.id));
+          }
+        }
+      }
+    );
+
+    await Promise.all(workers);
+
+    // Update campaign counters atomically
+    const [updatedCampaign] = await db
+      .update(feedbackCampaigns)
+      .set({
+        sentCount: sql`${feedbackCampaigns.sentCount} + ${sentCount}`,
+        failedCount: sql`${feedbackCampaigns.failedCount} + ${failedCount}`,
+      })
+      .where(eq(feedbackCampaigns.id, campaignId))
+      .returning();
+
+    // Check remaining pending
     const [{ remainingPending }] = await db
       .select({ remainingPending: sql<number>`cast(count(*) as integer)` })
       .from(feedbackCampaignRecipients)
@@ -202,15 +310,70 @@ export class FeedbackService {
         )
       );
 
-    if (remainingPending === 0) {
+    const isCompleted = remainingPending === 0;
+    if (isCompleted) {
       await db
         .update(feedbackCampaigns)
-        .set({
-          status: "SENT",
-          sentAt: new Date(),
-        })
+        .set({ status: "SENT", sentAt: new Date() })
         .where(eq(feedbackCampaigns.id, campaignId));
-      console.log(`[FeedbackWorker] Campaign ${campaignId} successfully completed!`);
+    }
+
+    return {
+      completed: isCompleted,
+      isPaused: false,
+      sentInBatch: sentCount,
+      failedInBatch: failedCount,
+      totalSent: updatedCampaign.sentCount,
+      totalFailed: updatedCampaign.failedCount,
+      totalRecipients: updatedCampaign.totalRecipients,
+      remainingPending,
+    };
+  }
+
+  /**
+   * Pause campaign auto-delivery
+   */
+  static async pauseCampaign(campaignId: string) {
+    const [updated] = await db
+      .update(feedbackCampaigns)
+      .set({ status: "PAUSED" })
+      .where(eq(feedbackCampaigns.id, campaignId))
+      .returning();
+    return updated;
+  }
+
+  /**
+   * Resume paused campaign
+   */
+  static async resumeCampaign(campaignId: string) {
+    const [updated] = await db
+      .update(feedbackCampaigns)
+      .set({ status: "SENDING" })
+      .where(eq(feedbackCampaigns.id, campaignId))
+      .returning();
+
+    // Resume background autonomous delivery
+    setImmediate(() => {
+      FeedbackService.runBackgroundWorker(campaignId).catch(console.error);
+    });
+
+    return updated;
+  }
+
+  /**
+   * Autonomous background worker that continuously sends batches in high speed until complete
+   */
+  static async runBackgroundWorker(campaignId: string) {
+    console.log(`[FeedbackWorker] Starting high-speed autonomous batch delivery for campaign ${campaignId}...`);
+
+    let keepRunning = true;
+    while (keepRunning) {
+      const result = await FeedbackService.processFeedbackBatch(campaignId, 30);
+      if (result.completed || result.isPaused || result.remainingPending === 0) {
+        keepRunning = false;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 150));
     }
   }
 

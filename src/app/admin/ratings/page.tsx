@@ -25,6 +25,7 @@ import {
   ShieldAlert,
   HelpCircle,
   Mail,
+  GraduationCap,
 } from "lucide-react";
 
 interface Rating {
@@ -145,7 +146,22 @@ export default function AdminRatingsPage() {
   // Campaign form
   const [showForm, setShowForm] = useState(false);
   const [formTitle, setFormTitle] = useState("");
-  const [formTargetType, setFormTargetType] = useState<"ALL" | "STUDENT">("ALL");
+  const [formTargetType, setFormTargetType] = useState<
+    "ALL" | "GROUP" | "SECTION" | "ACADEMIC_YEAR" | "SPECIALIZATION" | "STUDENT"
+  >("ALL");
+  const [formAcademicYear, setFormAcademicYear] = useState<string>("ALL");
+  const [formSpecialization, setFormSpecialization] = useState<string>("ALL");
+  const [formGroupId, setFormGroupId] = useState<string>("");
+  const [formSectionId, setFormSectionId] = useState<string>("");
+  const [formSubSection, setFormSubSection] = useState<"ALL" | "A" | "B">("ALL");
+  const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
+  const [sections, setSections] = useState<{ id: string; name: string; code: string }[]>([]);
+  const [previewData, setPreviewData] = useState<{
+    totalStudents: number;
+    eligibleTelegramRecipients: number;
+    unlinkedStudents: number;
+  } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [formStudentSearch, setFormStudentSearch] = useState("");
   const [formStudentResults, setFormStudentResults] = useState<Student[]>([]);
   const [formSelectedStudent, setFormSelectedStudent] = useState<Student | null>(null);
@@ -353,6 +369,88 @@ export default function AdminRatingsPage() {
     finally { setFormSearching(false); }
   };
 
+  // Fetch groups and sections for audience targeting
+  useEffect(() => {
+    if (!showForm) return;
+    const fetchGroups = async () => {
+      try {
+        const res = await fetch("/api/groups");
+        const json = await res.json();
+        if (json.success) setGroups(json.data || []);
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    fetchGroups();
+  }, [showForm]);
+
+  useEffect(() => {
+    if (!showForm || !formGroupId) {
+      setSections([]);
+      setFormSectionId("");
+      return;
+    }
+    const fetchSections = async () => {
+      try {
+        const res = await fetch(`/api/sections?groupId=${formGroupId}`);
+        const json = await res.json();
+        if (json.success) setSections(json.data || []);
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    fetchSections();
+  }, [showForm, formGroupId]);
+
+  // Live audience preview calculation
+  useEffect(() => {
+    if (!showForm) return;
+    if (formTargetType === "STUDENT") {
+      setPreviewData({
+        totalStudents: formSelectedStudent ? 1 : 0,
+        eligibleTelegramRecipients: formSelectedStudent?.telegramUserId ? 1 : 0,
+        unlinkedStudents: formSelectedStudent && !formSelectedStudent.telegramUserId ? 1 : 0,
+      });
+      return;
+    }
+
+    const fetchPreview = async () => {
+      try {
+        setPreviewLoading(true);
+        const params = new URLSearchParams({
+          preview: "true",
+          targetType: formTargetType,
+          academicYear: formAcademicYear,
+          specialization: formSpecialization,
+          groupId: formGroupId,
+          sectionId: formSectionId,
+          subSection: formSubSection,
+        });
+        const res = await fetch(`/api/admin/ratings?${params.toString()}`);
+        const json = await res.json();
+        if (json.success && json.data) {
+          setPreviewData(json.data);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setPreviewLoading(false);
+      }
+    };
+
+    const timer = setTimeout(fetchPreview, 200);
+    return () => clearTimeout(timer);
+  }, [
+    showForm,
+    formTargetType,
+    formAcademicYear,
+    formSpecialization,
+    formGroupId,
+    formSectionId,
+    formSubSection,
+    formSelectedStudent,
+  ]);
+
   // Delivery Details Modal State
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [deliveryCampaignId, setDeliveryCampaignId] = useState<string | null>(null);
@@ -407,56 +505,124 @@ export default function AdminRatingsPage() {
     fetchDeliveryDetails(targetId, 1, "", "ALL");
   };
 
-  const startBackgroundPolling = (campaignId: string, campaignTitle: string, totalRecipients: number) => {
+  const runAutoSendBatches = async (
+    campaignId: string,
+    title: string,
+    initialTotal: number,
+    initialSent = 0,
+    initialFailed = 0
+  ) => {
+    if (isAutoSendingRef.current) return;
+    isAutoSendingRef.current = true;
+    pauseAutoSendRef.current = false;
+
     setActiveAutoSend({
       campaignId,
-      title: campaignTitle,
-      sent: 0,
-      failed: 0,
-      total: totalRecipients,
-      remaining: totalRecipients,
+      title,
+      sent: initialSent,
+      failed: initialFailed,
+      total: initialTotal,
+      remaining: Math.max(0, initialTotal - initialSent - initialFailed),
       isPaused: false,
       isCompleted: false,
     });
 
-    const intervalId = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/admin/ratings/recipients?campaignId=${campaignId}&limit=1`);
+    try {
+      let isDone = false;
+      while (!isDone && !pauseAutoSendRef.current) {
+        const res = await fetch("/api/admin/ratings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "process_batch", campaignId, batchSize: 30 }),
+        });
         const json = await res.json();
-        if (json.success && json.data) {
-          const { summary, campaign } = json.data;
-          const sent = summary.deliveredCount ?? 0;
-          const failed = summary.failedCount ?? 0;
-          const total = summary.totalEligible ?? totalRecipients;
-          const remaining = summary.pendingCount ?? Math.max(0, total - sent - failed);
-          const isDone = campaign?.status === "SENT" || (remaining === 0 && total > 0);
-
-          setActiveAutoSend((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  sent,
-                  failed,
-                  total,
-                  remaining,
-                  isCompleted: isDone,
-                }
-              : null
-          );
-
-          if (isDone) {
-            clearInterval(intervalId);
-            await fetchData();
-            setStatusMsg({
-              text: `🎉 اكتمل إرسال استبيان التقييم تلقائياً بنجاح لجميع الطلاب (${total})!`,
-              type: "success",
-            });
-          }
+        if (!res.ok || !json.success) {
+          throw new Error(json.error || "فشل معالجة دفعة استبيان التقييم");
         }
-      } catch (err) {
-        console.error(err);
+
+        const data = json.data;
+        const totalSent = data.totalSent ?? initialSent;
+        const totalFailed = data.totalFailed ?? initialFailed;
+        const totalRecipients = data.totalRecipients ?? initialTotal;
+        const remaining =
+          typeof data.remainingPending === "number"
+            ? data.remainingPending
+            : Math.max(0, totalRecipients - totalSent - totalFailed);
+
+        setActiveAutoSend((prev) =>
+          prev
+            ? {
+                ...prev,
+                sent: totalSent,
+                failed: totalFailed,
+                total: totalRecipients,
+                remaining,
+                isCompleted: data.completed,
+              }
+            : null
+        );
+
+        if (data.completed || remaining === 0) {
+          isDone = true;
+          break;
+        }
+
+        // Delay between batches for smooth UI rendering and Telegram throttle safety
+        await new Promise((r) => setTimeout(r, 200));
       }
-    }, 1500);
+
+      await fetchData();
+
+      if (pauseAutoSendRef.current) {
+        setStatusMsg({
+          text: "تم إيقاف إرسال الاستبيان مؤقتاً. يمكنك استئنافه في أي وقت بالضغط على الزر.",
+          type: "success",
+        });
+      } else {
+        setStatusMsg({
+          text: `🎉 اكتمل إرسال استبيان التقييم بالكامل بنجاح لجميع الطلاب (${initialTotal || "المستهدفين"})!`,
+          type: "success",
+        });
+      }
+    } catch (err: any) {
+      setStatusMsg({ text: `خطأ أثناء إرسال الدفعات: ${err.message}`, type: "error" });
+    } finally {
+      isAutoSendingRef.current = false;
+    }
+  };
+
+  const handlePauseAutoSend = async () => {
+    pauseAutoSendRef.current = true;
+    setActiveAutoSend((prev) => (prev ? { ...prev, isPaused: true } : null));
+    if (activeAutoSend?.campaignId) {
+      try {
+        await fetch("/api/admin/ratings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "pause", campaignId: activeAutoSend.campaignId }),
+        });
+      } catch {}
+    }
+  };
+
+  const handleResumeAutoSend = async () => {
+    if (!activeAutoSend) return;
+    pauseAutoSendRef.current = false;
+    setActiveAutoSend((prev) => (prev ? { ...prev, isPaused: false } : null));
+    try {
+      await fetch("/api/admin/ratings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resume", campaignId: activeAutoSend.campaignId }),
+      });
+    } catch {}
+    runAutoSendBatches(
+      activeAutoSend.campaignId,
+      activeAutoSend.title,
+      activeAutoSend.total,
+      activeAutoSend.sent,
+      activeAutoSend.failed
+    );
   };
 
   const handleSendCampaign = async () => {
@@ -468,12 +634,28 @@ export default function AdminRatingsPage() {
       setStatusMsg({ text: "يرجى اختيار طالب", type: "error" });
       return;
     }
+    if (formTargetType === "GROUP" && !formGroupId) {
+      setStatusMsg({ text: "يرجى اختيار المجموعة المستهدفة", type: "error" });
+      return;
+    }
+    if (formTargetType === "SECTION" && !formSectionId) {
+      setStatusMsg({ text: "يرجى اختيار السكشن المستهدف", type: "error" });
+      return;
+    }
+
     try {
       setSending(true);
       setStatusMsg(null);
       const body: any = {
         title: formTitle,
         targetType: formTargetType,
+        targetFilters: {
+          academicYear: formAcademicYear !== "ALL" ? formAcademicYear : undefined,
+          specialization: formSpecialization !== "ALL" ? formSpecialization : undefined,
+          groupId: formGroupId || undefined,
+          sectionId: formSectionId || undefined,
+          subSection: formSubSection !== "ALL" ? formSubSection : undefined,
+        },
       };
       if (formTargetType === "STUDENT" && formSelectedStudent) {
         body.targetStudentId = formSelectedStudent.id;
@@ -489,16 +671,21 @@ export default function AdminRatingsPage() {
         setShowForm(false);
         setFormTitle("");
         setFormTargetType("ALL");
+        setFormAcademicYear("ALL");
+        setFormSpecialization("ALL");
+        setFormGroupId("");
+        setFormSectionId("");
+        setFormSubSection("ALL");
         setFormSelectedStudent(null);
         setFormStudentSearch("");
 
         setStatusMsg({
-          text: `🚀 تم إطلاق الحملة لـ ${campaignData.totalRecipients} طالب بنجاح! يتم الإرسال تلقائياً في السيرفر.`,
+          text: `🚀 تم إطلاق الحملة لـ ${campaignData.totalRecipients} طالب بنجاح! جاري إرسال الدفعات بنظام متوازي عالي السرعة...`,
           type: "success",
         });
 
-        // Start live polling of server autonomous background delivery
-        startBackgroundPolling(
+        // Run batch auto-send in fast parallel bursts
+        runAutoSendBatches(
           campaignData.campaignId,
           campaignData.title || formTitle,
           campaignData.totalRecipients
@@ -641,6 +828,24 @@ export default function AdminRatingsPage() {
 
             {/* Controls */}
             <div className="flex items-center gap-2">
+              {!activeAutoSend.isCompleted && !activeAutoSend.isPaused && (
+                <button
+                  type="button"
+                  onClick={handlePauseAutoSend}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-xs transition flex items-center gap-1 shadow-sm"
+                >
+                  <span>إيقاف مؤقت ⏸️</span>
+                </button>
+              )}
+              {!activeAutoSend.isCompleted && activeAutoSend.isPaused && (
+                <button
+                  type="button"
+                  onClick={handleResumeAutoSend}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-md transition flex items-center gap-1"
+                >
+                  <span>استئناف الإرسال ▶️</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => openDeliveryModal(activeAutoSend.campaignId)}
@@ -794,6 +999,25 @@ export default function AdminRatingsPage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
+                    {c.status !== "SENT" && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          runAutoSendBatches(
+                            c.id,
+                            c.title,
+                            c.totalRecipients || (c.sentCount + c.failedCount),
+                            c.sentCount,
+                            c.failedCount
+                          )
+                        }
+                        className="px-2.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition flex items-center gap-1 shadow-sm"
+                        title="متابعة إرسال الاستبيان بالدفعات المتوازية السريعة"
+                      >
+                        <Send className="w-3 h-3 text-amber-400" />
+                        <span>إرسال بالدفعات ▶️</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => openDeliveryModal(c.id)}
@@ -1072,48 +1296,179 @@ export default function AdminRatingsPage() {
 
       {/* Campaign Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#0d1322] border border-slate-700/60 rounded-2xl w-full max-w-md shadow-2xl">
-            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
-              <h3 className="font-bold text-white flex items-center gap-2">
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-[#0d1322] border border-slate-700/80 rounded-2xl w-full max-w-2xl shadow-2xl my-auto overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+              <h3 className="font-bold text-white flex items-center gap-2 text-base">
                 <Send className="w-4 h-4 text-amber-400" />
-                إرسال استبيان تقييم جديد
+                إرسال استبيان تقييم بالدفعات المتوازية (Batch Broadcast)
               </h3>
-              <button onClick={() => { setShowForm(false); setStatusMsg(null); }}
-                className="text-slate-400 hover:text-white transition p-1">✕</button>
+              <button
+                onClick={() => {
+                  setShowForm(false);
+                  setStatusMsg(null);
+                }}
+                className="text-slate-400 hover:text-white transition p-1 rounded-lg hover:bg-slate-800"
+              >
+                ✕
+              </button>
             </div>
 
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 max-h-[78vh] overflow-y-auto custom-scrollbar">
+              {/* Campaign Title */}
               <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1.5">
-                  عنوان الحملة (للسجلات الداخلية)
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  عنوان الحملة (للسجلات والتقارير)
                 </label>
                 <input
                   value={formTitle}
                   onChange={(e) => setFormTitle(e.target.value)}
-                  placeholder="مثال: استبيان جودة الخدمة — أكتوبر 2026"
+                  placeholder="مثال: استبيان جودة الخدمات وقاعات المعامل — الفصل الدراسي الحالي"
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500/60 transition"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1.5">المستهدفون بالاستبيان</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {(["ALL", "STUDENT"] as const).map((t) => (
-                    <button key={t} onClick={() => { setFormTargetType(t); setFormSelectedStudent(null); setFormStudentSearch(""); setFormStudentResults([]); }}
-                      className={`py-2.5 rounded-xl text-sm font-semibold border transition ${
-                        formTargetType === t ? "bg-amber-500/20 border-amber-500/50 text-amber-300" : "bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-600"
-                      }`}>
-                      {t === "ALL" ? (
-                        <span className="flex items-center justify-center gap-1.5"><Users className="w-3.5 h-3.5" />جميع الطلاب</span>
-                      ) : (
-                        <span className="flex items-center justify-center gap-1.5"><UserCheck className="w-3.5 h-3.5" />طالب محدد</span>
+              {/* Academic Year & Specialization */}
+              <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 space-y-3">
+                <div className="flex items-center gap-2 pb-1.5 border-b border-slate-800/80">
+                  <GraduationCap className="w-4 h-4 text-cyan-400" />
+                  <span className="text-xs font-bold text-cyan-200">تحديد الدفعة والشعبة (Targeting Filters)</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">الفرقة / الدفعة</label>
+                    <select
+                      value={formAcademicYear}
+                      onChange={(e) => {
+                        setFormAcademicYear(e.target.value);
+                        if (e.target.value !== "الفرقة الثالثة" && e.target.value !== "الفرقة الرابعة") {
+                          setFormSpecialization("ALL");
+                        }
+                      }}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-700 text-xs bg-slate-900 text-white focus:outline-none focus:border-cyan-500 font-bold"
+                    >
+                      <option value="ALL">🎓 جميع الفرق والدفعات (كافة طلاب الكلية)</option>
+                      <option value="الفرقة الأولى">الفرقة الأولى</option>
+                      <option value="الفرقة الثانية">الفرقة الثانية</option>
+                      <option value="الفرقة الثالثة">الفرقة الثالثة</option>
+                      <option value="الفرقة الرابعة">الفرقة الرابعة</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">
+                      الشعبة التخصصية
+                      {formAcademicYear !== "الفرقة الثالثة" && formAcademicYear !== "الفرقة الرابعة" && (
+                        <span className="text-[10px] text-slate-500 mr-1.5 font-normal">(للفرقة 3 و 4 فقط)</span>
                       )}
+                    </label>
+                    <select
+                      disabled={formAcademicYear !== "الفرقة الثالثة" && formAcademicYear !== "الفرقة الرابعة"}
+                      value={formSpecialization}
+                      onChange={(e) => setFormSpecialization(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-700 text-xs bg-slate-900 text-white focus:outline-none focus:border-cyan-500 font-bold disabled:bg-slate-950 disabled:text-slate-600 disabled:border-slate-800"
+                    >
+                      <option value="ALL">🌐 جميع الشعب (سوفت وير + نيتورك)</option>
+                      <option value="سوفت وير">💻 شعبة سوفت وير (Software)</option>
+                      <option value="نيتورك">🌐 شعبة نيتورك (Network)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Target Audience Scope */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  نطاق الاستهداف
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {(
+                    [
+                      { id: "ALL", label: "كافة الطلاب", icon: Users },
+                      { id: "GROUP", label: "مجموعة محددة", icon: Users },
+                      { id: "SECTION", label: "سكشن محدد", icon: Users },
+                      { id: "STUDENT", label: "طالب محدد", icon: UserCheck },
+                    ] as const
+                  ).map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => {
+                        setFormTargetType(t.id);
+                        if (t.id !== "STUDENT") {
+                          setFormSelectedStudent(null);
+                          setFormStudentSearch("");
+                          setFormStudentResults([]);
+                        }
+                      }}
+                      className={`py-2 px-2.5 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 ${
+                        formTargetType === t.id
+                          ? "bg-amber-500/20 border-amber-500/60 text-amber-300 shadow-sm"
+                          : "bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-600 hover:text-white"
+                      }`}
+                    >
+                      <t.icon className="w-3.5 h-3.5" />
+                      <span>{t.label}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
+              {/* Group & Section Selectors */}
+              {(formTargetType === "GROUP" || formTargetType === "SECTION") && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 bg-slate-950/60 border border-slate-800 rounded-xl p-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">المجموعة</label>
+                    <select
+                      value={formGroupId}
+                      onChange={(e) => setFormGroupId(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-700 text-xs bg-slate-900 text-white focus:outline-none focus:border-amber-500 font-medium"
+                    >
+                      <option value="">-- اختر المجموعة --</option>
+                      {groups.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {formTargetType === "SECTION" && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 mb-1">السكشن</label>
+                      <select
+                        value={formSectionId}
+                        onChange={(e) => setFormSectionId(e.target.value)}
+                        disabled={!formGroupId}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-700 text-xs bg-slate-900 text-white focus:outline-none focus:border-amber-500 font-medium disabled:opacity-50"
+                      >
+                        <option value="">-- اختر السكشن --</option>
+                        {sections.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name} ({s.code})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">القسم الفرعي</label>
+                    <select
+                      value={formSubSection}
+                      onChange={(e) => setFormSubSection(e.target.value as any)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-700 text-xs bg-slate-900 text-white focus:outline-none focus:border-amber-500 font-medium"
+                    >
+                      <option value="ALL">جميع الأقسام (A + B)</option>
+                      <option value="A">قسم A فقط</option>
+                      <option value="B">قسم B فقط</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Student Picker */}
               {formTargetType === "STUDENT" && (
                 <div>
                   <label className="block text-xs font-semibold text-slate-400 mb-1.5">البحث عن الطالب</label>
@@ -1123,8 +1478,15 @@ export default function AdminRatingsPage() {
                         <p className="text-sm font-semibold text-emerald-300">{formSelectedStudent.fullName}</p>
                         <p className="text-[11px] text-emerald-600">{formSelectedStudent.academicNumber}</p>
                       </div>
-                      <button onClick={() => { setFormSelectedStudent(null); setFormStudentSearch(""); }}
-                        className="text-slate-400 hover:text-red-400 text-xs transition">تغيير</button>
+                      <button
+                        onClick={() => {
+                          setFormSelectedStudent(null);
+                          setFormStudentSearch("");
+                        }}
+                        className="text-slate-400 hover:text-red-400 text-xs transition font-bold"
+                      >
+                        تغيير الطالب
+                      </button>
                     </div>
                   ) : (
                     <>
@@ -1132,7 +1494,10 @@ export default function AdminRatingsPage() {
                         <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
                         <input
                           value={formStudentSearch}
-                          onChange={(e) => { setFormStudentSearch(e.target.value); searchStudents(e.target.value); }}
+                          onChange={(e) => {
+                            setFormStudentSearch(e.target.value);
+                            searchStudents(e.target.value);
+                          }}
                           placeholder="ابحث بالاسم أو الرقم الأكاديمي..."
                           className="w-full bg-slate-900 border border-slate-700 rounded-xl pr-9 pl-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500/60 transition"
                         />
@@ -1141,8 +1506,15 @@ export default function AdminRatingsPage() {
                       {formStudentResults.length > 0 && (
                         <div className="mt-1.5 bg-slate-900 border border-slate-700 rounded-xl overflow-hidden max-h-44 overflow-y-auto">
                           {formStudentResults.map((s) => (
-                            <button key={s.id} onClick={() => { setFormSelectedStudent(s); setFormStudentResults([]); setFormStudentSearch(""); }}
-                              className="w-full text-right px-3 py-2.5 hover:bg-slate-800 transition border-b border-slate-800/60 last:border-0">
+                            <button
+                              key={s.id}
+                              onClick={() => {
+                                setFormSelectedStudent(s);
+                                setFormStudentResults([]);
+                                setFormStudentSearch("");
+                              }}
+                              className="w-full text-right px-3 py-2.5 hover:bg-slate-800 transition border-b border-slate-800/60 last:border-0"
+                            >
                               <p className="text-sm text-slate-200">{s.fullName}</p>
                               <p className="text-[11px] text-slate-500">{s.academicNumber}</p>
                             </button>
@@ -1154,13 +1526,50 @@ export default function AdminRatingsPage() {
                 </div>
               )}
 
+              {/* Live Audience Preview Box */}
+              <div className="bg-gradient-to-r from-slate-900 via-indigo-950/30 to-slate-900 rounded-xl border border-indigo-500/30 p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-indigo-400" />
+                    معاينة أعداد جمهور الاستبيان المباشرة:
+                  </span>
+                  {previewLoading && (
+                    <span className="text-[11px] text-slate-400 flex items-center gap-1">
+                      <RefreshCw className="w-3 h-3 animate-spin text-indigo-400" />
+                      جاري الحساب...
+                    </span>
+                  )}
+                </div>
+
+                {previewData && (
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-2">
+                      <span className="text-[10px] text-slate-400 block">طلاب الشريحة</span>
+                      <span className="text-sm font-bold text-white font-mono">{previewData.totalStudents}</span>
+                    </div>
+                    <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-lg p-2">
+                      <span className="text-[10px] text-emerald-300 block">مؤهلين تيليجرام</span>
+                      <span className="text-sm font-bold text-emerald-400 font-mono">
+                        {previewData.eligibleTelegramRecipients}
+                      </span>
+                    </div>
+                    <div className="bg-amber-950/40 border border-amber-500/30 rounded-lg p-2">
+                      <span className="text-[10px] text-amber-300 block">غير مربوط</span>
+                      <span className="text-sm font-bold text-amber-400 font-mono">{previewData.unlinkedStudents}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Feature Highlights */}
               <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-3 text-[11px] text-slate-400 leading-relaxed">
-                <p className="text-amber-400/90 font-bold mb-1.5 flex items-center gap-1">
+                <p className="text-amber-400/90 font-bold mb-1 flex items-center gap-1">
                   <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                  أزرار تفاعلية فورية داخل التليجرام:
+                  أزرار تفاعلية فورية وإرسال متوازي فائق السرعة:
                 </p>
-                <p>تصل الرسالة للطالب وبها <span className="text-slate-200 font-semibold">أزرار أصلية (1 إلى 5 نجوم)</span> + زر <span className="text-red-400 font-semibold">«⚠️ واجهت مشكلة؟»</span>.</p>
-                <p className="mt-1 text-slate-500">عند الضغط، يتم تسجيل تقييم الطالب فوراً أو يُطلب منه كتابة تفاصيل مشكلته لتصلك مباشرة في هذه الصفحة.</p>
+                <p>
+                  يتم إرسال الاستبيان في <span className="text-slate-200 font-semibold">دفعات سريعة متوازية (Batching)</span> عبر طابور التيليجرام المنظم مع أزرار تفاعلية (1-5 نجوم + زر الإبلاغ عن مشكلة).
+                </p>
               </div>
 
               {statusMsg && statusMsg.type === "error" && (
@@ -1170,14 +1579,32 @@ export default function AdminRatingsPage() {
               )}
             </div>
 
-            <div className="px-6 pb-6 flex gap-2">
-              <button onClick={() => { setShowForm(false); setStatusMsg(null); }}
-                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-sm transition">
+            <div className="px-6 py-4 border-t border-slate-800 bg-slate-950/60 flex gap-2">
+              <button
+                onClick={() => {
+                  setShowForm(false);
+                  setStatusMsg(null);
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-sm transition"
+              >
                 إلغاء
               </button>
-              <button onClick={handleSendCampaign} disabled={sending}
-                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-sm transition disabled:opacity-60 flex items-center justify-center gap-1.5 shadow-lg shadow-amber-500/20">
-                {sending ? (<><RefreshCw className="w-4 h-4 animate-spin" />جاري الإرسال...</>) : (<><Send className="w-4 h-4" />إرسال الاستبيان</>)}
+              <button
+                onClick={handleSendCampaign}
+                disabled={sending}
+                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-sm transition disabled:opacity-60 flex items-center justify-center gap-1.5 shadow-lg shadow-amber-500/20"
+              >
+                {sending ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    جاري إطلاق الحملة...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    إرسال الاستبيان بالدفعات 🚀
+                  </>
+                )}
               </button>
             </div>
           </div>

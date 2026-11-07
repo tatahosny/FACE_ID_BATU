@@ -79,19 +79,39 @@ export async function POST(req: NextRequest) {
     let failedCount = 0;
     let skippedNoTelegram = 0;
     const ratingIdsToUpdate: string[] = [];
+    const validRows: typeof rows = [];
 
-    // 2. Send Telegram messages
     for (const r of rows) {
       if (!r.telegramUserId) {
         skippedNoTelegram++;
-        continue;
+      } else {
+        validRows.push(r);
       }
+    }
 
-      const stars = "⭐".repeat(r.rating);
-      let text = customMessage?.trim();
+    // 2. High-speed concurrent Telegram dispatch (5 parallel workers with rate safety)
+    const CONCURRENCY = 5;
+    const MIN_INTERVAL_MS = 35;
+    let lastDispatchTime = 0;
+    let rowIndex = 0;
 
-      if (!text) {
-        text = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
+    const workers = Array.from({ length: Math.min(CONCURRENCY, validRows.length) }, async () => {
+      while (rowIndex < validRows.length) {
+        const r = validRows[rowIndex++];
+        if (!r || !r.telegramUserId) break;
+
+        const nowMs = Date.now();
+        const elapsed = nowMs - lastDispatchTime;
+        if (elapsed < MIN_INTERVAL_MS) {
+          await new Promise((res) => setTimeout(res, MIN_INTERVAL_MS - elapsed));
+        }
+        lastDispatchTime = Date.now();
+
+        const stars = "⭐".repeat(r.rating);
+        let text = customMessage?.trim();
+
+        if (!text) {
+          text = `<b>[جامعة برج العرب التكنولوجية - BATU]</b>
 قسم تكنولوجيا المعلومات — نظام بصمة الوجه
 
 ⚠️ <b>تنبيه بخصوص تقييمك لمنظومة البصمة</b>
@@ -104,35 +124,37 @@ export async function POST(req: NextRequest) {
 
 🚨 <b>تنبيه هام جداً:</b>
 في حال عدم تقديم سبب للتقييم أو كتابة شكوى توضح المشكلة، <b>سيتم إلغاء تقييمك تلقائياً من المنظومة</b>.`;
-      } else {
-        // Substitute basic placeholders if provided in custom message
-        text = text
-          .replace("{name}", r.studentFullName)
-          .replace("{rating}", String(r.rating))
-          .replace("{stars}", stars);
-      }
-
-      try {
-        const sent = await TelegramService.sendMessage(r.telegramUserId, text, "HTML", {
-          force_reply: true,
-          selective: true,
-        });
-
-        if (sent) {
-          sentCount++;
-          ratingIdsToUpdate.push(r.id);
-          TelegramService.pendingLowRatingRequests.set(r.telegramUserId, {
-            ratingId: r.id,
-            timestamp: Date.now(),
-          });
         } else {
+          text = text
+            .replace("{name}", r.studentFullName)
+            .replace("{rating}", String(r.rating))
+            .replace("{stars}", stars);
+        }
+
+        try {
+          const sent = await TelegramService.sendMessage(r.telegramUserId, text, "HTML", {
+            force_reply: true,
+            selective: true,
+          });
+
+          if (sent) {
+            sentCount++;
+            ratingIdsToUpdate.push(r.id);
+            TelegramService.pendingLowRatingRequests.set(r.telegramUserId, {
+              ratingId: r.id,
+              timestamp: Date.now(),
+            });
+          } else {
+            failedCount++;
+          }
+        } catch (err) {
+          console.error(`Failed to send reason request to student ${r.studentFullName}:`, err);
           failedCount++;
         }
-      } catch (err) {
-        console.error(`Failed to send reason request to student ${r.studentFullName}:`, err);
-        failedCount++;
       }
-    }
+    });
+
+    await Promise.all(workers);
 
     // 3. Mark ratings with reasonRequestedAt timestamp
     if (ratingIdsToUpdate.length > 0) {
