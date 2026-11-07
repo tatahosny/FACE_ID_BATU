@@ -149,7 +149,7 @@ export class BookingService {
    * Acquires row lock on the booking window to prevent race conditions and duplicate queue numbers.
    */
   static async createBooking(studentId: string, bookingWindowId: string, idempotencyKey?: string) {
-    let pendingTelegramNotification: { chatId: number; message: string } | null = null;
+    let pendingTelegramNotification: { chatId: number; message: string; outboxKey?: string } | null = null;
     const result = await bookingQueueLock.acquire(async () => {
       return await db.transaction(async (tx) => {
         // 0. Acquire global PostgreSQL advisory transaction lock for booking queue allocation.
@@ -470,6 +470,7 @@ export class BookingService {
           pendingTelegramNotification = {
             chatId: Number(student.telegramUserId),
             message: telegramText,
+            outboxKey,
           };
         }
 
@@ -508,9 +509,13 @@ export class BookingService {
       });
     });
 
-    // Trigger autonomous throttled background worker to dispatch the booking notification safely
+    // Fast-path immediate Telegram dispatch: student receives confirmation in <300ms
     if (result.pendingTelegramNotification) {
-      NotificationService.triggerBackgroundWorker();
+      NotificationService.fastDispatchByKey(
+        (result.pendingTelegramNotification as any).outboxKey,
+        result.pendingTelegramNotification.chatId,
+        result.pendingTelegramNotification.message
+      );
     }
 
     return {
@@ -628,7 +633,7 @@ export class BookingService {
     actorId: string,
     notes?: string
   ) {
-    const updated = await db.transaction(async (tx) => {
+    const txResult = await db.transaction(async (tx) => {
       const [booking] = await tx
         .select()
         .from(bookings)
@@ -658,6 +663,8 @@ export class BookingService {
         .where(eq(bookings.id, bookingId))
         .returning();
 
+      let pendingFastDispatch: { key: string; chatId: number; message: string } | null = null;
+
       // If CALLED, queue TURN_CALLED notification to student
       if (newStatus === BOOKING_STATUSES.CALLED) {
         const [student] = await tx
@@ -678,6 +685,8 @@ export class BookingService {
             );
           const currentTurn = Number(aheadCount?.count || 0) + 1;
           const displayQueueNumber = `رقم #${formatQueueNumber(currentTurn)} لشباك ${booking.desk || "T"} (تذكرة حجز رقم ${formatQueueNumber(booking.queueNumber)})`;
+          const turnMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n<b>حان دورك الآن!</b>\nعزيزي الطالب <b>${student.fullName}</b>،\nحان دورك الآن رسمياً على: <b>شباك ${booking.desk || "T"}</b>\nرقم دورك: <code>#${formatQueueNumber(currentTurn)}</code> (تذكرة حجز رقم ${formatQueueNumber(booking.queueNumber)})\n\n<b>يرجى التوجه فوراً وبسرعة إلى مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك ${booking.desk || "T"}) لإتمام بصمة الوجه.</b>`;
+          const turnKey = `turn_called_${booking.id}_${Date.now()}`;
 
           await tx
             .insert(notificationOutbox)
@@ -691,10 +700,18 @@ export class BookingService {
                 desk: booking.desk || "T",
                 currentTurn: formatQueueNumber(currentTurn),
                 ticketNumber: formatQueueNumber(booking.queueNumber),
+                message: turnMsg,
               },
-              idempotencyKey: `turn_called_${booking.id}`,
+              idempotencyKey: turnKey,
+              status: "PENDING",
             })
             .onConflictDoNothing();
+
+          pendingFastDispatch = {
+            key: turnKey,
+            chatId: Number(student.telegramUserId),
+            message: turnMsg,
+          };
         }
       }
 
@@ -737,8 +754,15 @@ ${notes ? `<b>السبب:</b> ${notes}\n` : ""}
                 message: cancelMsg,
               },
               idempotencyKey: cancelKey,
+              status: "PENDING",
             })
             .onConflictDoNothing();
+
+          pendingFastDispatch = {
+            key: cancelKey,
+            chatId: Number(student.telegramUserId),
+            message: cancelMsg,
+          };
         }
       }
 
@@ -755,8 +779,16 @@ ${notes ? `<b>السبب:</b> ${notes}\n` : ""}
         },
       });
 
-      return updated;
+      return { updated, pendingFastDispatch };
     });
+
+    if (txResult.pendingFastDispatch) {
+      NotificationService.fastDispatchByKey(
+        txResult.pendingFastDispatch.key,
+        txResult.pendingFastDispatch.chatId,
+        txResult.pendingFastDispatch.message
+      );
+    }
 
     if (
       newStatus === BOOKING_STATUSES.COMPLETED ||
@@ -769,7 +801,7 @@ ${notes ? `<b>السبب:</b> ${notes}\n` : ""}
       NotificationService.triggerBackgroundWorker();
     }
 
-    return updated;
+    return txResult.updated;
   }
 
   /**
@@ -838,7 +870,7 @@ ${notes ? `<b>السبب:</b> ${notes}\n` : ""}
         })
         .onConflictDoNothing();
 
-      NotificationService.triggerBackgroundWorker();
+      NotificationService.fastDispatchByKey(repeatKey, student.telegramUserId, alertMsg);
     }
 
     return { success: true, message: "تم إرسال النداء العاجل للطالب بنجاح" };
@@ -963,6 +995,7 @@ ${notes ? `<b>السبب:</b> ${notes}\n` : ""}
 
       // 3. Send Telegram notification with fixed ticket number + new turn in queue + remaining ahead
       let telegramSent = false;
+      let pendingPushBackDispatch: { key: string; chatId: number; message: string } | null = null;
       if (student.telegramUserId) {
         const studentsAhead = newTurn - 1;
         const deskName = booking.desk || "T";
@@ -1006,9 +1039,12 @@ ${
           .onConflictDoNothing();
 
         telegramSent = true;
+        pendingPushBackDispatch = {
+          key: pushBackKey,
+          chatId: Number(student.telegramUserId),
+          message: delayMsg,
+        };
       }
-
-      NotificationService.triggerBackgroundWorker();
 
       return {
         success: true,
@@ -1022,8 +1058,17 @@ ${
         formattedQueueNumber: formatQueueNumber(newQueueNumber),
         studentsAhead: newTurn - 1,
         telegramSent,
+        fastDispatch: pendingPushBackDispatch,
       };
     });
+
+    if (result.fastDispatch) {
+      NotificationService.fastDispatchByKey(
+        result.fastDispatch.key,
+        result.fastDispatch.chatId,
+        result.fastDispatch.message
+      );
+    }
 
     BookingService.notifyQueueProgress(result.bookingWindowId).catch((err) => {
       console.error("[PushBackTen] Failed to notify queue progress:", err.message);
@@ -1110,7 +1155,7 @@ ${
         .onConflictDoNothing();
 
       telegramSent = true;
-      NotificationService.triggerBackgroundWorker();
+      NotificationService.fastDispatchByKey(cancelKey, student.telegramUserId, cancelMsg);
     }
 
     BookingService.notifyQueueProgress(booking.bookingWindowId).catch((err) => {

@@ -120,6 +120,7 @@ export async function PATCH(
 
     // 1. If opened, broadcast Telegram opening notification via reliable outbox queue
     if (parsed.data.status === "OPEN") {
+      const openRows = [];
       for (const st of sectionStudents) {
         if (!st.telegramUserId) continue;
 
@@ -131,29 +132,29 @@ export async function PATCH(
         const openMsg = `<b>🏛️ جامعة برج العرب التكنولوجية (BATU)</b>\n<b>نظام حجز بصمة الوجه وإدارة الطابور الذكي</b>\n\n📢 <b>تم فتح باب حجز دور البصمة للسكشن الخاص بك الآن!</b>\n\n👤 <b>عزيزي الطالب:</b> ${st.fullName}\n🆔 <b>الرقم الأكاديمي:</b> <code>${st.academicNumber}</code>\n🎓 <b>الفرقة الدراسية:</b> ${acadYear}${specText}\n👥 <b>المجموعة:</b> ${sec?.groupName || "المجموعة"}\n🔢 <b>السكشن:</b> ${sec?.sectionName || "السكشن الأكاديمي"}\n🎯 <b>القسم المسموح له بالحجز:</b> ${subSecLabel}\n\n📍 <b>المقر:</b> مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)\n\n🎟️ <b>احجز رقم دورك في الطابور الآن فوراً:</b>\n👉 <a href="${appUrl}/booking">${appUrl}/booking</a>\n\n<i>يرجى الدخول فوراً عبر الرابط أعلاه بالرقم الأكاديمي لحجز تذكرتك قبل اكتمال السعة المحددة.</i>`;
 
         const idempotencyKey = `window_open_${updated.id}_${st.id}_${Date.now()}`;
-        await db
-          .insert(notificationOutbox)
-          .values({
-            eventType: "WINDOW_OPENED",
-            recipientId: st.id,
-            telegramChatId: st.telegramUserId,
-            payload: {
-              studentName: st.fullName,
-              academicNumber: st.academicNumber,
-              academicYear: acadYear,
-              specialization: sec?.specialization || st.specialization,
-              sectionName: `${sec?.sectionName || ""}${subSectionText} (${sec?.groupName || ""})`,
-              bookingUrl: `${appUrl}/booking`,
-              message: openMsg,
-            },
-            idempotencyKey,
-            status: "PENDING",
-          })
-          .onConflictDoNothing();
-
-        queuedTelegramCount++;
+        openRows.push({
+          eventType: "WINDOW_OPENED",
+          recipientId: st.id,
+          telegramChatId: st.telegramUserId,
+          payload: {
+            studentName: st.fullName,
+            academicNumber: st.academicNumber,
+            academicYear: acadYear,
+            specialization: sec?.specialization || st.specialization,
+            sectionName: `${sec?.sectionName || ""}${subSectionText} (${sec?.groupName || ""})`,
+            bookingUrl: `${appUrl}/booking`,
+            message: openMsg,
+          },
+          idempotencyKey,
+          status: "PENDING",
+        });
       }
-      NotificationService.triggerBackgroundWorker();
+
+      if (openRows.length > 0) {
+        await db.insert(notificationOutbox).values(openRows).onConflictDoNothing();
+        queuedTelegramCount = openRows.length;
+        NotificationService.triggerBackgroundWorker();
+      }
     }
 
     // 2. If paused or closed, broadcast Telegram close/pause notice via reliable outbox queue
@@ -162,6 +163,7 @@ export async function PATCH(
       const statusTitle = isPaused ? "⏸️ تنبيه إيقاف مؤقت لحجز دور البصمة" : "⛔ إغلاق باب حجز دور البصمة";
       const statusAction = isPaused ? "إيقاف حجز دور البصمة لسكشنكم مؤقتاً" : "إغلاق باب حجز دور البصمة لسكشنكم";
 
+      const closeRows = [];
       for (const st of sectionStudents) {
         if (!st.telegramUserId) continue;
 
@@ -173,28 +175,28 @@ export async function PATCH(
         const closeMsg = `<b>🏛️ جامعة برج العرب التكنولوجية (BATU)</b>\n<b>نظام حجز بصمة الوجه وإدارة الطابور الذكي</b>\n\n${statusTitle}\n\n👤 <b>عزيزي الطالب:</b> ${st.fullName}\n🆔 <b>الرقم الأكاديمي:</b> <code>${st.academicNumber}</code>\n🎓 <b>الفرقة الدراسية:</b> ${acadYear}${specText}\n👥 <b>المجموعة:</b> ${sec?.groupName || "المجموعة"}\n🔢 <b>السكشن:</b> ${sec?.sectionName || "السكشن الأكاديمي"}\n🎯 <b>القسم:</b> ${subSecLabel}\n\nنحيطكم علماً بأنه قد <b>تم ${statusAction}</b> في الوقت الحالي بناءً على تعليمات إدارة الكلية.\n\n🔔 <b>ستصلكم رسالة فورية عبر التيليجرام فور إعادة فتح الحجز لسكشنكم مرة أخرى.</b>`;
 
         const idempotencyKey = `window_${isPaused ? "pause" : "close"}_${updated.id}_${st.id}_${Date.now()}`;
-        await db
-          .insert(notificationOutbox)
-          .values({
-            eventType: isPaused ? "WINDOW_PAUSED" : "WINDOW_CLOSED",
-            recipientId: st.id,
-            telegramChatId: st.telegramUserId,
-            payload: {
-              studentName: st.fullName,
-              academicNumber: st.academicNumber,
-              academicYear: acadYear,
-              specialization: sec?.specialization || st.specialization,
-              sectionName: `${sec?.sectionName || ""}${subSectionText} (${sec?.groupName || ""})`,
-              message: closeMsg,
-            },
-            idempotencyKey,
-            status: "PENDING",
-          })
-          .onConflictDoNothing();
-
-        queuedTelegramCount++;
+        closeRows.push({
+          eventType: isPaused ? "WINDOW_PAUSED" : "WINDOW_CLOSED",
+          recipientId: st.id,
+          telegramChatId: st.telegramUserId,
+          payload: {
+            studentName: st.fullName,
+            academicNumber: st.academicNumber,
+            academicYear: acadYear,
+            specialization: sec?.specialization || st.specialization,
+            sectionName: `${sec?.sectionName || ""}${subSectionText} (${sec?.groupName || ""})`,
+            message: closeMsg,
+          },
+          idempotencyKey,
+          status: "PENDING",
+        });
       }
-      NotificationService.triggerBackgroundWorker();
+
+      if (closeRows.length > 0) {
+        await db.insert(notificationOutbox).values(closeRows).onConflictDoNothing();
+        queuedTelegramCount = closeRows.length;
+        NotificationService.triggerBackgroundWorker();
+      }
     }
 
     let successMsg = "تم تحديث حالة فترة الحجز بنجاح";

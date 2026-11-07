@@ -151,10 +151,13 @@ export class StaffService {
       // 5. Create durable notification event in notification_outbox & dispatch directly to Telegram
       let notificationQueued = false;
       let telegramSent = false;
+      let pendingFastDispatch: { key: string; chatId: number; message: string } | null = null;
 
       if (student.telegramUserId) {
         const activationLocation = await SettingsService.getActivationLocation();
         const idempotencyKey = `activation_notify_${activation.id}`;
+        const actMsg = `🎉 <b>تهانينا يا ${student.fullName}! تم تفعيل واعتماد بصمة الوجه بنجاح</b>\n\n🆔 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>\n👨‍💼 <b>مسؤول التفعيل:</b> ${staff.fullName}\n📅 <b>تاريخ ووقت الاعتماد:</b> ${formatCairoDateTime(activation.activatedAt)}\n📍 <b>المقر:</b> ${activationLocation}\n\n✅ <b>تم ربط وتسجيل بصمتك في النظام بنجاح، ويمكنك الآن استخدام بصمة الوجه في كافة بوابات وخدمات الجامعة. نتمنى لك التوفيق والنجاح دائماً!</b>`;
+
         await tx
           .insert(notificationOutbox)
           .values({
@@ -167,12 +170,18 @@ export class StaffService {
               staffName: staff.fullName,
               activatedAt: formatCairoDateTime(activation.activatedAt),
               location: activationLocation,
+              message: actMsg,
             },
             idempotencyKey,
           })
           .onConflictDoNothing();
 
         notificationQueued = true;
+        pendingFastDispatch = {
+          key: idempotencyKey,
+          chatId: Number(student.telegramUserId),
+          message: actMsg,
+        };
       }
 
       // 6. Immutable audit log
@@ -195,10 +204,19 @@ export class StaffService {
         affectedWindowId,
         notificationQueued,
         telegramSent: notificationQueued,
+        fastDispatch: pendingFastDispatch,
       };
     });
 
-    NotificationService.triggerBackgroundWorker();
+    if (result.fastDispatch) {
+      NotificationService.fastDispatchByKey(
+        result.fastDispatch.key,
+        result.fastDispatch.chatId,
+        result.fastDispatch.message
+      );
+    } else {
+      NotificationService.triggerBackgroundWorker();
+    }
 
     BookingService.notifyQueueProgress().catch((err) => {
       console.error("[RecordActivation] Failed to notify queue progress:", err.message);

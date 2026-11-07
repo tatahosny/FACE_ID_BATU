@@ -64,6 +64,7 @@ export async function POST(req: NextRequest) {
 
     // Deduplicate students so each student receives exactly 1 notification during bulk operations
     const sentTelegramUsers = new Set<string>();
+    const bulkRowsToInsert: any[] = [];
 
     for (const win of updatedList) {
       try {
@@ -122,25 +123,22 @@ export async function POST(req: NextRequest) {
             const openMsg = `<b>🏛️ جامعة برج العرب التكنولوجية (BATU)</b>\n<b>نظام حجز بصمة الوجه وإدارة الطابور الذكي</b>\n\n📢 <b>تم فتح باب حجز دور البصمة للسكشن الخاص بك الآن!</b>\n\n👤 <b>عزيزي الطالب:</b> ${st.fullName}\n🆔 <b>الرقم الأكاديمي:</b> <code>${st.academicNumber}</code>\n🎓 <b>الفرقة الدراسية:</b> ${acadYear}${specText}\n👥 <b>المجموعة:</b> ${sec?.groupName || "المجموعة"}\n🔢 <b>السكشن:</b> ${sec?.sectionName || "السكشن الأكاديمي"}\n🎯 <b>القسم المسموح له بالحجز:</b> ${subSecLabel}\n\n📍 <b>المقر:</b> مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)\n\n🎟️ <b>احجز رقم دورك في الطابور الآن فوراً:</b>\n👉 <a href="${appUrl}/booking">${appUrl}/booking</a>\n\n<i>يرجى الدخول فوراً عبر الرابط أعلاه بالرقم الأكاديمي لحجز تذكرتك قبل اكتمال السعة المحددة.</i>`;
 
             const idempotencyKey = `bulk_open_${win.id}_${st.id}_${Date.now()}`;
-            await db
-              .insert(notificationOutbox)
-              .values({
-                eventType: "WINDOW_OPENED",
-                recipientId: st.id,
-                telegramChatId: st.telegramUserId,
-                payload: {
-                  studentName: st.fullName,
-                  academicNumber: st.academicNumber,
-                  academicYear: acadYear,
-                  specialization: sec?.specialization || st.specialization,
-                  sectionName: `${sec?.sectionName || ""}${subSectionText} (${sec?.groupName || ""})`,
-                  bookingUrl: `${appUrl}/booking`,
-                  message: openMsg,
-                },
-                idempotencyKey,
-                status: "PENDING",
-              })
-              .onConflictDoNothing();
+            bulkRowsToInsert.push({
+              eventType: "WINDOW_OPENED",
+              recipientId: st.id,
+              telegramChatId: st.telegramUserId,
+              payload: {
+                studentName: st.fullName,
+                academicNumber: st.academicNumber,
+                academicYear: acadYear,
+                specialization: sec?.specialization || st.specialization,
+                sectionName: `${sec?.sectionName || ""}${subSectionText} (${sec?.groupName || ""})`,
+                bookingUrl: `${appUrl}/booking`,
+                message: openMsg,
+              },
+              idempotencyKey,
+              status: "PENDING",
+            });
           }
         } else if (action === "PAUSED" || action === "CLOSED") {
           const isPaused = action === "PAUSED";
@@ -161,24 +159,21 @@ export async function POST(req: NextRequest) {
             const closeMsg = `<b>🏛️ جامعة برج العرب التكنولوجية (BATU)</b>\n<b>نظام حجز بصمة الوجه وإدارة الطابور الذكي</b>\n\n${statusTitle}\n\n👤 <b>عزيزي الطالب:</b> ${st.fullName}\n🆔 <b>الرقم الأكاديمي:</b> <code>${st.academicNumber}</code>\n🎓 <b>الفرقة الدراسية:</b> ${acadYear}${specText}\n👥 <b>المجموعة:</b> ${sec?.groupName || "المجموعة"}\n🔢 <b>السكشن:</b> ${sec?.sectionName || "السكشن الأكاديمي"}\n🎯 <b>القسم:</b> ${subSecLabel}\n\nنحيطكم علماً بأنه قد <b>تم ${statusAction}</b> في الوقت الحالي بناءً على تعليمات إدارة الكلية.\n\n🔔 <b>ستصلكم رسالة فورية عبر التيليجرام فور إعادة فتح الحجز لسكشنكم مرة أخرى.</b>`;
 
             const idempotencyKey = `bulk_${isPaused ? "pause" : "close"}_${win.id}_${st.id}_${Date.now()}`;
-            await db
-              .insert(notificationOutbox)
-              .values({
-                eventType: isPaused ? "WINDOW_PAUSED" : "WINDOW_CLOSED",
-                recipientId: st.id,
-                telegramChatId: st.telegramUserId,
-                payload: {
-                  studentName: st.fullName,
-                  academicNumber: st.academicNumber,
-                  academicYear: acadYear,
-                  specialization: sec?.specialization || st.specialization,
-                  sectionName: `${sec?.sectionName || ""}${subSectionText} (${sec?.groupName || ""})`,
-                  message: closeMsg,
-                },
-                idempotencyKey,
-                status: "PENDING",
-              })
-              .onConflictDoNothing();
+            bulkRowsToInsert.push({
+              eventType: isPaused ? "WINDOW_PAUSED" : "WINDOW_CLOSED",
+              recipientId: st.id,
+              telegramChatId: st.telegramUserId,
+              payload: {
+                studentName: st.fullName,
+                academicNumber: st.academicNumber,
+                academicYear: acadYear,
+                specialization: sec?.specialization || st.specialization,
+                sectionName: `${sec?.sectionName || ""}${subSectionText} (${sec?.groupName || ""})`,
+                message: closeMsg,
+              },
+              idempotencyKey,
+              status: "PENDING",
+            });
           }
         }
       } catch (err: any) {
@@ -186,7 +181,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (sentTelegramUsers.size > 0) {
+    if (bulkRowsToInsert.length > 0) {
+      await db.insert(notificationOutbox).values(bulkRowsToInsert).onConflictDoNothing();
       NotificationService.triggerBackgroundWorker();
     }
 

@@ -5,13 +5,52 @@ import {
   bookingWindows,
   students,
 } from "@/db/schema";
-import { eq, and, sql, asc, desc } from "drizzle-orm";
+import { eq, and, sql, asc, desc, inArray } from "drizzle-orm";
 import { TelegramService } from "./telegram.service";
 import { BOOKING_STATUSES, BOOKING_WINDOW_STATUSES } from "@/lib/constants/statuses";
 
 export class NotificationService {
   private static isWorkerRunning = false;
   private static hasPendingWork = false;
+
+  /**
+   * Fast-path immediate Telegram dispatch:
+   * Asynchronously sends the message directly to Telegram without waiting for outbox batch cycle,
+   * then updates the outbox item to DELIVERED upon success (<300ms).
+   * If Telegram API fails, triggers the autonomous worker as a failover retry.
+   */
+  static fastDispatchByKey(
+    idempotencyKey: string,
+    telegramChatId: number | string,
+    messageText: string
+  ): void {
+    if (!telegramChatId || !messageText) return;
+
+    const chatIdNum =
+      typeof telegramChatId === "string" ? parseInt(telegramChatId, 10) : telegramChatId;
+    if (!chatIdNum || isNaN(chatIdNum)) return;
+
+    setImmediate(async () => {
+      try {
+        await TelegramService.sendMessage(chatIdNum, messageText);
+        await db
+          .update(notificationOutbox)
+          .set({
+            status: "DELIVERED",
+            sentAt: new Date(),
+            attempts: 1,
+            lastError: null,
+          })
+          .where(eq(notificationOutbox.idempotencyKey, idempotencyKey));
+      } catch (err: any) {
+        console.warn(
+          `[FastDispatch] Direct send failed for key ${idempotencyKey}, worker will retry:`,
+          err?.message || err
+        );
+        this.triggerBackgroundWorker();
+      }
+    });
+  }
 
   /**
    * Trigger the detached autonomous background worker to process pending notifications
@@ -45,9 +84,9 @@ export class NotificationService {
 
   /**
    * Helper to resolve the queue priority for any given outbox event type:
-   * Priority 1 (Highest): Manual Admin/Staff Actions (نداء، نداء مكرر، إلغاء دور، تأخير 10 أدوار، تفعيل البصمة)
-   * Priority 2 (Medium): Queue Proximity Alerts (أول 1، أول 5، أول 10، أول 15 دورهم فاضلو قد إيه بانتظام بدون تأخير)
-   * Priority 3 (Standard): Remaining queue events and background messages (تأكيد الحجز، إعلانات، إلخ)
+   * Priority 1 (Ultra High): نداء، نداء مكرر، إلغاء دور، تأخير 10 أدوار، تفعيل البصمة، تأكيد الحجز، فتح الحجز، أنت التالي
+   * Priority 2 (High): تنبيهات اقتراب الدور (أول 5، أول 10، أول 15)، غلق الحجز، إيقاف الحجز
+   * Priority 3 (Standard): رسائل البرودكاست المجمعة وباقي الإشعارات
    */
   static getEventPriority(eventType: string): number {
     switch (eventType) {
@@ -56,11 +95,15 @@ export class NotificationService {
       case "BOOKING_CANCELLED":
       case "QUEUE_PUSH_BACK":
       case "ACTIVATION_SUCCESS":
-        return 1;
+      case "BOOKING_CONFIRMATION":
+      case "WINDOW_OPENED":
       case "PROXIMITY_NEXT":
+        return 1;
       case "PROXIMITY_5":
       case "PROXIMITY_10":
       case "PROXIMITY_15":
+      case "WINDOW_CLOSED":
+      case "WINDOW_PAUSED":
         return 2;
       default:
         return 3;
@@ -68,24 +111,27 @@ export class NotificationService {
   }
 
   /**
-   * Continuous loop that drains pending outbox notifications in safe batches
-   * prioritized strictly according to operational criticality.
+   * Continuous loop that drains pending outbox notifications in high-speed safe batches
+   * using a concurrent worker pool (6 parallel workers) with sliding rate limiting.
    */
   private static async runAutonomousWorker(): Promise<void> {
-    const BATCH_SIZE = 30;
-    const THROTTLE_DELAY_MS = 60; // Standard safe delay (~16 msgs/sec)
+    const BATCH_SIZE = 40;
+    const CONCURRENCY = 6;
+    const MIN_INTERVAL_MS = 35; // Safe ~28 msgs/sec globally across different chats
 
     while (true) {
       const now = new Date();
 
       // Dynamic SQL Priority Ordering:
-      // Priority 1: TURN_CALLED, REPEAT_ALERT, BOOKING_CANCELLED, QUEUE_PUSH_BACK, ACTIVATION_SUCCESS
-      // Priority 2: PROXIMITY_NEXT, PROXIMITY_5, PROXIMITY_10, PROXIMITY_15
-      // Priority 3: All other remaining notifications
       const priorityOrderSql = sql<number>`
         CASE 
-          WHEN ${notificationOutbox.eventType} IN ('TURN_CALLED', 'REPEAT_ALERT', 'BOOKING_CANCELLED', 'QUEUE_PUSH_BACK', 'ACTIVATION_SUCCESS') THEN 1
-          WHEN ${notificationOutbox.eventType} IN ('PROXIMITY_NEXT', 'PROXIMITY_5', 'PROXIMITY_10', 'PROXIMITY_15') THEN 2
+          WHEN ${notificationOutbox.eventType} IN (
+            'TURN_CALLED', 'REPEAT_ALERT', 'BOOKING_CANCELLED', 'QUEUE_PUSH_BACK', 
+            'ACTIVATION_SUCCESS', 'BOOKING_CONFIRMATION', 'WINDOW_OPENED', 'PROXIMITY_NEXT'
+          ) THEN 1
+          WHEN ${notificationOutbox.eventType} IN (
+            'PROXIMITY_5', 'PROXIMITY_10', 'PROXIMITY_15', 'WINDOW_CLOSED', 'WINDOW_PAUSED'
+          ) THEN 2
           ELSE 3
         END
       `;
@@ -106,84 +152,113 @@ export class NotificationService {
         break;
       }
 
+      // 1. Filter out stale items (>2 hours)
+      const validItems: typeof pendingItems = [];
+      const expiredIds: string[] = [];
       for (const item of pendingItems) {
-        // Expiration check: If notification is older than 2 hours, cancel it to avoid sending stale notifications
         const itemAgeMs = now.getTime() - new Date(item.createdAt).getTime();
-        const MAX_NOTIFICATION_AGE_MS = 2 * 60 * 60 * 1000; // 2 hours
+        const MAX_NOTIFICATION_AGE_MS = 2 * 60 * 60 * 1000;
         if (itemAgeMs > MAX_NOTIFICATION_AGE_MS) {
-          await db
-            .update(notificationOutbox)
-            .set({
-              status: "CANCELLED",
-              lastError: "تم إلغاء الإشعار لمرور أكثر من ساعتين على موعده الأصلي منعاً لإزعاج الطالب",
-            })
-            .where(eq(notificationOutbox.id, item.id));
-          continue;
-        }
-
-        // Mark as PROCESSING
-        await db
-          .update(notificationOutbox)
-          .set({ status: "PROCESSING" })
-          .where(eq(notificationOutbox.id, item.id));
-
-        const messageText = this.formatNotificationMessage(item.eventType, item.payload);
-        const itemPriority = this.getEventPriority(item.eventType);
-        // Priority 1: ultra-fast 25ms, Priority 2: steady 40ms, Priority 3: standard 60ms
-        const itemDelayMs = itemPriority === 1 ? 25 : itemPriority === 2 ? 40 : THROTTLE_DELAY_MS;
-
-        try {
-          await TelegramService.sendMessage(item.telegramChatId, messageText);
-
-          await db
-            .update(notificationOutbox)
-            .set({
-              status: "DELIVERED",
-              sentAt: new Date(),
-              attempts: item.attempts + 1,
-              lastError: null,
-            })
-            .where(eq(notificationOutbox.id, item.id));
-
-          // Safe delay between outgoing messages to protect Telegram rate limits
-          await new Promise((r) => setTimeout(r, itemDelayMs));
-        } catch (err: any) {
-          const errMsg = err?.message || "";
-          const isPermanentFailure =
-            errMsg.includes("bot was blocked by the user") ||
-            errMsg.includes("chat not found") ||
-            errMsg.includes("user is deactivated") ||
-            errMsg.includes("chat was deleted");
-
-          const nextAttempts = item.attempts + 1;
-          const isExhausted = isPermanentFailure || nextAttempts >= item.maxAttempts;
-
-          let backoffSeconds = Math.min(3600, Math.pow(2, nextAttempts) * 5);
-
-          // If Telegram specifically returned 429 Too Many Requests, respect the retry_after header
-          if (err.retryAfter && typeof err.retryAfter === "number") {
-            backoffSeconds = err.retryAfter;
-            console.warn(`[NotificationWorker] Telegram rate limited. Pausing worker for ${err.retryAfter}s`);
-            await new Promise((r) => setTimeout(r, err.retryAfter * 1000));
-          }
-
-          const nextAttemptAt = new Date(Date.now() + backoffSeconds * 1000);
-
-          await db
-            .update(notificationOutbox)
-            .set({
-              status: isExhausted ? "FAILED" : "PENDING",
-              attempts: nextAttempts,
-              nextAttemptAt,
-              lastError: isPermanentFailure
-                ? `تعذر التسليم بشكل نهائي: ${errMsg}`
-                : errMsg || "Unknown delivery error",
-            })
-            .where(eq(notificationOutbox.id, item.id));
-
-          await new Promise((r) => setTimeout(r, itemDelayMs));
+          expiredIds.push(item.id);
+        } else {
+          validItems.push(item);
         }
       }
+
+      if (expiredIds.length > 0) {
+        await db
+          .update(notificationOutbox)
+          .set({
+            status: "CANCELLED",
+            lastError: "تم إلغاء الإشعار لمرور أكثر من ساعتين على موعده الأصلي منعاً لإزعاج الطالب",
+          })
+          .where(inArray(notificationOutbox.id, expiredIds));
+      }
+
+      if (validItems.length === 0) {
+        continue;
+      }
+
+      // 2. Bulk mark as PROCESSING in 1 single DB query (prevents 30-40 network roundtrips!)
+      const validIds = validItems.map((i) => i.id);
+      await db
+        .update(notificationOutbox)
+        .set({ status: "PROCESSING" })
+        .where(inArray(notificationOutbox.id, validIds));
+
+      // 3. High-throughput concurrent worker pool
+      let lastDispatchTime = 0;
+      let itemIndex = 0;
+
+      const workers = Array.from(
+        { length: Math.min(CONCURRENCY, validItems.length) },
+        async () => {
+          while (itemIndex < validItems.length) {
+            const item = validItems[itemIndex++];
+            if (!item) break;
+
+            // Safe global rate limiter (~28 requests/second)
+            const nowMs = Date.now();
+            const elapsed = nowMs - lastDispatchTime;
+            if (elapsed < MIN_INTERVAL_MS) {
+              await new Promise((r) => setTimeout(r, MIN_INTERVAL_MS - elapsed));
+            }
+            lastDispatchTime = Date.now();
+
+            const messageText = this.formatNotificationMessage(item.eventType, item.payload);
+
+            try {
+              await TelegramService.sendMessage(item.telegramChatId, messageText);
+
+              await db
+                .update(notificationOutbox)
+                .set({
+                  status: "DELIVERED",
+                  sentAt: new Date(),
+                  attempts: item.attempts + 1,
+                  lastError: null,
+                })
+                .where(eq(notificationOutbox.id, item.id));
+            } catch (err: any) {
+              const errMsg = err?.message || "";
+              const isPermanentFailure =
+                errMsg.includes("bot was blocked by the user") ||
+                errMsg.includes("chat not found") ||
+                errMsg.includes("user is deactivated") ||
+                errMsg.includes("chat was deleted");
+
+              const nextAttempts = item.attempts + 1;
+              const isExhausted = isPermanentFailure || nextAttempts >= item.maxAttempts;
+
+              let backoffSeconds = Math.min(3600, Math.pow(2, nextAttempts) * 5);
+
+              if (err.retryAfter && typeof err.retryAfter === "number") {
+                backoffSeconds = err.retryAfter;
+                console.warn(
+                  `[NotificationWorker] Telegram rate limited. Pausing worker for ${err.retryAfter}s`
+                );
+                await new Promise((r) => setTimeout(r, err.retryAfter * 1000));
+              }
+
+              const nextAttemptAt = new Date(Date.now() + backoffSeconds * 1000);
+
+              await db
+                .update(notificationOutbox)
+                .set({
+                  status: isExhausted ? "FAILED" : "PENDING",
+                  attempts: nextAttempts,
+                  nextAttemptAt,
+                  lastError: isPermanentFailure
+                    ? `تعذر التسليم بشكل نهائي: ${errMsg}`
+                    : errMsg || "Unknown delivery error",
+                })
+                .where(eq(notificationOutbox.id, item.id));
+            }
+          }
+        }
+      );
+
+      await Promise.all(workers);
     }
   }
 
@@ -243,7 +318,11 @@ export class NotificationService {
             idempotencyKey,
             triggerWorker: false,
           });
-          if (inserted) queuedCount++;
+          if (inserted) {
+            queuedCount++;
+            // Instant fast dispatch for "You are next"
+            this.fastDispatchByKey(idempotencyKey, item.telegramUserId, msg);
+          }
         }
         // Milestone 2: 5 or fewer ahead (2 to 5)
         else if (studentsAhead <= 5) {
