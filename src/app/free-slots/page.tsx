@@ -20,6 +20,7 @@ import {
   RefreshCw,
   XCircle,
   HelpCircle,
+  Printer,
 } from "lucide-react";
 import { FREE_SLOT_PERIODS } from "@/lib/constants/academic";
 
@@ -55,6 +56,7 @@ export default function FreeSlotsPage() {
   // State
   const [days, setDays] = useState<DaySetting[]>([]);
   const [slots, setSlots] = useState<BookedSlot[]>([]);
+  const [maxSlotsPerSection, setMaxSlotsPerSection] = useState(2);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -102,6 +104,9 @@ export default function FreeSlotsPage() {
       if (json.success) {
         setDays(json.data.days || []);
         setSlots(json.data.slots || []);
+        if (json.data.maxSlotsPerSection) {
+          setMaxSlotsPerSection(json.data.maxSlotsPerSection);
+        }
       }
     } catch (err) {
       console.error("Failed to load slots data:", err);
@@ -409,10 +414,12 @@ export default function FreeSlotsPage() {
       return;
     }
 
-    // Check limit: Max 2 slots per section
-    if (mySlotsCount >= 2 && !isSuperAdmin) {
+    // Check limit: Max allowed slots per section (configured by Super Admin)
+    if (mySlotsCount >= maxSlotsPerSection && !isSuperAdmin) {
       setFeedback({
-        message: "لقد وصلت إلى الحد الأقصى المسموح به لسكشنك (فترتان فقط). لإلغاء إحداهما اضغط على الفترة المحجوزة مسبقاً لسكشنك.",
+        message: `لقد وصلت إلى الحد الأقصى المسموح به لسكشنك (${maxSlotsPerSection} ${
+          maxSlotsPerSection === 1 ? "فترة واحدة" : maxSlotsPerSection === 2 ? "فترتان" : "فترات"
+        }). لإلغاء إحداهما اضغط على الفترة المحجوزة مسبقاً لسكشنك.`,
         type: "error",
       });
       return;
@@ -541,7 +548,7 @@ export default function FreeSlotsPage() {
                       {delegateStudent.specialization || "الفرقة الثالثة"}
                     </span>
                     <span className="px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 text-[11px] font-bold border border-purple-500/30">
-                      فترات سكشنك: {mySlotsCount} / 2
+                      فترات سكشنك: {mySlotsCount} / {maxSlotsPerSection}
                     </span>
                     <button
                       onClick={async () => {
@@ -946,6 +953,15 @@ export default function FreeSlotsPage() {
             </div>
 
             <button
+              onClick={() => window.print()}
+              className="px-3 py-1.5 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 hover:text-white transition flex items-center gap-1.5 font-bold"
+              title="طباعة الجدول الموحد بصيغة PDF"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>طباعة PDF</span>
+            </button>
+
+            <button
               onClick={fetchData}
               disabled={loading}
               className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-white transition"
@@ -956,168 +972,220 @@ export default function FreeSlotsPage() {
           </div>
         </div>
 
+        {/* Print Styles for Landscape */}
+        <style dangerouslySetInnerHTML={{ __html: `
+          @media print {
+            @page {
+              size: landscape;
+              margin: 8mm;
+            }
+            body {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+          }
+        `}} />
+
+        {/* Printable Official University Header for Free Slots */}
+        <div className="hidden print:flex flex-col items-center justify-center border-b-2 border-black pb-4 mb-6 text-center">
+          <div className="w-20 h-20 mx-auto mb-2 flex items-center justify-center">
+            <img
+              src="/images/batu-logo.png"
+              alt="شعار جامعة برج العرب التكنولوجية"
+              className="max-h-full max-w-full object-contain"
+            />
+          </div>
+          <h1 className="text-lg font-black text-black">
+            جامعة برج العرب التكنولوجية (BATU)
+          </h1>
+          <h2 className="text-xs font-bold text-slate-800">
+            كلية تكنولوجيا الصناعة والطاقة • قسم تكنولوجيا المعلومات
+          </h2>
+          <h3 className="text-sm font-extrabold text-purple-900 mt-1 bg-slate-100 px-3 py-0.5 rounded border border-slate-300 inline-block">
+            الجدول المعتمد لفترات فراغ سكاشن الفرقة الثالثة (توثيق المناديب)
+          </h3>
+          <div className="flex items-center justify-center gap-3 text-[11px] font-bold text-slate-700 mt-1">
+            <span>العام الجامعي: 2026 / 2027</span>
+            <span>•</span>
+            <span>تاريخ الطباعة: {new Date().toLocaleDateString("ar-EG")}</span>
+          </div>
+        </div>
+
         {/* Interactive Free Slots Grid Table */}
         <div className="bg-slate-900/80 border border-slate-800/80 rounded-3xl overflow-hidden backdrop-blur-xl shadow-2xl">
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-right min-w-[900px]">
-              {/* Table Header: Days of the week */}
+              {/* Table Header: The 9 Periods across the top */}
               <thead>
-                <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-300 text-xs font-black">
-                  <th className="p-4 w-40 text-center border-l border-slate-800 bg-[#070b14]">
-                    الفترة / اليوم
+                <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-300 text-xs font-black print:bg-slate-100 print:text-black print:border-b-2 print:border-black">
+                  <th className="p-3 w-32 text-center border-l border-slate-800 bg-[#070b14] print:bg-slate-100 print:border print:border-black print:text-black">
+                    اليوم / الفترة
                   </th>
-                  {days.map((d) => (
+                  {FREE_SLOT_PERIODS.map((period) => (
                     <th
-                      key={d.id}
-                      className={`p-4 text-center border-l border-slate-800/80 transition ${
-                        d.isOpen
-                          ? "bg-slate-900/60"
-                          : "bg-red-950/20 text-slate-500"
-                      }`}
+                      key={period.index}
+                      className="p-2.5 text-center border-l border-slate-800/80 bg-slate-900/60 print:bg-slate-100 print:border print:border-black print:text-black transition"
                     >
-                      <div className="flex flex-col items-center justify-center gap-1">
-                        <span className="text-sm font-bold text-white">{d.dayName}</span>
-                        {d.isOpen ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-bold bg-emerald-950/40 border border-emerald-500/30 px-2 py-0.5 rounded-full">
-                            <Unlock className="w-2.5 h-2.5" />
-                            <span>مفتوح للحجز</span>
+                      <div className="flex flex-col items-center justify-center gap-0.5">
+                        <span className="text-xs font-bold text-white print:text-black">{period.name}</span>
+                        <span className="text-[10px] text-cyan-400 font-mono print:text-slate-700 flex items-center justify-center gap-1">
+                          <Clock className="w-2.5 h-2.5 print:hidden" />
+                          <span>
+                            {period.startTime} - {period.endTime}
                           </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-red-400 font-bold bg-red-950/40 border border-red-500/30 px-2 py-0.5 rounded-full">
-                            <Lock className="w-2.5 h-2.5" />
-                            <span>مغلق من الإدارة</span>
-                          </span>
-                        )}
+                        </span>
                       </div>
                     </th>
                   ))}
                 </tr>
               </thead>
 
-              {/* Table Body: The 9 Periods */}
-              <tbody className="divide-y divide-slate-800/70 text-xs">
-                {FREE_SLOT_PERIODS.map((period) => (
-                  <tr key={period.index} className="hover:bg-slate-900/40 transition">
-                    {/* Period Label Header */}
-                    <td className="p-3.5 text-center border-l border-slate-800 bg-[#070b14] font-bold text-slate-300 space-y-0.5">
-                      <div className="text-xs font-black text-white">{period.name}</div>
-                      <div className="text-[11px] text-cyan-400 font-mono flex items-center justify-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        <span>
-                          {period.startTime} - {period.endTime}
-                        </span>
-                      </div>
-                    </td>
+              {/* Table Body: Days on the right (Rows) */}
+              <tbody className="divide-y divide-slate-800/70 text-xs print:divide-black">
+                {days.map((day) => {
+                  const isDayOpen = day.isOpen;
+                  return (
+                    <tr
+                      key={day.id}
+                      className="hover:bg-slate-900/40 transition print:bg-white print:border print:border-black"
+                    >
+                      {/* Day Label Header (Rightmost Column) */}
+                      <td
+                        className={`p-3 text-center border-l border-slate-800 print:border print:border-black font-bold transition space-y-1 ${
+                          isDayOpen
+                            ? "bg-[#070b14] print:bg-slate-50"
+                            : "bg-red-950/20 text-slate-500 print:bg-slate-200 print:text-slate-700"
+                        }`}
+                      >
+                        <div className="text-sm font-black text-white print:text-black">{day.dayName}</div>
+                        {isDayOpen ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-bold bg-emerald-950/40 border border-emerald-500/30 px-2 py-0.5 rounded-full print:border-black print:text-black print:bg-transparent">
+                            <Unlock className="w-2.5 h-2.5 print:hidden" />
+                            <span>مفتوح</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-red-400 font-bold bg-red-950/40 border border-red-500/30 px-2 py-0.5 rounded-full print:border-black print:text-black print:bg-transparent">
+                            <Lock className="w-2.5 h-2.5 print:hidden" />
+                            <span>مغلق</span>
+                          </span>
+                        )}
+                      </td>
 
-                    {/* Day Cells */}
-                    {days.map((day) => {
-                      const cellSlots = slots.filter(
-                        (s) => s.dayName === day.dayName && s.periodIndex === period.index
-                      );
-                      const mySectionSlot = cellSlots.find((s) => s.sectionId === mySectionId);
-                      const isMySection = !!mySectionSlot;
-                      const isAnotherSection = !isMySection && cellSlots.length > 0;
-                      const bookedSlot = mySectionSlot || cellSlots[0];
-                      const isDayOpen = day.isOpen;
-                      const isBusy = actionLoading === `${day.dayName}-${period.index}`;
+                      {/* The 9 Period Cells for this Day */}
+                      {FREE_SLOT_PERIODS.map((period) => {
+                        const cellSlots = slots.filter(
+                          (s) => s.dayName === day.dayName && s.periodIndex === period.index
+                        );
+                        const mySectionSlot = cellSlots.find((s) => s.sectionId === mySectionId);
+                        const isMySection = !!mySectionSlot;
+                        const isAnotherSection = !isMySection && cellSlots.length > 0;
+                        const bookedSlot = mySectionSlot || cellSlots[0];
+                        const isBusy = actionLoading === `${day.dayName}-${period.index}`;
 
-                      return (
-                        <td
-                          key={`${day.id}-${period.index}`}
-                          className={`p-2.5 border-l border-slate-800/70 align-top transition duration-200 relative ${
-                            !isDayOpen && !isSuperAdmin
-                              ? "bg-slate-950/60 opacity-40 cursor-not-allowed"
-                              : isMySection
-                              ? "bg-emerald-950/40 shadow-inner"
-                              : isAnotherSection
-                              ? "bg-amber-950/20"
-                              : "hover:bg-cyan-950/20 cursor-pointer"
-                          }`}
-                          onClick={() => {
-                            if (!isBusy) handleSlotClick(day.dayName, period.index);
-                          }}
-                        >
-                          {isBusy ? (
-                            <div className="h-20 flex flex-col items-center justify-center gap-1 text-cyan-400">
-                              <span className="w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-                              <span className="text-[10px]">جاري المعالجة...</span>
-                            </div>
-                          ) : !isDayOpen && !isSuperAdmin ? (
-                            /* Day Closed State (مضلمة) */
-                            <div className="h-20 rounded-xl flex flex-col items-center justify-center gap-1 text-slate-600 select-none">
-                              <Lock className="w-4 h-4" />
-                              <span className="text-[10px] font-bold">اليوم مغلق</span>
-                            </div>
-                          ) : isMySection ? (
-                            /* Booked by CURRENT Delegate's Section (نورت أخضر مخصص) */
-                            <div className="h-full min-h-[80px] p-2.5 rounded-xl bg-gradient-to-br from-emerald-900/60 to-teal-950/60 border border-emerald-500/60 shadow-lg shadow-emerald-900/20 flex flex-col justify-between text-right space-y-1">
-                              <div className="flex items-center justify-between">
-                                <span className="px-1.5 py-0.5 rounded bg-emerald-500/30 text-emerald-200 font-extrabold text-[10px] flex items-center gap-1">
-                                  <Sparkles className="w-2.5 h-2.5 text-emerald-300" />
-                                  <span>محجوز لسكشنك</span>
-                                </span>
-                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-950/60 text-emerald-300 font-mono font-bold">
-                                  {bookedSlot.specialization} • {bookedSlot.sectionCode}
-                                </span>
+                        return (
+                          <td
+                            key={`${day.id}-${period.index}`}
+                            className={`p-2 border-l border-slate-800/70 print:border print:border-black align-top transition duration-200 relative min-w-[95px] ${
+                              !isDayOpen && !isSuperAdmin
+                                ? "bg-slate-950/60 opacity-40 cursor-not-allowed print:bg-slate-100 print:opacity-100"
+                                : isMySection
+                                ? "bg-emerald-950/40 shadow-inner print:bg-white"
+                                : isAnotherSection
+                                ? "bg-amber-950/20 print:bg-white"
+                                : "hover:bg-cyan-950/20 cursor-pointer print:bg-white"
+                            }`}
+                            onClick={() => {
+                              if (!isBusy) handleSlotClick(day.dayName, period.index);
+                            }}
+                          >
+                            {isBusy ? (
+                              <div className="h-20 flex flex-col items-center justify-center gap-1 text-cyan-400 print:hidden">
+                                <span className="w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+                                <span className="text-[10px]">جاري المعالجة...</span>
                               </div>
-
-                              <div>
-                                <div className="font-extrabold text-white text-xs">
-                                  {bookedSlot.sectionName}
+                            ) : !isDayOpen && !isSuperAdmin ? (
+                              /* Day Closed State (مضلمة) */
+                              <div className="h-20 rounded-xl flex flex-col items-center justify-center gap-1 text-slate-600 select-none print:text-black">
+                                <Lock className="w-4 h-4 print:hidden" />
+                                <span className="text-[10px] font-bold">مغلق</span>
+                              </div>
+                            ) : isMySection ? (
+                              /* Booked by CURRENT Delegate's Section (نورت أخضر مخصص) */
+                              <div className="h-full min-h-[85px] p-2 rounded-xl bg-gradient-to-br from-emerald-900/60 to-teal-950/60 border border-emerald-500/60 shadow-lg shadow-emerald-900/20 flex flex-col justify-between text-right space-y-1 print:bg-white print:border print:border-black print:shadow-none">
+                                <div className="flex items-center justify-between">
+                                  <span className="px-1.5 py-0.5 rounded bg-emerald-500/30 text-emerald-200 font-extrabold text-[9px] flex items-center gap-0.5 print:border print:border-black print:text-black print:bg-transparent">
+                                    <Sparkles className="w-2.5 h-2.5 text-emerald-300 print:hidden" />
+                                    <span>سكشنك</span>
+                                  </span>
+                                  <span className="text-[9px] px-1 rounded bg-emerald-950/60 text-emerald-300 font-mono font-bold print:border print:border-black print:text-black print:bg-transparent">
+                                    {bookedSlot.sectionCode}
+                                  </span>
                                 </div>
-                                <div className="text-[10px] text-emerald-300/80">
+
+                                <div>
+                                  <div className="font-extrabold text-white text-xs print:text-black">
+                                    {bookedSlot.sectionName}
+                                  </div>
+                                  <div
+                                    className="text-[10px] text-emerald-300/80 truncate print:text-slate-800"
+                                    title={bookedSlot.delegateName}
+                                  >
+                                    المندوب: {bookedSlot.delegateName}
+                                  </div>
+                                </div>
+
+                                <div className="pt-0.5 text-[9px] text-emerald-400 underline underline-offset-2 flex items-center gap-1 print:hidden">
+                                  <span>✕ إلغاء الحجز</span>
+                                </div>
+                              </div>
+                            ) : isAnotherSection ? (
+                              /* Booked by ANOTHER Section */
+                              <div className="h-full min-h-[85px] p-2 rounded-xl bg-gradient-to-br from-amber-950/40 via-purple-950/30 to-slate-900/60 border border-amber-500/40 flex flex-col justify-between text-right space-y-1 select-none print:bg-white print:border print:border-black print:shadow-none">
+                                <div className="flex items-center justify-between">
+                                  <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold text-[9px] flex items-center gap-0.5 print:border print:border-black print:text-black print:bg-transparent">
+                                    <Lock className="w-2 h-2 print:hidden" />
+                                    <span>محجوز</span>
+                                  </span>
+                                  <span className="text-[9px] px-1 py-0.5 rounded bg-slate-800/80 text-cyan-300 font-bold print:border print:border-black print:text-black print:bg-transparent">
+                                    {bookedSlot.specialization}
+                                  </span>
+                                </div>
+
+                                <div>
+                                  <div className="font-bold text-slate-100 text-xs print:text-black">
+                                    {bookedSlot.sectionName}
+                                  </div>
+                                  <div className="text-[10px] text-slate-400 truncate print:text-slate-800">
+                                    {bookedSlot.groupName}
+                                  </div>
+                                </div>
+
+                                <div
+                                  className="text-[9px] text-amber-300/90 font-medium truncate print:text-slate-900"
+                                  title={bookedSlot.delegateName}
+                                >
                                   المندوب: {bookedSlot.delegateName}
                                 </div>
                               </div>
-
-                              <div className="pt-1 text-[10px] text-emerald-400 underline underline-offset-2 flex items-center gap-1">
-                                <span>اضغط لإلغاء الحجز</span>
-                              </div>
-                            </div>
-                          ) : isAnotherSection ? (
-                            /* Booked by ANOTHER Section (تنور بلون ومكتوب السكشن المحجوز) */
-                            <div className="h-full min-h-[80px] p-2.5 rounded-xl bg-gradient-to-br from-amber-950/40 via-purple-950/30 to-slate-900/60 border border-amber-500/40 flex flex-col justify-between text-right space-y-1 select-none">
-                              <div className="flex items-center justify-between">
-                                <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold text-[10px] flex items-center gap-1">
-                                  <Lock className="w-2.5 h-2.5" />
-                                  <span>محجوز</span>
+                            ) : (
+                              /* Available Free Slot */
+                              <div className="h-full min-h-[85px] p-2 rounded-xl border border-dashed border-slate-800 hover:border-cyan-500/50 hover:bg-cyan-500/5 flex flex-col items-center justify-center gap-1 text-slate-500 hover:text-cyan-300 transition text-center group print:border-none print:text-slate-400">
+                                <span className="text-[11px] font-bold group-hover:text-cyan-300 print:text-slate-400">
+                                  فترة متاحة
                                 </span>
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800/80 text-cyan-300 font-bold">
-                                  {bookedSlot.specialization}
+                                <span className="text-[9px] text-slate-600 group-hover:text-cyan-400 print:hidden">
+                                  {mySlotsCount >= maxSlotsPerSection && !isSuperAdmin
+                                    ? "(الحد الأقصى)"
+                                    : "+ اضغط لحجزها"}
                                 </span>
                               </div>
-
-                              <div>
-                                <div className="font-bold text-slate-100 text-xs">
-                                  {bookedSlot.sectionName}
-                                </div>
-                                <div className="text-[10px] text-slate-400">
-                                  {bookedSlot.groupName}
-                                </div>
-                              </div>
-
-                              <div className="text-[10px] text-amber-300/90 font-medium truncate" title={bookedSlot.delegateName}>
-                                المندوب: {bookedSlot.delegateName}
-                              </div>
-                            </div>
-                          ) : (
-                            /* Available Free Slot */
-                            <div className="h-full min-h-[80px] p-2 rounded-xl border border-dashed border-slate-800 hover:border-cyan-500/50 hover:bg-cyan-500/5 flex flex-col items-center justify-center gap-1 text-slate-500 hover:text-cyan-300 transition text-center group">
-                              <span className="text-[11px] font-bold group-hover:text-cyan-300">
-                                فترة متاحة
-                              </span>
-                              <span className="text-[10px] text-slate-600 group-hover:text-cyan-400">
-                                {mySlotsCount >= 2 && !isSuperAdmin
-                                  ? "(الحد الأقصى مكتمل)"
-                                  : "+ اضغط لحجز سكشنك"}
-                              </span>
-                            </div>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

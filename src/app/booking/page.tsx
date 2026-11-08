@@ -381,15 +381,13 @@ function BookingContent() {
                   </div>
 
                   <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
-                    <a
-                      href={lookupResult.student.telegramDeepLink || "https://t.me/batu_face_id_bot"}
-                      target="_blank"
-                      rel="noreferrer"
+                    <Link
+                      href={`/register?academicNumber=${encodeURIComponent(lookupResult.student.academicNumber)}`}
                       className="py-3 px-6 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white font-bold text-xs shadow-md shadow-sky-600/30 transition flex items-center justify-center gap-2"
                     >
                       <Send className="w-4 h-4" />
-                      <span>اضغط هنا لربط حساب التيليجرام الخاص بك</span>
-                    </a>
+                      <span>اضغط هنا لتوثيق الهوية بالرقم القومي وإتمام ربط التيليجرام</span>
+                    </Link>
 
                     <button
                       type="button"

@@ -48,7 +48,7 @@ export default function RegisterPage() {
     academicNumber: "",
     nationalId: "",
     academicYear: "الفرقة الثانية",
-    specialization: "",
+    specialization: "عام",
     groupId: "",
     sectionId: "",
     subSection: "A",
@@ -71,6 +71,17 @@ export default function RegisterPage() {
     telegramUsername?: string | null;
     isBookingOpen?: boolean;
   } | null>(null);
+
+  // Auto-populate academicNumber if passed in URL query
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const ac = params.get("academicNumber");
+      if (ac && ac.trim()) {
+        setFormData((prev) => ({ ...prev, academicNumber: ac.trim() }));
+      }
+    }
+  }, []);
 
   // Poll for linking status and prevent navigating away if not linked
   useEffect(() => {
@@ -111,10 +122,10 @@ export default function RegisterPage() {
   // Fetch Groups dynamically when academicYear or specialization changes
   useEffect(() => {
     async function loadGroups() {
-      const isSpecRequired =
+      const isSpecMandatory =
         formData.academicYear === "الفرقة الثالثة" || formData.academicYear === "الفرقة الرابعة";
 
-      if (isSpecRequired && !formData.specialization) {
+      if (isSpecMandatory && (!formData.specialization || formData.specialization === "عام")) {
         setGroups([]);
         setSections([]);
         setFormData((prev) => ({ ...prev, groupId: "", sectionId: "" }));
@@ -124,7 +135,7 @@ export default function RegisterPage() {
       try {
         setLoadingAcademic(true);
         let url = `/api/groups?academicYear=${encodeURIComponent(formData.academicYear)}`;
-        if (isSpecRequired && formData.specialization) {
+        if (formData.specialization && formData.specialization !== "عام") {
           url += `&specialization=${encodeURIComponent(formData.specialization)}`;
         }
         const res = await fetch(url);
@@ -170,7 +181,7 @@ export default function RegisterPage() {
       setFormData((prev) => ({
         ...prev,
         academicYear: value,
-        specialization: "",
+        specialization: value === "الفرقة الثانية" || value === "الفرقة الأولى" ? "عام" : "",
         groupId: "",
         sectionId: "",
       }));
@@ -202,10 +213,10 @@ export default function RegisterPage() {
       return;
     }
 
-    const isSpecRequired =
+    const isSpecMandatory =
       formData.academicYear === "الفرقة الثالثة" || formData.academicYear === "الفرقة الرابعة";
-    if (isSpecRequired && !formData.specialization) {
-      setErrorMessage("يرجى اختيار الشعبة الأكاديمية (سوفت وير أو نيتورك)");
+    if (isSpecMandatory && (!formData.specialization || formData.specialization === "عام")) {
+      setErrorMessage("يرجى اختيار الشعبة الأكاديمية (سوفت وير أو نيتورك) لطلاب الفرقة الثالثة والرابعة");
       return;
     }
 
@@ -219,7 +230,13 @@ export default function RegisterPage() {
       const res = await fetch("/api/students/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          specialization:
+            formData.academicYear === "الفرقة الثانية" && (!formData.specialization || formData.specialization === "عام")
+              ? "عام"
+              : formData.specialization || null,
+        }),
       });
 
       const json = await res.json();
@@ -229,8 +246,16 @@ export default function RegisterPage() {
         return;
       }
 
-      // If student is already registered, show message and auto-redirect to booking
+      // If student is already registered:
       if (json.data?.alreadyRegistered) {
+        if (json.data?.needsLinking && json.data?.telegramDeepLink) {
+          setSuccessResult({
+            student: json.data.student,
+            telegramDeepLink: json.data.telegramDeepLink,
+          });
+          return;
+        }
+
         const destUrl =
           json.data.redirectUrl ||
           `/booking?alreadyRegistered=1&academicNumber=${encodeURIComponent(formData.academicNumber.trim())}`;
@@ -709,6 +734,70 @@ export default function RegisterPage() {
               </select>
             </div>
 
+            {/* Specialization Selection for Year 2 (Allows عام, or choosing Software / Network) */}
+            {formData.academicYear === "الفرقة الثانية" && (
+              <div className="p-4 rounded-2xl bg-cyan-950/20 border border-cyan-500/30 space-y-2 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between">
+                  <label className="block text-sm font-bold text-cyan-300">
+                    الشعبة الأكاديمية (مسموح بتركها عام)
+                  </label>
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold">
+                    الفرقة الثانية
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleChange({
+                        target: { name: "specialization", value: "عام" },
+                      } as any)
+                    }
+                    className={`py-2.5 px-2 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                      !formData.specialization || formData.specialization === "عام"
+                        ? "bg-cyan-600/30 border-cyan-400 text-cyan-200 ring-2 ring-cyan-500/50"
+                        : "bg-slate-950 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600"
+                    }`}
+                  >
+                    <span>🎓 عام (بدون تشعيب)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleChange({
+                        target: { name: "specialization", value: "سوفت وير" },
+                      } as any)
+                    }
+                    className={`py-2.5 px-2 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                      formData.specialization === "سوفت وير"
+                        ? "bg-cyan-600/30 border-cyan-400 text-cyan-200 ring-2 ring-cyan-500/50"
+                        : "bg-slate-950 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600"
+                    }`}
+                  >
+                    <span>💻 سوفت وير</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleChange({
+                        target: { name: "specialization", value: "نيتورك" },
+                      } as any)
+                    }
+                    className={`py-2.5 px-2 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                      formData.specialization === "نيتورك"
+                        ? "bg-cyan-600/30 border-cyan-400 text-cyan-200 ring-2 ring-cyan-500/50"
+                        : "bg-slate-950 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600"
+                    }`}
+                  >
+                    <span>🌐 نيتورك</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-cyan-300/80">
+                  طلاب الفرقة الثانية مسموح لهم ترك الشعبة (عام) بدون أي إلزام بتحديد تخصص.
+                </p>
+              </div>
+            )}
+
             {/* Specialization Selection (Shown ONLY for Year 3 and Year 4) */}
             {(formData.academicYear === "الفرقة الثالثة" || formData.academicYear === "الفرقة الرابعة") && (
               <div className="p-4 rounded-2xl bg-cyan-950/20 border border-cyan-500/30 space-y-2 animate-in fade-in duration-200">
@@ -767,13 +856,13 @@ export default function RegisterPage() {
                 disabled={
                   loadingAcademic ||
                   ((formData.academicYear === "الفرقة الثالثة" || formData.academicYear === "الفرقة الرابعة") &&
-                    !formData.specialization)
+                    (!formData.specialization || formData.specialization === "عام"))
                 }
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm disabled:bg-slate-900 disabled:text-slate-500"
               >
                 <option value="">
                   {(formData.academicYear === "الفرقة الثالثة" || formData.academicYear === "الفرقة الرابعة") &&
-                  !formData.specialization
+                  (!formData.specialization || formData.specialization === "عام")
                     ? "-- يرجى اختيار الشعبة أولاً --"
                     : loadingAcademic
                     ? "جاري تحميل المجموعات..."

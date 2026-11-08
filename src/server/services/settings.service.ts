@@ -60,6 +60,29 @@ export class SettingsService {
   }
 
   /**
+   * Get maximum free slots allowed per section/delegate (default 2)
+   */
+  static async getMaxFreeSlotsPerSection(): Promise<number> {
+    const val = await this.getSetting("delegate_max_free_slots", "2");
+    const parsed = parseInt(val, 10);
+    return isNaN(parsed) || parsed < 1 ? 2 : parsed;
+  }
+
+  /**
+   * Set maximum free slots allowed per section/delegate
+   */
+  static async setMaxFreeSlotsPerSection(maxSlots: number, updatedBy?: string): Promise<number> {
+    const sanitized = Math.max(1, Math.min(20, Math.floor(maxSlots)));
+    await this.setSetting(
+      "delegate_max_free_slots",
+      String(sanitized),
+      "الحد الأقصى لعدد فترات الفراغ التي يمكن للمندوب حجزها للسكشن",
+      updatedBy
+    );
+    return sanitized;
+  }
+
+  /**
    * Update the fingerprint activation location (Super Admin only)
    */
   static async setActivationLocation(location: string, updatedBy?: string): Promise<string> {

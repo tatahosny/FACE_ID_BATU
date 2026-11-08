@@ -75,6 +75,40 @@ export class StudentService {
         (existingByNationalId && existingByAcademic && existingByNationalId.id === existingByAcademic.id);
 
       if (isAlreadyRegistered && existingByAcademic) {
+        // If student registered previously but hasn't linked Telegram yet, issue linking token
+        if (!existingByAcademic.telegramUserId) {
+          const rawToken = generateSecureToken(32);
+          const tokenHash = hashToken(rawToken);
+          const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+          await tx.insert(telegramLinkTokens).values({
+            studentId: existingByAcademic.id,
+            tokenHash,
+            expiresAt,
+          });
+
+          return {
+            alreadyRegistered: true,
+            needsLinking: true,
+            student: {
+              id: existingByAcademic.id,
+              fullName: existingByAcademic.fullName,
+              academicNumber: existingByAcademic.academicNumber,
+              groupId: existingByAcademic.groupId,
+              sectionId: existingByAcademic.sectionId,
+              subSection: existingByAcademic.subSection,
+              academicYear: existingByAcademic.academicYear,
+              specialization: existingByAcademic.specialization,
+              isDelegate: existingByAcademic.isDelegate,
+              createdAt: existingByAcademic.createdAt,
+            },
+            telegramLinkToken: rawToken,
+            telegramDeepLink: `https://t.me/${process.env.TELEGRAM_BOT_USERNAME || "batu_face_id_bot"}?start=${rawToken}`,
+            message: "البيانات مسجلة مسبقاً، ولكن حساب التيليجرام غير مربوط بعد. يرجى إتمام ربط التيليجرام الآن.",
+            redirectUrl: null,
+          };
+        }
+
         // Do NOT update student's data - only SUPER_ADMIN is allowed to edit student data
         return {
           alreadyRegistered: true,

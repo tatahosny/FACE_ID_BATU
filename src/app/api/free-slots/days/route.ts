@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { FreeSlotsService } from "@/server/services/free-slots.service";
+import { SettingsService } from "@/server/services/settings.service";
 import { requireRole } from "@/lib/security/auth";
 import { USER_ROLES } from "@/lib/constants/statuses";
 import { apiError, apiSuccess } from "@/lib/utils/response";
@@ -8,8 +9,21 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    await requireRole([USER_ROLES.SUPER_ADMIN]);
+    const session = await requireRole([USER_ROLES.SUPER_ADMIN]);
     const body = await req.json();
+
+    if (body.maxSlotsPerSection !== undefined) {
+      const sanitized = await SettingsService.setMaxFreeSlotsPerSection(
+        Number(body.maxSlotsPerSection),
+        session.userId
+      );
+      if (!body.days && !body.dayName) {
+        return apiSuccess(
+          { maxSlotsPerSection: sanitized },
+          `تم تحديد الحد الأقصى لفترات المناديب بـ (${sanitized}) فترات بنجاح`
+        );
+      }
+    }
 
     if (Array.isArray(body.days)) {
       const updated = await FreeSlotsService.bulkUpdateDays(body.days);

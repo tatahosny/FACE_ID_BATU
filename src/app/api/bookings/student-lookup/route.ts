@@ -13,14 +13,13 @@ import { eq, and, sql, desc, ne, lt } from "drizzle-orm";
 import { apiError, apiSuccess } from "@/lib/utils/response";
 import { BOOKING_STATUSES, BOOKING_WINDOW_STATUSES } from "@/lib/constants/statuses";
 import { formatQueueNumber, formatCairoDateTime } from "@/lib/utils/datetime";
-import { TelegramService } from "@/server/services/telegram.service";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const academicNumber = searchParams.get("academicNumber")?.trim();
+    const academicNumber = (searchParams.get("academicNumber") || searchParams.get("query"))?.trim();
 
     if (!academicNumber) {
       return apiError("يرجى إدخال الرقم الأكاديمي", 400);
@@ -161,16 +160,8 @@ export async function GET(req: NextRequest) {
       ? null
       : `لم يتم تفعيل وقت البصمة للسكشن أو القسم الفرعي (${student.subSection || "A"}) بتاعك بعد. يرجى الانتظار، ستصلك رسالة تنبيهية على التيليجرام فور فتح الحجز.`;
 
-    // Generate unique personal linking token if student is not linked yet
-    let telegramDeepLink: string | null = null;
-    if (!hasTelegram) {
-      try {
-        const linkToken = await TelegramService.createLinkingToken(student.id);
-        telegramDeepLink = linkToken.deepLink;
-      } catch (err) {
-        console.error("Failed to generate link token in student lookup:", err);
-      }
-    }
+    // Security Notice: Linking tokens are strictly restricted to verified identity flows (National ID verification or active authenticated sessions).
+    // Student Lookup is a public query and MUST NEVER generate or expose any student's Telegram linking token.
 
     return apiSuccess({
       student: {
@@ -183,7 +174,6 @@ export async function GET(req: NextRequest) {
         subSection: student.subSection || "A",
         hasTelegram,
         telegramUsername: student.telegramUsername,
-        telegramDeepLink,
       },
       isFingerprintActivated,
       activation: activation

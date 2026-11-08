@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { delegateSlotDays, sectionFreeSlots, sections, groups, students } from "@/db/schema";
 import { eq, and, asc, sql } from "drizzle-orm";
 import { FREE_SLOT_PERIODS } from "@/lib/constants/academic";
+import { SettingsService } from "./settings.service";
 
 export class FreeSlotsService {
   /**
@@ -145,14 +146,19 @@ export class FreeSlotsService {
         );
       }
 
-      // 4. Verify maximum 2 periods per section
+      // 4. Verify maximum allowed periods per section (configured by Super Admin)
+      const maxAllowed = await SettingsService.getMaxFreeSlotsPerSection();
       const [{ currentSectionCount }] = await tx
         .select({ currentSectionCount: sql<number>`cast(count(*) as integer)` })
         .from(sectionFreeSlots)
         .where(eq(sectionFreeSlots.sectionId, data.sectionId));
 
-      if (currentSectionCount >= 2 && !data.isAdminOverride) {
-        throw new Error("الحد الأقصى المسموح به لكل سكشن هو فترتان فقط. لا يمكنك حجز أكثر من ذلك.");
+      if (currentSectionCount >= maxAllowed && !data.isAdminOverride) {
+        throw new Error(
+          `الحد الأقصى المسموح به لكل سكشن هو ${maxAllowed} ${
+            maxAllowed === 1 ? "فترة واحدة" : maxAllowed === 2 ? "فترتان" : "فترات"
+          } فقط. لا يمكنك حجز أكثر من ذلك.`
+        );
       }
 
       // 5. Insert booked slot

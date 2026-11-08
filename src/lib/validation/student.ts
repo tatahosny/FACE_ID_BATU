@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ACADEMIC_YEARS, SPECIALIZATIONS } from "../constants/academic";
+import { ACADEMIC_YEARS, ALL_SPECIALIZATIONS } from "../constants/academic";
 
 const EGYPTIAN_GOV_CODES = new Set([
   "01", "02", "03", "04", "11", "12", "13", "14", "15", "16",
@@ -63,8 +63,8 @@ export const studentRegistrationSchema = z
       })
       .default("الفرقة الثانية"),
     specialization: z
-      .enum(SPECIALIZATIONS, {
-        invalid_type_error: "يرجى اختيار الشعبة الأكاديمية (سوفت وير أو نيتورك)",
+      .enum(ALL_SPECIALIZATIONS, {
+        invalid_type_error: "يرجى اختيار الشعبة الأكاديمية (سوفت وير، نيتورك، أو عام للفرقة الثانية)",
       })
       .nullable()
       .optional(),
@@ -79,16 +79,17 @@ export const studentRegistrationSchema = z
   })
   .refine(
     (data) => {
+      // Students in Year 3 and Year 4 MUST choose a specialization (Software or Network) and CANNOT leave it "عام"
       if (
         (data.academicYear === "الفرقة الثالثة" || data.academicYear === "الفرقة الرابعة") &&
-        !data.specialization
+        (!data.specialization || data.specialization === "عام")
       ) {
         return false;
       }
       return true;
     },
     {
-      message: "يرجى اختيار الشعبة (سوفت وير أو نيتورك) لطلاب الفرقة الثالثة والرابعة",
+      message: "يرجى اختيار الشعبة التخصصية (سوفت وير أو نيتورك) لطلاب الفرقة الثالثة والرابعة",
       path: ["specialization"],
     }
   );

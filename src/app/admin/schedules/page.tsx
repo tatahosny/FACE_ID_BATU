@@ -21,6 +21,8 @@ import {
   Layers,
   Check,
   Search,
+  LayoutGrid,
+  List,
 } from "lucide-react";
 import { getArabicDayName, format12HourTime, getAcademicTimeMinutes } from "@/lib/utils/datetime";
 import { ACADEMIC_YEARS, SPECIALIZATIONS, FREE_SLOT_PERIODS } from "@/lib/constants/academic";
@@ -63,6 +65,10 @@ export default function AdminSchedulesPage() {
   const [freeSpecFilter, setFreeSpecFilter] = useState<string>("ALL");
   const [freeSearch, setFreeSearch] = useState<string>("");
   const [togglingDay, setTogglingDay] = useState<string | null>(null);
+  const [maxSlotsPerSection, setMaxSlotsPerSection] = useState(2);
+  const [maxSlotsInput, setMaxSlotsInput] = useState(2);
+  const [savingMaxSlots, setSavingMaxSlots] = useState(false);
+  const [freeSlotsViewMode, setFreeSlotsViewMode] = useState<"GRID" | "LIST">("GRID");
 
   // Admin Slot Edit/Swap Modal State
   const [adminEditingSlot, setAdminEditingSlot] = useState<any | null>(null);
@@ -104,6 +110,10 @@ export default function AdminSchedulesPage() {
       if (json.success && json.data) {
         setFreeDays(json.data.days || []);
         setFreeSlots(json.data.slots || []);
+        if (json.data.maxSlotsPerSection) {
+          setMaxSlotsPerSection(json.data.maxSlotsPerSection);
+          setMaxSlotsInput(json.data.maxSlotsPerSection);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -299,6 +309,34 @@ export default function AdminSchedulesPage() {
       setFeedback({ message: err.message || "حدث خطأ غير متوقع", type: "error" });
     } finally {
       setTogglingDay(null);
+    }
+  };
+
+  // Update Max Free Slots allowed for delegates per section
+  const handleSaveMaxSlots = async (val: number) => {
+    try {
+      setSavingMaxSlots(true);
+      setFeedback(null);
+      const res = await fetch("/api/free-slots/days", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ maxSlotsPerSection: val }),
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setMaxSlotsPerSection(val);
+        setMaxSlotsInput(val);
+        setFeedback({
+          message: `تم تحديد الحد الأقصى لفترات المناديب بـ (${val}) فترات بنجاح`,
+          type: "success",
+        });
+      } else {
+        setFeedback({ message: json.error || "فشل حفظ الحد الأقصى", type: "error" });
+      }
+    } catch (err: any) {
+      setFeedback({ message: err.message || "حدث خطأ غير متوقع", type: "error" });
+    } finally {
+      setSavingMaxSlots(false);
     }
   };
 
@@ -833,9 +871,9 @@ export default function AdminSchedulesPage() {
       {/* TAB 2: DELEGATE FREE SLOTS MANAGEMENT */}
       {activeTab === "FREE_SLOTS" && (
         <div className="space-y-6">
-          {/* Day Lock/Unlock Status Controls */}
+          {/* Day Lock/Unlock Status Controls & Delegate Max Slots Setting */}
           <div className="print:hidden bg-slate-900/90 rounded-3xl border border-slate-800 p-6 shadow-2xl backdrop-blur-xl">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-6">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between pb-4 border-b border-slate-800 mb-6 gap-4">
               <div>
                 <h3 className="text-lg font-black text-white flex items-center gap-2">
                   <Power className="w-5 h-5 text-amber-400" />
@@ -844,6 +882,36 @@ export default function AdminSchedulesPage() {
                 <p className="text-xs text-slate-400 mt-1">
                   اليوم المغلق يظهر مظلماً تماماً وغير قابل للاختيار في شاشة المندوب، واليوم المفتوح يتيح حجز الفترات المتاحة.
                 </p>
+              </div>
+
+              {/* Super Admin Control: Set Max Selectable Free Slots per Delegate */}
+              <div className="bg-slate-950 p-3 sm:p-3.5 rounded-2xl border border-purple-500/40 flex items-center gap-3 shadow-lg shadow-purple-950/30 flex-shrink-0">
+                <div className="text-right">
+                  <span className="text-xs font-black text-purple-300 block">
+                    حد فترات المندوب (الحد الأقصى):
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    عدد الفترات المسموح للمندوب بحجزها لسكشنه
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={15}
+                    value={maxSlotsInput}
+                    onChange={(e) => setMaxSlotsInput(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-16 px-2.5 py-1.5 rounded-xl border border-purple-500/50 bg-slate-900 text-white font-mono font-black text-center text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleSaveMaxSlots(maxSlotsInput)}
+                    disabled={savingMaxSlots || maxSlotsInput === maxSlotsPerSection}
+                    className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-bold transition shadow-md shadow-purple-600/30"
+                  >
+                    {savingMaxSlots ? "حفظ..." : "حفظ التحديد"}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -890,6 +958,20 @@ export default function AdminSchedulesPage() {
 
           {/* Booked Slots Management Table */}
           <div className="bg-slate-900/90 rounded-3xl border border-slate-800 p-6 sm:p-10 shadow-2xl backdrop-blur-xl space-y-6 text-white print:bg-white print:text-black print:border-none print:shadow-none print:p-0">
+            {/* Print Styles for Landscape */}
+            <style dangerouslySetInnerHTML={{ __html: `
+              @media print {
+                @page {
+                  size: landscape;
+                  margin: 8mm;
+                }
+                body {
+                  -webkit-print-color-adjust: exact !important;
+                  print-color-adjust: exact !important;
+                }
+              }
+            `}} />
+
             {/* Printable Official University Header for Free Slots */}
             <div className="hidden print:flex flex-col items-center justify-center border-b-2 border-black pb-4 mb-6 text-center">
               <div className="w-24 h-24 mx-auto mb-2 flex items-center justify-center">
@@ -935,11 +1017,41 @@ export default function AdminSchedulesPage() {
                   type="button"
                   onClick={handlePrintPDF}
                   className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-xs font-black shadow-md shadow-purple-600/30 transition flex items-center gap-1.5"
-                  title="طباعة وتصدير جدول فترات الفراغ بصيغة PDF"
+                  title="طباعة وتصدير جدول فترات الفراغ بصيغة PDF (بالعرض)"
                 >
                   <Printer className="w-3.5 h-3.5" />
                   <span>طباعة جدول الفراغ PDF</span>
                 </button>
+
+                {/* View Mode Switcher */}
+                <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setFreeSlotsViewMode("GRID")}
+                    className={`px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 ${
+                      freeSlotsViewMode === "GRID"
+                        ? "bg-purple-600 text-white shadow"
+                        : "text-slate-400 hover:text-white"
+                    }`}
+                    title="عرض الجدول الأفقي الموحد (بالعرض)"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    <span>الجدول الأفقي (بالعرض)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFreeSlotsViewMode("LIST")}
+                    className={`px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 ${
+                      freeSlotsViewMode === "LIST"
+                        ? "bg-purple-600 text-white shadow"
+                        : "text-slate-400 hover:text-white"
+                    }`}
+                    title="عرض قائمة تفصيلية"
+                  >
+                    <List className="w-3.5 h-3.5" />
+                    <span>قائمة</span>
+                  </button>
+                </div>
 
                 <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
                   {["ALL", "سوفت وير", "نيتورك"].map((sp) => (
@@ -963,8 +1075,8 @@ export default function AdminSchedulesPage() {
                     type="text"
                     value={freeSearch}
                     onChange={(e) => setFreeSearch(e.target.value)}
-                    placeholder="بحث باسم المندوب أو السكشن..."
-                    className="px-3.5 py-1.5 rounded-xl border border-slate-700 bg-slate-950 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 w-48 sm:w-60"
+                    placeholder="بحث بالمندوب أو السكشن..."
+                    className="px-3.5 py-1.5 rounded-xl border border-slate-700 bg-slate-950 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 w-44 sm:w-56"
                   />
                   {freeSearch && (
                     <button
@@ -982,6 +1094,147 @@ export default function AdminSchedulesPage() {
               <div className="p-16 text-center text-slate-400 text-sm space-y-3">
                 <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto" />
                 <p>جاري تحميل فترات الفراغ...</p>
+              </div>
+            ) : freeSlotsViewMode === "GRID" ? (
+              /* HORIZONTAL GRID TABLE (Days as rows, Periods 1-9 along columns across the top) */
+              <div className="overflow-x-auto custom-scrollbar print:overflow-visible">
+                <table className="w-full text-right border-collapse border border-slate-800 print:border-2 print:border-black text-xs sm:text-sm min-w-[1000px] print:min-w-0">
+                  <thead>
+                    <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-300 text-xs font-black print:bg-slate-100 print:text-black print:border-b-2 print:border-black">
+                      <th className="p-3 w-28 text-center border-l border-slate-800 bg-[#070b14] print:bg-slate-100 print:border print:border-black print:text-black">
+                        اليوم / الفترة
+                      </th>
+                      {FREE_SLOT_PERIODS.map((period) => (
+                        <th
+                          key={period.index}
+                          className="p-2 text-center border-l border-slate-800 bg-slate-900/70 print:bg-slate-100 print:border print:border-black print:text-black"
+                        >
+                          <div className="flex flex-col items-center justify-center gap-0.5">
+                            <span className="text-xs font-extrabold text-white print:text-black">{period.name}</span>
+                            <span className="text-[10px] text-cyan-400 font-mono print:text-slate-800">
+                              {period.startTime} - {period.endTime}
+                            </span>
+                          </div>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800 text-xs print:divide-black">
+                    {freeDays.map((day) => {
+                      const isDayOpen = day.isOpen;
+                      return (
+                        <tr
+                          key={day.id || day.dayName}
+                          className="hover:bg-purple-950/10 transition print:bg-white print:border print:border-black"
+                        >
+                          {/* Day Row Header (Rightmost Column) */}
+                          <td
+                            className={`p-3 text-center border-l border-slate-800 print:border print:border-black font-bold space-y-1 ${
+                              isDayOpen
+                                ? "bg-[#070b14] print:bg-slate-50"
+                                : "bg-red-950/20 text-slate-500 print:bg-slate-200 print:text-slate-700"
+                            }`}
+                          >
+                            <div className="text-sm font-black text-white print:text-black">{day.dayName}</div>
+                            <div className="print:hidden">
+                              {isDayOpen ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-bold bg-emerald-950/40 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                                  مفتوح
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] text-red-400 font-bold bg-red-950/40 border border-red-500/30 px-2 py-0.5 rounded-full">
+                                  مغلق
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* 9 Period Columns for this Day */}
+                          {FREE_SLOT_PERIODS.map((period) => {
+                            const cellSlots = filteredFreeSlots.filter(
+                              (s) => s.dayName === day.dayName && s.periodIndex === period.index
+                            );
+
+                            return (
+                              <td
+                                key={`${day.dayName}-${period.index}`}
+                                className="p-1.5 border-l border-slate-800 print:border print:border-black align-top min-w-[105px] h-24 print:h-auto"
+                              >
+                                {cellSlots.length > 0 ? (
+                                  <div className="space-y-1.5">
+                                    {cellSlots.map((slot) => (
+                                      <div
+                                        key={slot.id}
+                                        className={`p-2 rounded-xl border flex flex-col justify-between text-right space-y-1 transition print:bg-white print:border print:border-black ${
+                                          slot.specialization === "سوفت وير"
+                                            ? "bg-cyan-950/50 border-cyan-500/40 text-cyan-200"
+                                            : "bg-purple-950/50 border-purple-500/40 text-purple-200"
+                                        }`}
+                                      >
+                                        <div className="flex items-center justify-between gap-1">
+                                          <span
+                                            className={`text-[9px] font-black px-1.5 py-0.5 rounded-full print:border print:border-black print:text-black print:bg-transparent ${
+                                              slot.specialization === "سوفت وير"
+                                                ? "bg-cyan-500/20 text-cyan-300"
+                                                : "bg-purple-500/20 text-purple-300"
+                                            }`}
+                                          >
+                                            {slot.specialization}
+                                          </span>
+                                          <span className="text-[10px] font-extrabold text-white print:text-black truncate">
+                                            {slot.sectionName}
+                                          </span>
+                                        </div>
+
+                                        <div
+                                          className="text-[10px] text-slate-300 print:text-slate-800 truncate"
+                                          title={slot.groupName}
+                                        >
+                                          {slot.groupName}
+                                        </div>
+
+                                        <div
+                                          className="text-[9px] font-semibold text-amber-300 print:text-slate-800 truncate"
+                                          title={slot.delegateName}
+                                        >
+                                          👤 {slot.delegateName || "مندوب السكشن"}
+                                        </div>
+
+                                        {/* Admin Action Buttons (Hidden on Print) */}
+                                        <div className="flex items-center justify-end gap-1 pt-1 border-t border-slate-800/60 print:hidden">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleOpenAdminSlotModal(slot)}
+                                            className="p-1 rounded bg-blue-600/30 hover:bg-blue-600/50 text-blue-200 text-[10px] transition"
+                                            title="تعديل السكشن أو المندوب"
+                                          >
+                                            <Edit3 className="w-3 h-3" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteFreeSlot(slot.id, slot.sectionName)}
+                                            className="p-1 rounded bg-rose-600/30 hover:bg-rose-600/50 text-rose-200 text-[10px] transition"
+                                            title="إلغاء حجز هذه الفترة"
+                                          >
+                                            <Trash2 className="w-3 h-3" />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="h-full min-h-[60px] flex items-center justify-center text-slate-600 text-[11px] font-medium border border-dashed border-slate-800/60 rounded-xl print:border-none print:text-slate-400">
+                                    —
+                                  </div>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             ) : filteredFreeSlots.length === 0 ? (
               <div className="p-12 text-center text-slate-400 text-sm">

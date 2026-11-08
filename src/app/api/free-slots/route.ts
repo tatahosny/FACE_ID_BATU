@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { FreeSlotsService } from "@/server/services/free-slots.service";
+import { SettingsService } from "@/server/services/settings.service";
 import { FREE_SLOT_PERIODS } from "@/lib/constants/academic";
 import { apiError, apiSuccess } from "@/lib/utils/response";
 import { getSessionUser } from "@/lib/security/auth";
@@ -12,15 +13,17 @@ export async function GET(req: NextRequest) {
     const academicYear = searchParams.get("academicYear") || "الفرقة الثالثة";
     const specialization = searchParams.get("specialization") || undefined;
 
-    const [days, slots] = await Promise.all([
+    const [days, slots, maxSlotsPerSection] = await Promise.all([
       FreeSlotsService.getDaysSettings(academicYear),
       FreeSlotsService.getBookedSlots(academicYear, specialization),
+      SettingsService.getMaxFreeSlotsPerSection(),
     ]);
 
     return apiSuccess({
       days,
       slots,
       periods: FREE_SLOT_PERIODS,
+      maxSlotsPerSection,
     });
   } catch (error: any) {
     return apiError(error.message || "فشل جلب بيانات فترات الفراغ", 500);

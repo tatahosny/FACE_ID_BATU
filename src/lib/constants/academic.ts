@@ -12,7 +12,14 @@ export const SPECIALIZATIONS = [
   "نيتورك",
 ] as const;
 
+export const ALL_SPECIALIZATIONS = [
+  "سوفت وير",
+  "نيتورك",
+  "عام",
+] as const;
+
 export type Specialization = (typeof SPECIALIZATIONS)[number];
+export type AllSpecializations = (typeof ALL_SPECIALIZATIONS)[number];
 
 export const FREE_SLOT_PERIODS = [
   { index: 1, name: "الفترة الأولى", startTime: "09:00", endTime: "09:40" },

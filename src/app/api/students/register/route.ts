@@ -23,8 +23,21 @@ export async function POST(req: NextRequest) {
 
     const result = await StudentService.registerStudent(parsed.data);
 
-    // If student is already registered, redirect directly to booking without allowing modification
+    // If student is already registered:
     if ((result as any).alreadyRegistered) {
+      if ((result as any).needsLinking) {
+        return apiSuccess(
+          {
+            alreadyRegistered: true,
+            needsLinking: true,
+            student: result.student,
+            telegramDeepLink: (result as any).telegramDeepLink,
+            message: (result as any).message,
+          },
+          (result as any).message,
+          200
+        );
+      }
       return apiSuccess(
         {
           alreadyRegistered: true,

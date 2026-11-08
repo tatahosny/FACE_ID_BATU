@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { groups, sections, sectionSchedules } from "@/db/schema";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, or, isNull, sql } from "drizzle-orm";
 
 export class AcademicService {
   static async getGroups(activeOnly = true, filters?: { academicYear?: string; specialization?: string }) {
@@ -12,7 +12,11 @@ export class AcademicService {
       conditions.push(eq(groups.academicYear, filters.academicYear));
     }
     if (filters?.specialization) {
-      conditions.push(eq(groups.specialization, filters.specialization));
+      if (filters.specialization === "عام") {
+        conditions.push(or(isNull(groups.specialization), eq(groups.specialization, "عام")));
+      } else if (filters.specialization !== "ALL") {
+        conditions.push(eq(groups.specialization, filters.specialization));
+      }
     }
 
     if (conditions.length > 0) {
