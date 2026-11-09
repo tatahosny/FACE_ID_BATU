@@ -95,6 +95,13 @@ export default function FreeSlotsPage() {
   const [lookupNumber, setLookupNumber] = useState("");
   const [lookupLoading, setLookupLoading] = useState(false);
 
+  // Delegate Portal Access Status (Admin Timer Controlled)
+  const [portalStatus, setPortalStatus] = useState<{
+    isOpen: boolean;
+    openUntil: string | null;
+    remainingMinutes: number;
+  }>({ isOpen: true, openUntil: null, remainingMinutes: 0 });
+
   // Load Free Slots & Days data
   const fetchData = async () => {
     try {
@@ -106,6 +113,9 @@ export default function FreeSlotsPage() {
         setSlots(json.data.slots || []);
         if (json.data.maxSlotsPerSection) {
           setMaxSlotsPerSection(json.data.maxSlotsPerSection);
+        }
+        if (json.data.portalStatus) {
+          setPortalStatus(json.data.portalStatus);
         }
       }
     } catch (err) {
@@ -461,9 +471,79 @@ export default function FreeSlotsPage() {
     }
   };
 
+  // If delegate portal is closed and current user is not Super Admin: Show locked screen
+  if (!loading && !checkingAuth && !portalStatus.isOpen && !isSuperAdmin) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-slate-900/90 border border-slate-800 rounded-3xl p-8 text-center space-y-6 shadow-2xl backdrop-blur-xl">
+          <div className="w-20 h-20 mx-auto rounded-2xl bg-white p-2 shadow-xl shadow-cyan-500/10 flex items-center justify-center border border-slate-700">
+            <img src="/images/batu-logo.png" alt="جامعة برج العرب التكنولوجية" className="max-h-full max-w-full object-contain" />
+          </div>
+
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center justify-center">
+            <Lock className="w-7 h-7" />
+          </div>
+
+          <div className="space-y-2">
+            <h2 className="text-xl font-black text-white">بوابة مناديب السكاشن مغلقة حالياً</h2>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              تسجيل وحجز فترات فراغ سكاشن الفرقة الثالثة مغلق حالياً من قِبل إدارة الكلية. يتم فتح الرابط في أوقات محددة بواسطة المشرف العام.
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400 space-y-1">
+            <p>يرجى التنسيق مع شؤون الطلاب أو متابعة إشعارات البوت لمعرفة موعد فتح البوابة القادم.</p>
+          </div>
+
+          <div className="flex flex-col gap-2.5 pt-2">
+            <button
+              onClick={fetchData}
+              disabled={loading}
+              className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-extrabold text-xs shadow-lg shadow-cyan-600/30 transition flex items-center justify-center gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+              <span>إعادة التحقق من فتح البوابة الآن</span>
+            </button>
+
+            <Link
+              href="/schedules"
+              className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 transition flex items-center justify-center gap-2"
+            >
+              <Calendar className="w-4 h-4" />
+              <span>عرض جدول المواعيد الرسمي المعتمد</span>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 py-10 px-4 sm:px-6 lg:px-8 selection:bg-cyan-600 selection:text-white">
       <div className="max-w-7xl mx-auto space-y-8">
+        {/* Portal Open Countdown Banner or Admin Override Notice */}
+        {portalStatus.isOpen ? (
+          <div className="p-3.5 rounded-2xl bg-gradient-to-r from-cyan-950/60 to-emerald-950/60 border border-cyan-500/40 flex items-center justify-between gap-3 text-xs shadow-lg shadow-cyan-950/40">
+            <div className="flex items-center gap-2 text-cyan-200">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="font-extrabold">بوابة المناديب مفتوحة ومتاحة للتسجيل حالياً:</span>
+              <span className="font-mono font-bold text-white bg-slate-900/80 px-2 py-0.5 rounded-lg border border-cyan-500/30">
+                متبقي {portalStatus.remainingMinutes} دقيقة على الإغلاق التلقائي
+              </span>
+            </div>
+            <span className="text-[11px] text-slate-400 hidden sm:inline">
+              يغلق الرابط تلقائياً عند انتهاء المدة
+            </span>
+          </div>
+        ) : isSuperAdmin ? (
+          <div className="p-3 rounded-2xl bg-amber-950/40 border border-amber-500/40 flex items-center justify-between gap-3 text-xs text-amber-200">
+            <span className="font-bold">⚠️ وضع المشرف العام: البوابة مغلقة حالياً أمام الطلاب. يمكنك فتحها وتحديد مدة الفتح من لوحة تحكم الجداول.</span>
+            <Link href="/admin/schedules" className="underline font-extrabold text-amber-300">
+              الانتقال للوحة التحكم ←
+            </Link>
+          </div>
+        ) : null}
+
         {/* Top Navigation */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-900 pb-5">
           <div className="flex items-center gap-3">

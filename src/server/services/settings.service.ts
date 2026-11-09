@@ -144,5 +144,80 @@ export class SettingsService {
     await this.setSetting(key, isActive ? "true" : "false", desc, updatedBy);
     return { desk, isActive };
   }
+
+  /**
+   * Get delegate portal open status and expiration
+   */
+  static async getDelegatePortalStatus(): Promise<{
+    isOpen: boolean;
+    openUntil: string | null;
+    remainingMinutes: number;
+  }> {
+    const val = await this.getSetting("delegate_portal_open_until", "");
+    if (!val || !val.trim()) {
+      return { isOpen: false, openUntil: null, remainingMinutes: 0 };
+    }
+
+    try {
+      const untilDate = new Date(val);
+      const now = new Date();
+      if (isNaN(untilDate.getTime())) {
+        return { isOpen: false, openUntil: null, remainingMinutes: 0 };
+      }
+
+      if (now.getTime() < untilDate.getTime()) {
+        const remainingMinutes = Math.max(
+          1,
+          Math.ceil((untilDate.getTime() - now.getTime()) / (60 * 1000))
+        );
+        return {
+          isOpen: true,
+          openUntil: untilDate.toISOString(),
+          remainingMinutes,
+        };
+      } else {
+        return { isOpen: false, openUntil: null, remainingMinutes: 0 };
+      }
+    } catch {
+      return { isOpen: false, openUntil: null, remainingMinutes: 0 };
+    }
+  }
+
+  /**
+   * Set delegate portal duration (in minutes).
+   * Passing <= 0 closes the portal immediately.
+   */
+  static async setDelegatePortalDuration(
+    durationMinutes: number,
+    updatedBy?: string
+  ): Promise<{
+    isOpen: boolean;
+    openUntil: string | null;
+    remainingMinutes: number;
+  }> {
+    if (durationMinutes <= 0) {
+      await this.setSetting(
+        "delegate_portal_open_until",
+        "",
+        "بوابة تسجيل فترات المناديب مغلقة",
+        updatedBy
+      );
+      return { isOpen: false, openUntil: null, remainingMinutes: 0 };
+    }
+
+    const untilDate = new Date(Date.now() + durationMinutes * 60 * 1000);
+    await this.setSetting(
+      "delegate_portal_open_until",
+      untilDate.toISOString(),
+      `موعد إغلاق بوابة المناديب تلقائياً بعد ${durationMinutes} دقيقة`,
+      updatedBy
+    );
+
+    return {
+      isOpen: true,
+      openUntil: untilDate.toISOString(),
+      remainingMinutes: durationMinutes,
+    };
+  }
 }
 

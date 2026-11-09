@@ -23,6 +23,11 @@ import {
   Search,
   LayoutGrid,
   List,
+  Copy,
+  ExternalLink,
+  Timer,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { getArabicDayName, format12HourTime, getAcademicTimeMinutes } from "@/lib/utils/datetime";
 import { ACADEMIC_YEARS, SPECIALIZATIONS, FREE_SLOT_PERIODS } from "@/lib/constants/academic";
@@ -69,6 +74,14 @@ export default function AdminSchedulesPage() {
   const [maxSlotsInput, setMaxSlotsInput] = useState(2);
   const [savingMaxSlots, setSavingMaxSlots] = useState(false);
   const [freeSlotsViewMode, setFreeSlotsViewMode] = useState<"GRID" | "LIST">("GRID");
+  const [portalStatus, setPortalStatus] = useState<{
+    isOpen: boolean;
+    openUntil: string | null;
+    remainingMinutes: number;
+  }>({ isOpen: false, openUntil: null, remainingMinutes: 0 });
+  const [portalDurationInput, setPortalDurationInput] = useState(60);
+  const [savingPortalDuration, setSavingPortalDuration] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   // Admin Slot Edit/Swap Modal State
   const [adminEditingSlot, setAdminEditingSlot] = useState<any | null>(null);
@@ -110,6 +123,9 @@ export default function AdminSchedulesPage() {
       if (json.success && json.data) {
         setFreeDays(json.data.days || []);
         setFreeSlots(json.data.slots || []);
+        if (json.data.portalStatus) {
+          setPortalStatus(json.data.portalStatus);
+        }
         if (json.data.maxSlotsPerSection) {
           setMaxSlotsPerSection(json.data.maxSlotsPerSection);
           setMaxSlotsInput(json.data.maxSlotsPerSection);
@@ -119,6 +135,34 @@ export default function AdminSchedulesPage() {
       console.error(err);
     } finally {
       setLoadingFreeSlots(false);
+    }
+  };
+
+  const handleSetPortalDuration = async (minutes: number) => {
+    try {
+      setSavingPortalDuration(true);
+      const res = await fetch("/api/free-slots/days", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ portalDurationMinutes: minutes }),
+      });
+      const json = await res.json();
+      if (json.success && json.data?.portalStatus) {
+        setPortalStatus(json.data.portalStatus);
+        setFeedback({
+          message:
+            minutes > 0
+              ? `تم فتح بوابة المناديب بنجاح لمدة (${minutes}) دقيقة!`
+              : "تم إغلاق بوابة المناديب فوراً بنجاح.",
+          type: "success",
+        });
+      } else {
+        setFeedback({ message: json.error || "فشل تحديث حالة البوابة", type: "error" });
+      }
+    } catch (e: any) {
+      setFeedback({ message: e.message || "فشل الاتصال", type: "error" });
+    } finally {
+      setSavingPortalDuration(false);
     }
   };
 
@@ -871,6 +915,124 @@ export default function AdminSchedulesPage() {
       {/* TAB 2: DELEGATE FREE SLOTS MANAGEMENT */}
       {activeTab === "FREE_SLOTS" && (
         <div className="space-y-6">
+          {/* DELEGATE PORTAL EXPIRATION & OPEN/CLOSE CONTROLS */}
+          <div className="print:hidden bg-gradient-to-r from-slate-900 via-purple-950/40 to-slate-900 rounded-3xl border border-purple-500/40 p-6 shadow-2xl backdrop-blur-xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Timer className="w-5 h-5 text-cyan-400" />
+                  <h3 className="text-base font-black text-white">
+                    التحكم في تشغيل وصلاحية رابط بوابة المناديب (/free-slots)
+                  </h3>
+                  {portalStatus.isOpen ? (
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-black flex items-center gap-1.5 animate-pulse">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                      <span>مفتوحة حالياً (متبقي {portalStatus.remainingMinutes} دقيقة)</span>
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-xs font-black flex items-center gap-1.5">
+                      <Lock className="w-3 h-3 text-rose-400" />
+                      <span>مغلقة تماماً أمام المناديب</span>
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-300">
+                  يمكنك فتح البوابة لمدة محددة (ساعة، ساعتان، إلخ) وتقفل البوابة تلقائياً فور انتهاء الوقت المحدد لمنع التعديل.
+                </p>
+              </div>
+
+              {/* Portal URL & One-click Copy */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const fullUrl = `${window.location.origin}/free-slots`;
+                    navigator.clipboard.writeText(fullUrl);
+                    setCopiedLink(true);
+                    setTimeout(() => setCopiedLink(false), 2000);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs font-bold transition flex items-center gap-2 shadow-sm"
+                  title="نسخ رابط صفحة المناديب لمشاركته معهم"
+                >
+                  {copiedLink ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-cyan-400" />}
+                  <span>{copiedLink ? "تم نسخ الرابط بنجاح!" : "نسخ رابط المناديب"}</span>
+                </button>
+
+                <a
+                  href="/free-slots"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="p-2 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-700 transition"
+                  title="معاينة صفحة المناديب في نافذة جديدة"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                </a>
+              </div>
+            </div>
+
+            {/* Quick Action Duration Buttons & Custom Input */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold text-slate-400">خيارات سريعة للفتح:</span>
+                {[
+                  { label: "30 دقيقة", minutes: 30 },
+                  { label: "ساعة واحدة (افتراضي)", minutes: 60 },
+                  { label: "ساعتان (120 د)", minutes: 120 },
+                  { label: "4 ساعات", minutes: 240 },
+                  { label: "24 ساعة (يوم كامل)", minutes: 1440 },
+                ].map((item) => (
+                  <button
+                    key={item.minutes}
+                    type="button"
+                    disabled={savingPortalDuration}
+                    onClick={() => handleSetPortalDuration(item.minutes)}
+                    className="px-3 py-1.5 rounded-xl bg-purple-950/60 hover:bg-purple-800/60 border border-purple-500/30 text-purple-200 text-xs font-bold transition flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Unlock className="w-3 h-3 text-purple-400" />
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Close Button / Custom Duration */}
+              <div className="flex items-center gap-2">
+                {portalStatus.isOpen ? (
+                  <button
+                    type="button"
+                    disabled={savingPortalDuration}
+                    onClick={() => handleSetPortalDuration(0)}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white text-xs font-black shadow-lg shadow-rose-600/30 transition flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Lock className="w-4 h-4" />
+                    <span>{savingPortalDuration ? "جاري الإغلاق..." : "إغلاق البوابة الآن فوراً 🔒"}</span>
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min={5}
+                      max={10080}
+                      value={portalDurationInput}
+                      onChange={(e) => setPortalDurationInput(Math.max(5, parseInt(e.target.value) || 60))}
+                      placeholder="بالدقائق..."
+                      className="w-20 px-2.5 py-1.5 rounded-xl border border-slate-700 bg-slate-950 text-white font-mono text-center text-xs focus:ring-2 focus:ring-purple-500 outline-none"
+                    />
+                    <span className="text-xs text-slate-400">دقيقة</span>
+                    <button
+                      type="button"
+                      disabled={savingPortalDuration}
+                      onClick={() => handleSetPortalDuration(portalDurationInput)}
+                      className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-md shadow-emerald-600/30 transition flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      <Unlock className="w-3.5 h-3.5" />
+                      <span>{savingPortalDuration ? "جاري الفتح..." : "فتح البوابة الآن"}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Day Lock/Unlock Status Controls & Delegate Max Slots Setting */}
           <div className="print:hidden bg-slate-900/90 rounded-3xl border border-slate-800 p-6 shadow-2xl backdrop-blur-xl">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between pb-4 border-b border-slate-800 mb-6 gap-4">

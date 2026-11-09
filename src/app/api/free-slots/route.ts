@@ -13,10 +13,11 @@ export async function GET(req: NextRequest) {
     const academicYear = searchParams.get("academicYear") || "الفرقة الثالثة";
     const specialization = searchParams.get("specialization") || undefined;
 
-    const [days, slots, maxSlotsPerSection] = await Promise.all([
+    const [days, slots, maxSlotsPerSection, portalStatus] = await Promise.all([
       FreeSlotsService.getDaysSettings(academicYear),
       FreeSlotsService.getBookedSlots(academicYear, specialization),
       SettingsService.getMaxFreeSlotsPerSection(),
+      SettingsService.getDelegatePortalStatus(),
     ]);
 
     return apiSuccess({
@@ -24,6 +25,7 @@ export async function GET(req: NextRequest) {
       slots,
       periods: FREE_SLOT_PERIODS,
       maxSlotsPerSection,
+      portalStatus,
     });
   } catch (error: any) {
     return apiError(error.message || "فشل جلب بيانات فترات الفراغ", 500);
@@ -33,6 +35,16 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const session = await getSessionUser();
+    const isSuperAdmin = session?.role === "SUPER_ADMIN";
+
+    // Validate that delegate portal is open (unless Super Admin override)
+    if (!isSuperAdmin) {
+      const portalStatus = await SettingsService.getDelegatePortalStatus();
+      if (!portalStatus.isOpen) {
+        return apiError("بوابة تسجيل فترات فراغ السكاشن مغلقة حالياً من قبل الإدارة.", 403);
+      }
+    }
+
     const body = await req.json();
 
     const {
@@ -95,6 +107,13 @@ export async function DELETE(req: NextRequest) {
     }
 
     const isAdmin = session?.role === "SUPER_ADMIN";
+    if (!isAdmin) {
+      const portalStatus = await SettingsService.getDelegatePortalStatus();
+      if (!portalStatus.isOpen) {
+        return apiError("بوابة تسجيل فترات فراغ السكاشن مغلقة حالياً من قبل الإدارة.", 403);
+      }
+    }
+
     const result = await FreeSlotsService.cancelSlot(slotId, {
       sectionId: session?.sectionId,
       studentId: session?.studentId,

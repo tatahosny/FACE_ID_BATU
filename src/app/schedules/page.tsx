@@ -22,6 +22,9 @@ import {
   Users,
 } from "lucide-react";
 import { getArabicDayName, format12HourTime, getAcademicTimeMinutes } from "@/lib/utils/datetime";
+import { FREE_SLOT_PERIODS } from "@/lib/constants/academic";
+
+const FREE_DAYS = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس"] as const;
 
 export default function PublicSchedulesPage() {
   const [schedules, setSchedules] = useState<any[]>([]);
@@ -390,6 +393,20 @@ export default function PublicSchedulesPage() {
 
         {/* Printable Official Document Container */}
         <div className="bg-slate-900/90 rounded-3xl border border-slate-800 shadow-2xl p-6 sm:p-10 backdrop-blur-xl text-white print:bg-white print:text-black print:border-none print:shadow-none print:p-0">
+          {/* Print Styles for Landscape Orientation */}
+          <style dangerouslySetInnerHTML={{ __html: `
+            @media print {
+              @page {
+                size: landscape;
+                margin: 8mm;
+              }
+              body {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+              }
+            }
+          `}} />
+
           {/* Printable Official University Header with Logo */}
           <div className="hidden print:flex flex-col items-center justify-center border-b-2 border-black pb-4 mb-6 text-center">
             <div className="w-24 h-24 mx-auto mb-2 flex items-center justify-center">
@@ -439,15 +456,8 @@ export default function PublicSchedulesPage() {
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white font-extrabold text-xs shadow-lg shadow-cyan-600/30 transition transform hover:-translate-y-0.5"
                 >
                   <Printer className="w-4 h-4" />
-                  <span>طباعة جدول فترات الفراغ PDF</span>
+                  <span>طباعة جدول فترات الفراغ PDF (بالعرض)</span>
                 </button>
-                <Link
-                  href="/free-slots"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-extrabold text-xs border border-slate-700 transition"
-                >
-                  <Users className="w-4 h-4" />
-                  <span>بوابة مناديب السكاشن (حجز أو تعديل فترات الفراغ) ←</span>
-                </Link>
               </div>
             ) : (
               <div className="pt-2 flex items-center justify-center gap-3 flex-wrap">
@@ -464,95 +474,106 @@ export default function PublicSchedulesPage() {
 
           {/* Conditional Table View: Biometrics vs Free Slots */}
           {activeTab === "FREE_SLOTS" ? (
-            /* Free Slots Table */
-            filteredFreeSlots.length === 0 ? (
-              <div className="p-12 text-center text-slate-400 text-sm space-y-2">
-                <AlertCircle className="w-8 h-8 mx-auto text-amber-400 opacity-60" />
-                <p>لا توجد فترات فراغ محجوزة تطابق البحث حالياً.</p>
-                <div className="pt-2">
-                  <Link
-                    href="/free-slots"
-                    className="text-xs text-cyan-400 hover:underline font-bold"
-                  >
-                    الانتقال لبوابة المناديب لحجز فترات الفراغ
-                  </Link>
-                </div>
-              </div>
-            ) : (
-              <div className="overflow-x-auto print:overflow-visible">
-                <table className="w-full text-right border-collapse border border-slate-700 print:border-2 print:border-black text-xs sm:text-sm">
-                  <thead>
-                    <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-300 text-xs font-black print:bg-slate-100 print:text-black">
-                      <th className="p-3 border border-slate-800 print:border print:border-black text-center w-10">
-                        م
-                      </th>
-                      <th className="p-3 border border-slate-800 print:border print:border-black">
-                        السكشن
-                      </th>
-                      <th className="p-3 border border-slate-800 print:border print:border-black">
-                        المجموعة
-                      </th>
-                      <th className="p-3 border border-slate-800 print:border print:border-black text-center">
-                        الشعبة التخصصية
-                      </th>
-                      <th className="p-3 border border-slate-800 print:border print:border-black text-center">
-                        اليوم المحدد
-                      </th>
-                      <th className="p-3 border border-slate-800 print:border print:border-black text-center">
-                        فترة الفراغ المعتمدة
-                      </th>
-                      <th className="p-3 border border-slate-800 print:border print:border-black">
-                        اسم المندوب المعتمد
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/80 text-xs sm:text-sm">
-                    {filteredFreeSlots.map((fs, idx) => (
-                      <tr
-                        key={fs.id}
-                        className="hover:bg-slate-800/40 border-b border-slate-800/60 transition print:bg-white print:border print:border-black"
+            /* Horizontal Grid View (Days as rows on the right, Periods 1-9 across columns) */
+            <div className="overflow-x-auto print:overflow-visible">
+              <table className="w-full text-right border-collapse border border-slate-800 print:border-2 print:border-black text-xs sm:text-sm min-w-[1000px] print:min-w-0">
+                <thead>
+                  <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-300 text-xs font-black print:bg-slate-100 print:text-black print:border-b-2 print:border-black">
+                    <th className="p-3 w-28 text-center border-l border-slate-800 bg-[#070b14] print:bg-slate-100 print:border print:border-black print:text-black">
+                      اليوم / الفترة
+                    </th>
+                    {FREE_SLOT_PERIODS.map((period) => (
+                      <th
+                        key={period.index}
+                        className="p-2 text-center border-l border-slate-800 bg-slate-900/70 print:bg-slate-100 print:border print:border-black print:text-black"
                       >
-                        <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-bold font-mono">
-                          {idx + 1}
-                        </td>
-                        <td className="p-3 border border-slate-800/80 print:border print:border-black font-black text-cyan-400 font-mono">
-                          {fs.sectionName} ({fs.sectionCode})
-                        </td>
-                        <td className="p-3 border border-slate-800/80 print:border print:border-black font-bold text-white">
-                          {fs.groupName}
-                        </td>
-                        <td className="p-3 border border-slate-800/80 print:border print:border-black text-center">
-                          <span
-                            className={`inline-block px-2.5 py-1 rounded-full text-xs font-bold border ${
-                              fs.specialization === "سوفت وير"
-                                ? "bg-cyan-500/10 text-cyan-300 border-cyan-500/30"
-                                : "bg-purple-500/10 text-purple-300 border-purple-500/30"
-                            }`}
-                          >
-                            {fs.specialization}
+                        <div className="flex flex-col items-center justify-center gap-0.5">
+                          <span className="text-xs font-extrabold text-white print:text-black">{period.name}</span>
+                          <span className="text-[10px] text-cyan-400 font-mono print:text-slate-800">
+                            {period.startTime} - {period.endTime}
                           </span>
-                        </td>
-                        <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-black text-amber-400">
-                          {fs.dayName}
-                        </td>
-                        <td className="p-3 border border-slate-800/80 print:border print:border-black text-center font-mono">
-                          <div className="font-bold text-white">{fs.periodName}</div>
-                          <div className="text-[11px] text-cyan-400">
-                            من {fs.startTime} إلى {fs.endTime}
-                          </div>
-                        </td>
-                        <td className="p-3 border border-slate-800/80 print:border print:border-black font-semibold text-emerald-300">
-                          <div className="flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                            <span>{fs.delegateName}</span>
-                          </div>
-                        </td>
-                      </tr>
+                        </div>
+                      </th>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            )
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800 text-xs print:divide-black">
+                  {FREE_DAYS.map((dayName) => (
+                    <tr
+                      key={dayName}
+                      className="hover:bg-purple-950/10 transition print:bg-white print:border print:border-black"
+                    >
+                      {/* Day Row Header (Rightmost Column) */}
+                      <td className="p-3 text-center border-l border-slate-800 print:border print:border-black font-black bg-[#070b14] print:bg-slate-50 text-white print:text-black">
+                        <div className="text-sm font-black">{dayName}</div>
+                      </td>
+
+                      {/* 9 Period Columns for this Day */}
+                      {FREE_SLOT_PERIODS.map((period) => {
+                        const cellSlots = filteredFreeSlots.filter(
+                          (fs) => fs.dayName === dayName && fs.periodIndex === period.index
+                        );
+
+                        return (
+                          <td
+                            key={`${dayName}-${period.index}`}
+                            className="p-1.5 border-l border-slate-800 print:border print:border-black align-top min-w-[105px] h-24 print:h-auto"
+                          >
+                            {cellSlots.length > 0 ? (
+                              <div className="space-y-1.5">
+                                {cellSlots.map((fs) => (
+                                  <div
+                                    key={fs.id}
+                                    className={`p-2 rounded-xl border flex flex-col justify-between text-right space-y-1 transition print:bg-white print:border print:border-black ${
+                                      fs.specialization === "سوفت وير"
+                                        ? "bg-cyan-950/50 border-cyan-500/40 text-cyan-200"
+                                        : "bg-purple-950/50 border-purple-500/40 text-purple-200"
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between gap-1">
+                                      <span
+                                        className={`text-[9px] font-black px-1.5 py-0.5 rounded-full print:border print:border-black print:text-black print:bg-transparent ${
+                                          fs.specialization === "سوفت وير"
+                                            ? "bg-cyan-500/20 text-cyan-300"
+                                            : "bg-purple-500/20 text-purple-300"
+                                        }`}
+                                      >
+                                        {fs.specialization}
+                                      </span>
+                                      <span className="text-[10px] font-extrabold text-white print:text-black truncate">
+                                        {fs.sectionName}
+                                      </span>
+                                    </div>
+
+                                    <div
+                                      className="text-[10px] text-slate-300 print:text-slate-800 truncate"
+                                      title={fs.groupName}
+                                    >
+                                      {fs.groupName}
+                                    </div>
+
+                                    <div
+                                      className="text-[9px] font-semibold text-emerald-300 print:text-slate-800 truncate"
+                                      title={fs.delegateName}
+                                    >
+                                      👤 {fs.delegateName || "مندوب السكشن"}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="h-full min-h-[60px] flex items-center justify-center text-slate-600 text-[11px] font-medium border border-dashed border-slate-800/60 rounded-xl print:border-none print:text-slate-400">
+                                —
+                              </div>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
             /* Biometrics Table */
             loading ? (

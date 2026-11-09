@@ -12,6 +12,19 @@ export async function POST(req: NextRequest) {
     const session = await requireRole([USER_ROLES.SUPER_ADMIN]);
     const body = await req.json();
 
+    if (body.portalDurationMinutes !== undefined) {
+      const status = await SettingsService.setDelegatePortalDuration(
+        Number(body.portalDurationMinutes),
+        session.userId
+      );
+      return apiSuccess(
+        { portalStatus: status },
+        status.isOpen
+          ? `تم فتح بوابة المناديب بنجاح لمدة (${status.remainingMinutes}) دقيقة`
+          : "تم إغلاق بوابة المناديب فوراً"
+      );
+    }
+
     if (body.maxSlotsPerSection !== undefined) {
       const sanitized = await SettingsService.setMaxFreeSlotsPerSection(
         Number(body.maxSlotsPerSection),
