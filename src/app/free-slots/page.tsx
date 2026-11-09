@@ -24,6 +24,15 @@ import {
 } from "lucide-react";
 import { FREE_SLOT_PERIODS } from "@/lib/constants/academic";
 
+function normalizeDayName(d?: string | null): string {
+  if (!d) return "";
+  return d
+    .trim()
+    .replace(/[إأآ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي");
+}
+
 interface DaySetting {
   id: string;
   dayName: string;
@@ -1154,7 +1163,9 @@ export default function FreeSlotsPage() {
                       {/* The 9 Period Cells for this Day */}
                       {FREE_SLOT_PERIODS.map((period) => {
                         const cellSlots = slots.filter(
-                          (s) => s.dayName === day.dayName && s.periodIndex === period.index
+                          (s) =>
+                            normalizeDayName(s.dayName) === normalizeDayName(day.dayName) &&
+                            Number(s.periodIndex) === Number(period.index)
                         );
                         const mySectionSlot = cellSlots.find((s) => s.sectionId === mySectionId);
                         const isMySection = !!mySectionSlot;

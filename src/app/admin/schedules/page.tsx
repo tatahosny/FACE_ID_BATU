@@ -32,6 +32,15 @@ import {
 import { getArabicDayName, format12HourTime, getAcademicTimeMinutes } from "@/lib/utils/datetime";
 import { ACADEMIC_YEARS, SPECIALIZATIONS, FREE_SLOT_PERIODS } from "@/lib/constants/academic";
 
+function normalizeDayName(d?: string | null): string {
+  if (!d) return "";
+  return d
+    .trim()
+    .replace(/[إأآ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي");
+}
+
 export default function AdminSchedulesPage() {
   // Main Tab State: "BIOMETRICS" | "FREE_SLOTS"
   const [activeTab, setActiveTab] = useState<"BIOMETRICS" | "FREE_SLOTS">("BIOMETRICS");
@@ -1314,7 +1323,9 @@ export default function AdminSchedulesPage() {
                           {/* 9 Period Columns for this Day */}
                           {FREE_SLOT_PERIODS.map((period) => {
                             const cellSlots = filteredFreeSlots.filter(
-                              (s) => s.dayName === day.dayName && s.periodIndex === period.index
+                              (s) =>
+                                normalizeDayName(s.dayName) === normalizeDayName(day.dayName) &&
+                                Number(s.periodIndex) === Number(period.index)
                             );
 
                             return (

@@ -24,14 +24,23 @@ import {
 import { getArabicDayName, format12HourTime, getAcademicTimeMinutes } from "@/lib/utils/datetime";
 import { FREE_SLOT_PERIODS } from "@/lib/constants/academic";
 
-const FREE_DAYS = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس"] as const;
+function normalizeDayName(d?: string | null): string {
+  if (!d) return "";
+  return d
+    .trim()
+    .replace(/[إأآ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي");
+}
 
 export default function PublicSchedulesPage() {
   const [schedules, setSchedules] = useState<any[]>([]);
   const [freeSlots, setFreeSlots] = useState<any[]>([]);
+  const [freeDays, setFreeDays] = useState<any[]>([]);
   const [groups, setGroups] = useState<any[]>([]);
   const [sections, setSections] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingFreeSlots, setLoadingFreeSlots] = useState(true);
 
   // Active Tab - Default is Free Slots as primary printable schedule
   const [activeTab, setActiveTab] = useState<"BIOMETRICS" | "FREE_SLOTS">("FREE_SLOTS");
@@ -62,11 +71,18 @@ export default function PublicSchedulesPage() {
 
     fetchSchedules();
 
-    // Fetch Free Slots for 3rd year
+    // Fetch Free Slots & Days for 3rd year
+    setLoadingFreeSlots(true);
     fetch("/api/free-slots")
       .then((r) => r.json())
-      .then((j) => j.success && setFreeSlots(j.data.slots || []))
-      .catch(console.error);
+      .then((j) => {
+        if (j.success && j.data) {
+          setFreeDays(j.data.days || []);
+          setFreeSlots(j.data.slots || []);
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoadingFreeSlots(false));
 
     // Fetch Groups
     fetch("/api/groups")
@@ -127,10 +143,11 @@ export default function PublicSchedulesPage() {
       if (selectedSpecialization !== "ALL" && fs.specialization !== selectedSpecialization) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
+        const normQ = normalizeDayName(q);
         const matchSection = fs.sectionName?.toLowerCase().includes(q);
         const matchGroup = fs.groupName?.toLowerCase().includes(q);
         const matchDelegate = fs.delegateName?.toLowerCase().includes(q);
-        const matchDay = fs.dayName?.toLowerCase().includes(q);
+        const matchDay = normalizeDayName(fs.dayName).includes(normQ);
         if (!matchSection && !matchGroup && !matchDelegate && !matchDay) return false;
       }
       return true;
@@ -139,8 +156,29 @@ export default function PublicSchedulesPage() {
       const dayA = DAY_ORDER[a.dayName] || 99;
       const dayB = DAY_ORDER[b.dayName] || 99;
       if (dayA !== dayB) return dayA - dayB;
-      return (a.periodIndex || 0) - (b.periodIndex || 0);
+      return (Number(a.periodIndex) || 0) - (Number(b.periodIndex) || 0);
     });
+
+  // Calculate unique sorted days to display in horizontal grid
+  const displayDays = (() => {
+    const defaultList = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس"];
+    const allCandidates = [
+      ...defaultList,
+      ...freeDays.map((d) => d.dayName),
+      ...freeSlots.map((s) => s.dayName),
+    ].filter(Boolean);
+
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const name of allCandidates) {
+      const norm = normalizeDayName(name);
+      if (!seen.has(norm)) {
+        seen.add(norm);
+        result.push(name);
+      }
+    }
+    return result.sort((a, b) => (DAY_ORDER[a] || 99) - (DAY_ORDER[b] || 99));
+  })();
 
   const handlePrint = () => {
     window.print();
@@ -474,106 +512,115 @@ export default function PublicSchedulesPage() {
 
           {/* Conditional Table View: Biometrics vs Free Slots */}
           {activeTab === "FREE_SLOTS" ? (
-            /* Horizontal Grid View (Days as rows on the right, Periods 1-9 across columns) */
-            <div className="overflow-x-auto print:overflow-visible">
-              <table className="w-full text-right border-collapse border border-slate-800 print:border-2 print:border-black text-xs sm:text-sm min-w-[1000px] print:min-w-0">
-                <thead>
-                  <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-300 text-xs font-black print:bg-slate-100 print:text-black print:border-b-2 print:border-black">
-                    <th className="p-3 w-28 text-center border-l border-slate-800 bg-[#070b14] print:bg-slate-100 print:border print:border-black print:text-black">
-                      اليوم / الفترة
-                    </th>
-                    {FREE_SLOT_PERIODS.map((period) => (
-                      <th
-                        key={period.index}
-                        className="p-2 text-center border-l border-slate-800 bg-slate-900/70 print:bg-slate-100 print:border print:border-black print:text-black"
-                      >
-                        <div className="flex flex-col items-center justify-center gap-0.5">
-                          <span className="text-xs font-extrabold text-white print:text-black">{period.name}</span>
-                          <span className="text-[10px] text-cyan-400 font-mono print:text-slate-800">
-                            {period.startTime} - {period.endTime}
-                          </span>
-                        </div>
+            loadingFreeSlots ? (
+              <div className="p-16 text-center text-slate-400 text-sm space-y-3">
+                <div className="w-8 h-8 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                <p>جاري تحميل جدول فترات الفراغ الرسمي...</p>
+              </div>
+            ) : (
+              /* Horizontal Grid View (Days as rows on the right, Periods 1-9 across columns) */
+              <div className="overflow-x-auto print:overflow-visible">
+                <table className="w-full text-right border-collapse border border-slate-800 print:border-2 print:border-black text-xs sm:text-sm min-w-[1000px] print:min-w-0">
+                  <thead>
+                    <tr className="bg-[#0b101d] border-b border-slate-800 text-slate-300 text-xs font-black print:bg-slate-100 print:text-black print:border-b-2 print:border-black">
+                      <th className="p-3 w-28 text-center border-l border-slate-800 bg-[#070b14] print:bg-slate-100 print:border print:border-black print:text-black">
+                        اليوم / الفترة
                       </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800 text-xs print:divide-black">
-                  {FREE_DAYS.map((dayName) => (
-                    <tr
-                      key={dayName}
-                      className="hover:bg-purple-950/10 transition print:bg-white print:border print:border-black"
-                    >
-                      {/* Day Row Header (Rightmost Column) */}
-                      <td className="p-3 text-center border-l border-slate-800 print:border print:border-black font-black bg-[#070b14] print:bg-slate-50 text-white print:text-black">
-                        <div className="text-sm font-black">{dayName}</div>
-                      </td>
-
-                      {/* 9 Period Columns for this Day */}
-                      {FREE_SLOT_PERIODS.map((period) => {
-                        const cellSlots = filteredFreeSlots.filter(
-                          (fs) => fs.dayName === dayName && fs.periodIndex === period.index
-                        );
-
-                        return (
-                          <td
-                            key={`${dayName}-${period.index}`}
-                            className="p-1.5 border-l border-slate-800 print:border print:border-black align-top min-w-[105px] h-24 print:h-auto"
-                          >
-                            {cellSlots.length > 0 ? (
-                              <div className="space-y-1.5">
-                                {cellSlots.map((fs) => (
-                                  <div
-                                    key={fs.id}
-                                    className={`p-2 rounded-xl border flex flex-col justify-between text-right space-y-1 transition print:bg-white print:border print:border-black ${
-                                      fs.specialization === "سوفت وير"
-                                        ? "bg-cyan-950/50 border-cyan-500/40 text-cyan-200"
-                                        : "bg-purple-950/50 border-purple-500/40 text-purple-200"
-                                    }`}
-                                  >
-                                    <div className="flex items-center justify-between gap-1">
-                                      <span
-                                        className={`text-[9px] font-black px-1.5 py-0.5 rounded-full print:border print:border-black print:text-black print:bg-transparent ${
-                                          fs.specialization === "سوفت وير"
-                                            ? "bg-cyan-500/20 text-cyan-300"
-                                            : "bg-purple-500/20 text-purple-300"
-                                        }`}
-                                      >
-                                        {fs.specialization}
-                                      </span>
-                                      <span className="text-[10px] font-extrabold text-white print:text-black truncate">
-                                        {fs.sectionName}
-                                      </span>
-                                    </div>
-
-                                    <div
-                                      className="text-[10px] text-slate-300 print:text-slate-800 truncate"
-                                      title={fs.groupName}
-                                    >
-                                      {fs.groupName}
-                                    </div>
-
-                                    <div
-                                      className="text-[9px] font-semibold text-emerald-300 print:text-slate-800 truncate"
-                                      title={fs.delegateName}
-                                    >
-                                      👤 {fs.delegateName || "مندوب السكشن"}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="h-full min-h-[60px] flex items-center justify-center text-slate-600 text-[11px] font-medium border border-dashed border-slate-800/60 rounded-xl print:border-none print:text-slate-400">
-                                —
-                              </div>
-                            )}
-                          </td>
-                        );
-                      })}
+                      {FREE_SLOT_PERIODS.map((period) => (
+                        <th
+                          key={period.index}
+                          className="p-2 text-center border-l border-slate-800 bg-slate-900/70 print:bg-slate-100 print:border print:border-black print:text-black"
+                        >
+                          <div className="flex flex-col items-center justify-center gap-0.5">
+                            <span className="text-xs font-extrabold text-white print:text-black">{period.name}</span>
+                            <span className="text-[10px] text-cyan-400 font-mono print:text-slate-800">
+                              {period.startTime} - {period.endTime}
+                            </span>
+                          </div>
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800 text-xs print:divide-black">
+                    {displayDays.map((dayName) => (
+                      <tr
+                        key={dayName}
+                        className="hover:bg-purple-950/10 transition print:bg-white print:border print:border-black"
+                      >
+                        {/* Day Row Header (Rightmost Column) */}
+                        <td className="p-3 text-center border-l border-slate-800 print:border print:border-black font-black bg-[#070b14] print:bg-slate-50 text-white print:text-black">
+                          <div className="text-sm font-black">{dayName}</div>
+                        </td>
+
+                        {/* 9 Period Columns for this Day */}
+                        {FREE_SLOT_PERIODS.map((period) => {
+                          const cellSlots = filteredFreeSlots.filter(
+                            (fs) =>
+                              normalizeDayName(fs.dayName) === normalizeDayName(dayName) &&
+                              Number(fs.periodIndex) === Number(period.index)
+                          );
+
+                          return (
+                            <td
+                              key={`${dayName}-${period.index}`}
+                              className="p-1.5 border-l border-slate-800 print:border print:border-black align-top min-w-[105px] h-24 print:h-auto"
+                            >
+                              {cellSlots.length > 0 ? (
+                                <div className="space-y-1.5">
+                                  {cellSlots.map((fs) => (
+                                    <div
+                                      key={fs.id}
+                                      className={`p-2 rounded-xl border flex flex-col justify-between text-right space-y-1 transition print:bg-white print:border print:border-black ${
+                                        fs.specialization === "سوفت وير"
+                                          ? "bg-cyan-950/50 border-cyan-500/40 text-cyan-200"
+                                          : "bg-purple-950/50 border-purple-500/40 text-purple-200"
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-between gap-1">
+                                        <span
+                                          className={`text-[9px] font-black px-1.5 py-0.5 rounded-full print:border print:border-black print:text-black print:bg-transparent ${
+                                            fs.specialization === "سوفت وير"
+                                              ? "bg-cyan-500/20 text-cyan-300"
+                                              : "bg-purple-500/20 text-purple-300"
+                                          }`}
+                                        >
+                                          {fs.specialization}
+                                        </span>
+                                        <span className="text-[10px] font-extrabold text-white print:text-black truncate">
+                                          {fs.sectionName}
+                                        </span>
+                                      </div>
+
+                                      <div
+                                        className="text-[10px] text-slate-300 print:text-slate-800 truncate"
+                                        title={fs.groupName}
+                                      >
+                                        {fs.groupName}
+                                      </div>
+
+                                      <div
+                                        className="text-[9px] font-semibold text-emerald-300 print:text-slate-800 truncate"
+                                        title={fs.delegateName}
+                                      >
+                                        👤 {fs.delegateName || "مندوب السكشن"}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="h-full min-h-[60px] flex items-center justify-center text-slate-600 text-[11px] font-medium border border-dashed border-slate-800/60 rounded-xl print:border-none print:text-slate-400">
+                                  —
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
           ) : (
             /* Biometrics Table */
             loading ? (
