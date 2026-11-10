@@ -24,3 +24,4 @@ export function calculateDistanceMeters(
 
   return Math.round(R * c);
 }
+

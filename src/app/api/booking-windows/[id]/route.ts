@@ -38,6 +38,27 @@ export async function PATCH(
       );
     }
 
+    // 1.5 Update GPS Location Action directly
+    if (parsed.data.action === "UPDATE_LOCATION" || body.action === "UPDATE_LOCATION") {
+      if (body.latitude === undefined || body.longitude === undefined || body.latitude === null || body.longitude === null) {
+        return apiError("إحداثيات الموقع (GPS) مطلوبة لتثبيت مكان الحجز", 400);
+      }
+      const [updatedLoc] = await db
+        .update(bookingWindows)
+        .set({
+          openLatitude: String(body.latitude),
+          openLongitude: String(body.longitude),
+          updatedAt: new Date(),
+        })
+        .where(eq(bookingWindows.id, windowId))
+        .returning();
+
+      return apiSuccess(
+        updatedLoc,
+        `تم تثبيت إحداثيات موقع الشباك بنجاح (${Number(body.latitude).toFixed(4)}, ${Number(body.longitude).toFixed(4)})!`
+      );
+    }
+
     // 2. Regular Status Update (OPEN, PAUSED, CLOSED, DRAFT)
     if (!parsed.data.status) {
       return apiError("حالة فترة الحجز مطلوبة", 400);
@@ -52,13 +73,14 @@ export async function PATCH(
       updateFields.subSection = parsed.data.subSection;
     }
 
+    if (body.latitude !== undefined && body.longitude !== undefined && body.latitude !== null && body.longitude !== null && String(body.latitude).trim() !== "") {
+      updateFields.openLatitude = String(body.latitude);
+      updateFields.openLongitude = String(body.longitude);
+    }
+
     if (parsed.data.status === "OPEN") {
       updateFields.startsAt = new Date(Date.now() - 3600000);
       updateFields.endsAt = new Date(Date.now() + 86400000 * 30);
-      if (body.latitude !== undefined && body.longitude !== undefined && body.latitude !== null && body.longitude !== null) {
-        updateFields.openLatitude = String(body.latitude);
-        updateFields.openLongitude = String(body.longitude);
-      }
     }
 
     const [updated] = await db

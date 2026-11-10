@@ -21,6 +21,7 @@ import {
   Square,
   Sparkles,
   MapPin,
+  RefreshCw,
 } from "lucide-react";
 
 export default function AdminBookingWindowsPage() {
@@ -116,19 +117,115 @@ export default function AdminBookingWindowsPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [targetSubSections, setTargetSubSections] = useState<Record<string, "ALL" | "A" | "B">>({});
 
-  // Helper to fetch admin current GPS coords when opening a window
+  // GPS Device Location State for Administrator
+  const [adminLocation, setAdminLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [gpsDetecting, setGpsDetecting] = useState(false);
+
+  // Proactive location detection on mount
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem("batu_admin_gps");
+      if (cached) {
+        setAdminLocation(JSON.parse(cached));
+      }
+    } catch {}
+    detectAdminLocation();
+  }, []);
+
+  // Multi-tier GPS detection (works reliably on both PCs/Laptops and Mobile Phones)
+  const detectAdminLocation = async (): Promise<{ latitude: number; longitude: number } | null> => {
+    if (typeof window === "undefined" || !navigator.geolocation) {
+      return null;
+    }
+
+    setGpsDetecting(true);
+
+    const tryGet = (options: PositionOptions) =>
+      new Promise<{ latitude: number; longitude: number } | null>((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+            resolve(coords);
+          },
+          (err) => {
+            console.warn("[GPS]", err.message);
+            resolve(null);
+          },
+          options
+        );
+      });
+
+    // 1. Fast attempt with low accuracy (IP/Wi-Fi positioning - works quickly on laptops and office PCs)
+    let coords = await tryGet({ enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 });
+
+    // 2. Fallback to high accuracy (GPS sensors on mobile / enabled laptops)
+    if (!coords) {
+      coords = await tryGet({ enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
+    }
+
+    setGpsDetecting(false);
+
+    if (coords) {
+      setAdminLocation(coords);
+      try {
+        localStorage.setItem("batu_admin_gps", JSON.stringify(coords));
+      } catch {}
+      return coords;
+    } else {
+      try {
+        const cached = localStorage.getItem("batu_admin_gps");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          setAdminLocation(parsed);
+          return parsed;
+        }
+      } catch {}
+      return null;
+    }
+  };
+
   const getAdminLocation = async (): Promise<{ latitude: number; longitude: number } | null> => {
-    if (typeof window === "undefined" || !navigator.geolocation) return null;
-    return new Promise((resolve) => {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
-        (err) => {
-          console.warn("[Admin GPS] Could not get location:", err.message);
-          resolve(null);
-        },
-        { enableHighAccuracy: true, timeout: 6000, maximumAge: 10000 }
-      );
-    });
+    if (adminLocation) return adminLocation;
+    return await detectAdminLocation();
+  };
+
+  // Dedicated one-click location stamper for an existing window
+  const handleSetWindowLocation = async (windowId: string) => {
+    try {
+      setActionLoading(windowId);
+      let loc = adminLocation;
+      if (!loc) {
+        loc = await detectAdminLocation();
+      }
+      if (!loc) {
+        alert("⚠️ تعذر التقاط موقع جهازك.\nيرجى التأكد من السماح بإذن الموقع الجغرافي (Location Permission) في متصفحك ثم إعادة المحاولة.");
+        return;
+      }
+
+      const res = await fetch(`/api/booking-windows/${windowId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "UPDATE_LOCATION",
+          latitude: loc.latitude,
+          longitude: loc.longitude,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setMessage({
+          text: `📍 تم تثبيت إحداثيات موقعك الحالي (${loc.latitude.toFixed(5)}, ${loc.longitude.toFixed(5)}) لهذا السكشن بنجاح (نطاق 20 متراً)!`,
+          type: "success",
+        });
+        fetchWindows();
+      } else {
+        setMessage({ text: json.error || "فشل تثبيت الموقع", type: "error" });
+      }
+    } catch (err: any) {
+      setMessage({ text: err.message, type: "error" });
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   // Status change per single window with specific subSection selection
@@ -144,6 +241,15 @@ export default function AdminBookingWindowsPage() {
       let location = null;
       if (newStatus === "OPEN") {
         location = await getAdminLocation();
+        if (!location) {
+          const proceed = confirm(
+            "⚠️ تنبيه: لم يتمكن المتصفح من التقاط إحداثيات موقع جهازك (GPS).\n\nهل ترغب بالاستمرار في فتح الحجز بدون تحديد إحداثيات (سيتخطى الطلاب فحص نطاق الـ 20 متراً)؟"
+          );
+          if (!proceed) {
+            setActionLoading(null);
+            return;
+          }
+        }
       }
 
       const res = await fetch(`/api/booking-windows/${windowId}`, {
@@ -158,7 +264,7 @@ export default function AdminBookingWindowsPage() {
       const json = await res.json();
       if (json.success) {
         const extraNote = location
-          ? " 📍 تم تثبيت موقعك الجغرافي كنطاق حجز للطلاب (نصف قطر 20م)!"
+          ? ` 📍 تم تثبيت موقعك الجغرافي (${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}) كنطاق حجز للطلاب (نصف قطر 20م)!`
           : "";
         setMessage({
           text: (json.message || "تم تحديث فترة وضوابط الحجز بنجاح") + extraNote,
@@ -181,7 +287,7 @@ export default function AdminBookingWindowsPage() {
 
     const actionName =
       action === "OPEN"
-        ? "فتح الحجز وإشعار الطلاب"
+        ? "فتح الحجز وإشعار الطلاب وتثبيت الموقع"
         : action === "PAUSED"
         ? "الإيقاف المؤقت"
         : "الإغلاق";
@@ -200,6 +306,15 @@ export default function AdminBookingWindowsPage() {
       let location = null;
       if (action === "OPEN") {
         location = await getAdminLocation();
+        if (!location) {
+          const proceed = confirm(
+            "⚠️ تنبيه: لم يتمكن المتصفح من التقاط إحداثيات موقع جهازك (GPS).\n\nهل ترغب بالاستمرار في فتح الحجز بدون تحديد إحداثيات للمجموعات المحددة؟"
+          );
+          if (!proceed) {
+            setBulkActionLoading(false);
+            return;
+          }
+        }
       }
 
       const res = await fetch("/api/booking-windows/bulk", {
@@ -236,6 +351,11 @@ export default function AdminBookingWindowsPage() {
       setSubmitting(true);
       setMessage(null);
 
+      let loc = adminLocation;
+      if (formStatus === "OPEN" && !loc) {
+        loc = await getAdminLocation();
+      }
+
       const startsAt = formStartsAt ? new Date(formStartsAt).toISOString() : new Date().toISOString();
       const endsAt = formEndsAt
         ? new Date(formEndsAt).toISOString()
@@ -252,6 +372,7 @@ export default function AdminBookingWindowsPage() {
           endsAt,
           capacity: formCapacity,
           status: formStatus,
+          ...(loc ? { latitude: loc.latitude, longitude: loc.longitude } : {}),
         }),
       });
 
@@ -431,6 +552,53 @@ export default function AdminBookingWindowsPage() {
           </div>
         </div>
       )}
+
+      {/* GPS Location Tracker Banner */}
+      <div className="bg-slate-900/90 rounded-2xl border border-slate-800 p-4 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4 backdrop-blur-xl">
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          <div
+            className={`w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0 transition ${
+              adminLocation
+                ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-lg shadow-emerald-500/10"
+                : "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+            }`}
+          >
+            <MapPin className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="text-xs font-bold text-white flex items-center gap-2 flex-wrap">
+              <span>إحداثيات جهازك الحالي لنطاق البصمة (GPS):</span>
+              {adminLocation ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>{adminLocation.latitude.toFixed(6)}, {adminLocation.longitude.toFixed(6)}</span>
+                </span>
+              ) : (
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  لم يتم التقاط الموقع بعد
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+              {adminLocation
+                ? "✅ تم التقاط موقع جهازك بنجاح! سيتم تثبيت هذه الإحداثيات تلقائياً كنقطة ارتكاز (نطاق 20 متراً) لأي سكشن تفتحه."
+                : "يرجى النقر على زر «تحديد/تحديث موقع جهازي» والسماح للمتصفح بالوصول للموقع لتثبيت مكان الحجز تلقائياً."}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 self-stretch sm:self-auto flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => detectAdminLocation()}
+            disabled={gpsDetecting}
+            className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition flex items-center justify-center gap-2 border border-slate-700 hover:border-slate-600 shadow-md disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${gpsDetecting ? "animate-spin text-cyan-400" : ""}`} />
+            <span>{gpsDetecting ? "جاري التقاط الإحداثيات..." : "تحديد/تحديث موقع جهازي"}</span>
+          </button>
+        </div>
+      </div>
 
       {/* Year & Specialization Filters */}
       <div className="bg-slate-900/90 rounded-2xl border border-slate-800 p-4 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4 backdrop-blur-xl">
@@ -724,22 +892,60 @@ export default function AdminBookingWindowsPage() {
                           )}
                           {w.status === "DRAFT" && <span>مسودة</span>}
                         </span>
-                        {w.openLatitude && (
-                          <div className="mt-1">
+                        {w.openLatitude ? (
+                          <div className="mt-1 space-y-1">
                             <span
-                              className="inline-flex items-center gap-1 text-[10px] font-bold text-cyan-300 bg-cyan-950/60 px-2 py-0.5 rounded-full border border-cyan-800/50"
-                              title={`نقطة البصمة: ${w.openLatitude}, ${w.openLongitude} (نطاق 20 متر)`}
+                              className="inline-flex items-center gap-1 text-[10px] font-bold text-cyan-300 bg-cyan-950/70 px-2 py-0.5 rounded-full border border-cyan-800/60 font-mono"
+                              title={`إحداثيات نقطة البصمة: ${w.openLatitude}, ${w.openLongitude} (نطاق 20 متراً)`}
                             >
                               <MapPin className="w-2.5 h-2.5 text-cyan-400" />
-                              <span>GPS مفعل (20م)</span>
+                              <span>GPS: {Number(w.openLatitude).toFixed(4)}, {Number(w.openLongitude).toFixed(4)}</span>
                             </span>
+                            {w.status === "OPEN" && (
+                              <div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSetWindowLocation(w.id)}
+                                  disabled={actionLoading === w.id}
+                                  className="text-[10px] text-slate-400 hover:text-cyan-300 underline font-sans transition"
+                                  title="تحديث نقطة البصمة لموقع جهازي الحالي"
+                                >
+                                  تحديث بموقعي الحالي
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        )}
+                        ) : w.status === "OPEN" ? (
+                          <div className="mt-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleSetWindowLocation(w.id)}
+                              disabled={actionLoading === w.id}
+                              className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-300 bg-amber-950/70 px-2 py-0.5 rounded-full border border-amber-700/60 hover:bg-amber-900/80 transition"
+                              title="انقر لتثبيت موقع جهازك الحالي لهذا السكشن الآن"
+                            >
+                              <MapPin className="w-2.5 h-2.5 text-amber-400 animate-pulse" />
+                              <span>تثبيت موقعي الآن</span>
+                            </button>
+                          </div>
+                        ) : null}
                       </td>
 
                       {/* Action Buttons */}
                       <td className="py-4 px-4">
                         <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                          {/* Quick Set Location Button when OPEN */}
+                          {w.status === "OPEN" && (
+                            <button
+                              type="button"
+                              onClick={() => handleSetWindowLocation(w.id)}
+                              disabled={actionLoading === w.id}
+                              className="p-2 rounded-xl bg-cyan-950/50 hover:bg-cyan-900/70 text-cyan-400 border border-cyan-800/50 transition hover:text-cyan-200"
+                              title="تثبيت موقع جهازي الحالي فوراً كنقطة ارتكاز لهذا السكشن (20 متراً)"
+                            >
+                              <MapPin className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                           {/* Open & Broadcast */}
                           {w.status !== "OPEN" ? (
                             <button

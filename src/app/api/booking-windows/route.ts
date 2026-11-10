@@ -115,6 +115,8 @@ export async function POST(req: NextRequest) {
     }
 
     const subSec = parsed.data.subSection || "ALL";
+    const openLat = body.latitude !== undefined && body.latitude !== null && String(body.latitude).trim() !== "" ? String(body.latitude) : undefined;
+    const openLon = body.longitude !== undefined && body.longitude !== null && String(body.longitude).trim() !== "" ? String(body.longitude) : undefined;
 
     const [groupRecord] = await db
       .select({ academicYear: groups.academicYear, specialization: groups.specialization })
@@ -133,19 +135,25 @@ export async function POST(req: NextRequest) {
       .limit(1);
 
     if (existingWindow) {
+      const updateData: Record<string, any> = {
+        groupId: parsed.data.groupId,
+        academicYear,
+        specialization,
+        subSection: subSec,
+        startsAt: new Date(parsed.data.startsAt),
+        endsAt: new Date(parsed.data.endsAt),
+        capacity: parsed.data.capacity,
+        status: parsed.data.status,
+        updatedAt: new Date(),
+      };
+      if (openLat && openLon) {
+        updateData.openLatitude = openLat;
+        updateData.openLongitude = openLon;
+      }
+
       const [updated] = await db
         .update(bookingWindows)
-        .set({
-          groupId: parsed.data.groupId,
-          academicYear,
-          specialization,
-          subSection: subSec,
-          startsAt: new Date(parsed.data.startsAt),
-          endsAt: new Date(parsed.data.endsAt),
-          capacity: parsed.data.capacity,
-          status: parsed.data.status,
-          updatedAt: new Date(),
-        })
+        .set(updateData)
         .where(eq(bookingWindows.id, existingWindow.id))
         .returning();
 
@@ -178,6 +186,8 @@ export async function POST(req: NextRequest) {
         subSection: subSec,
         status: parsed.data.status,
         nextQueueNumber: currentGlobalNext,
+        openLatitude: openLat,
+        openLongitude: openLon,
         createdBy: session.userId,
       })
       .returning();

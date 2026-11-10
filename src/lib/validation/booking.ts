@@ -46,7 +46,7 @@ export const updateBookingWindowStatusSchema = z.object({
     BOOKING_WINDOW_STATUSES.CLOSED,
   ]).optional(),
   subSection: z.enum(["ALL", "A", "B"]).optional(),
-  action: z.enum(["UPDATE_STATUS", "RESET_TICKETS"]).default("UPDATE_STATUS"),
+  action: z.enum(["UPDATE_STATUS", "RESET_TICKETS", "UPDATE_LOCATION"]).default("UPDATE_STATUS"),
   latitude: z.union([z.number(), z.string()]).optional(),
   longitude: z.union([z.number(), z.string()]).optional(),
 });
