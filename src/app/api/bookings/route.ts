@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { BookingService } from "@/server/services/booking.service";
 import { requireAuth, requireRole } from "@/lib/security/auth";
 import { USER_ROLES } from "@/lib/constants/statuses";
@@ -124,7 +124,13 @@ export async function POST(req: NextRequest) {
     const result = await BookingService.createBooking(
       studentId,
       windowId,
-      parsed.data.idempotencyKey
+      parsed.data.idempotencyKey,
+      {
+        latitude: parsed.data.latitude,
+        longitude: parsed.data.longitude,
+        deviceId: parsed.data.deviceId,
+        deviceIp: ip,
+      }
     );
 
     const message = result.isExisting
@@ -133,6 +139,38 @@ export async function POST(req: NextRequest) {
 
     return apiSuccess(result, message, result.isExisting ? 200 : 201);
   } catch (error: any) {
+    if (error.code === "DEVICE_ALREADY_USED") {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "DEVICE_ALREADY_USED",
+          error: error.message,
+          existingBooking: error.existingBooking,
+        },
+        { status: 400 }
+      );
+    }
+    if (error.code === "GPS_TOO_FAR") {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "GPS_TOO_FAR",
+          error: "روح مكان البصمة و احجز من هناك بلاش ذكاء وتحجز من بدرى ومتجيش غير فى الاخر",
+          distance: error.distance,
+        },
+        { status: 400 }
+      );
+    }
+    if (error.code === "GPS_REQUIRED") {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "GPS_REQUIRED",
+          error: (error.message || "").replace("GPS_REQUIRED:", ""),
+        },
+        { status: 400 }
+      );
+    }
     if (error.message === "UNAUTHORIZED") {
       return apiError("يرجى إدخال الرقم الأكاديمي للحجز", 401, "UNAUTHORIZED");
     }

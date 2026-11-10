@@ -116,6 +116,21 @@ export default function AdminBookingWindowsPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [targetSubSections, setTargetSubSections] = useState<Record<string, "ALL" | "A" | "B">>({});
 
+  // Helper to fetch admin current GPS coords when opening a window
+  const getAdminLocation = async (): Promise<{ latitude: number; longitude: number } | null> => {
+    if (typeof window === "undefined" || !navigator.geolocation) return null;
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+        (err) => {
+          console.warn("[Admin GPS] Could not get location:", err.message);
+          resolve(null);
+        },
+        { enableHighAccuracy: true, timeout: 6000, maximumAge: 10000 }
+      );
+    });
+  };
+
   // Status change per single window with specific subSection selection
   const handleStatusChange = async (
     windowId: string,
@@ -126,18 +141,27 @@ export default function AdminBookingWindowsPage() {
       setActionLoading(windowId);
       const chosenSubSection = subSection || targetSubSections[windowId] || "ALL";
 
+      let location = null;
+      if (newStatus === "OPEN") {
+        location = await getAdminLocation();
+      }
+
       const res = await fetch(`/api/booking-windows/${windowId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           status: newStatus,
           subSection: chosenSubSection,
+          ...(location ? { latitude: location.latitude, longitude: location.longitude } : {}),
         }),
       });
       const json = await res.json();
       if (json.success) {
+        const extraNote = location
+          ? " 📍 تم تثبيت موقعك الجغرافي كنطاق حجز للطلاب (نصف قطر 20م)!"
+          : "";
         setMessage({
-          text: json.message || "تم تحديث فترة وضوابط الحجز بنجاح",
+          text: (json.message || "تم تحديث فترة وضوابط الحجز بنجاح") + extraNote,
           type: "success",
         });
         fetchWindows();
@@ -173,18 +197,27 @@ export default function AdminBookingWindowsPage() {
       setBulkActionLoading(true);
       setMessage(null);
 
+      let location = null;
+      if (action === "OPEN") {
+        location = await getAdminLocation();
+      }
+
       const res = await fetch("/api/booking-windows/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           windowIds: selectedIds,
           action,
+          ...(location ? { latitude: location.latitude, longitude: location.longitude } : {}),
         }),
       });
 
       const json = await res.json();
       if (json.success) {
-        setMessage({ text: json.message || "تم تنفيذ العملية المجمعة بنجاح", type: "success" });
+        const extraNote = location
+          ? " 📍 تم تثبيت موقعك الجغرافي كنطاق حجز لجميع الفترات (نصف قطر 20م)!"
+          : "";
+        setMessage({ text: (json.message || "تم تنفيذ العملية المجمعة بنجاح") + extraNote, type: "success" });
         setSelectedIds([]);
         fetchWindows();
       } else {
@@ -691,6 +724,17 @@ export default function AdminBookingWindowsPage() {
                           )}
                           {w.status === "DRAFT" && <span>مسودة</span>}
                         </span>
+                        {w.openLatitude && (
+                          <div className="mt-1">
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] font-bold text-cyan-300 bg-cyan-950/60 px-2 py-0.5 rounded-full border border-cyan-800/50"
+                              title={`نقطة البصمة: ${w.openLatitude}, ${w.openLongitude} (نطاق 20 متر)`}
+                            >
+                              <MapPin className="w-2.5 h-2.5 text-cyan-400" />
+                              <span>GPS مفعل (20م)</span>
+                            </span>
+                          </div>
+                        )}
                       </td>
 
                       {/* Action Buttons */}

@@ -55,6 +55,10 @@ export async function PATCH(
     if (parsed.data.status === "OPEN") {
       updateFields.startsAt = new Date(Date.now() - 3600000);
       updateFields.endsAt = new Date(Date.now() + 86400000 * 30);
+      if (body.latitude !== undefined && body.longitude !== undefined && body.latitude !== null && body.longitude !== null) {
+        updateFields.openLatitude = String(body.latitude);
+        updateFields.openLongitude = String(body.longitude);
+      }
     }
 
     const [updated] = await db

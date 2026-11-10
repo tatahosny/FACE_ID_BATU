@@ -63,6 +63,8 @@ export async function GET(req: NextRequest) {
         capacity: bookingWindows.capacity,
         subSection: bookingWindows.subSection,
         nextQueueNumber: bookingWindows.nextQueueNumber,
+        openLatitude: bookingWindows.openLatitude,
+        openLongitude: bookingWindows.openLongitude,
         createdAt: bookingWindows.createdAt,
       })
       .from(bookingWindows)

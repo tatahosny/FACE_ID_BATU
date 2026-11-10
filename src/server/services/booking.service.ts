@@ -13,6 +13,7 @@ import {
 import { eq, and, sql, ne, desc, or, inArray, lt } from "drizzle-orm";
 import { BOOKING_STATUSES, BookingStatus, BOOKING_WINDOW_STATUSES } from "@/lib/constants/statuses";
 import { formatQueueNumber } from "@/lib/utils/datetime";
+import { calculateDistanceMeters } from "@/lib/utils/geo";
 import { TelegramService } from "./telegram.service";
 import { NotificationService } from "./notification.service";
 import { SettingsService } from "./settings.service";
@@ -152,7 +153,17 @@ export class BookingService {
    * Concurrency-safe, transactional booking creation.
    * Acquires row lock on the booking window to prevent race conditions and duplicate queue numbers.
    */
-  static async createBooking(studentId: string, bookingWindowId: string, idempotencyKey?: string) {
+  static async createBooking(
+    studentId: string,
+    bookingWindowId: string,
+    idempotencyKey?: string,
+    meta?: {
+      latitude?: number | string | null;
+      longitude?: number | string | null;
+      deviceId?: string | null;
+      deviceIp?: string | null;
+    }
+  ) {
     let pendingTelegramNotification: { chatId: number; message: string; outboxKey?: string } | null = null;
     const result = await bookingQueueLock.acquire(async () => {
       return await db.transaction(async (tx) => {
@@ -169,6 +180,55 @@ export class BookingService {
 
         if (!student) {
           throw new Error("سجل الطالب غير موجود");
+        }
+
+        // 1.1 Device Lock Verification
+        // Each physical client device can only have ONE active/completed booking reservation.
+        // If a different student attempts to book from the same device, reject and return the existing booking details.
+        if (meta?.deviceId) {
+          const [deviceExistingBooking] = await tx
+            .select({
+              id: bookings.id,
+              studentId: bookings.studentId,
+              queueNumber: bookings.queueNumber,
+              ticketNumber: bookings.ticketNumber,
+              desk: bookings.desk,
+              status: bookings.status,
+              bookedAt: bookings.bookedAt,
+              studentName: students.fullName,
+              academicNumber: students.academicNumber,
+            })
+            .from(bookings)
+            .innerJoin(students, eq(bookings.studentId, students.id))
+            .where(
+              and(
+                eq(bookings.deviceId, meta.deviceId),
+                sql`${bookings.status} IN ('WAITING', 'CALLED', 'IN_PROGRESS', 'COMPLETED')`
+              )
+            )
+            .orderBy(desc(bookings.bookedAt))
+            .limit(1);
+
+          if (deviceExistingBooking && deviceExistingBooking.studentId !== student.id) {
+            const err: any = new Error(
+              `أنت حاجز قبل كدة من هذا الجهاز للطالب (${deviceExistingBooking.studentName})!`
+            );
+            err.code = "DEVICE_ALREADY_USED";
+            err.existingBooking = {
+              id: deviceExistingBooking.id,
+              studentName: deviceExistingBooking.studentName,
+              academicNumber: deviceExistingBooking.academicNumber,
+              queueNumber: deviceExistingBooking.queueNumber,
+              ticketNumber: deviceExistingBooking.ticketNumber || deviceExistingBooking.queueNumber,
+              formattedQueueNumber: formatQueueNumber(
+                deviceExistingBooking.ticketNumber || deviceExistingBooking.queueNumber
+              ),
+              desk: deviceExistingBooking.desk,
+              status: deviceExistingBooking.status,
+              bookedAt: deviceExistingBooking.bookedAt,
+            };
+            throw err;
+          }
         }
 
         // 2. Lock the booking window row for atomic queue allocation
@@ -189,13 +249,8 @@ export class BookingService {
           );
         }
 
-        // 4. Verify window status and time
-        const now = new Date();
-        if (
-          window.status !== BOOKING_WINDOW_STATUSES.OPEN ||
-          now < new Date(window.startsAt) ||
-          now > new Date(window.endsAt)
-        ) {
+        // 4. Verify window status
+        if (window.status !== BOOKING_WINDOW_STATUSES.OPEN) {
           throw new Error(
             "لم يتم تفعيل وقت البصمة للسكشن بتاعك. يرجى الانتظار، ستصلك رسالة تنبيهية على التيليجرام فور فتح الحجز لسكشنك."
           );
@@ -219,9 +274,7 @@ export class BookingService {
                 or(
                   eq(bookingWindows.subSection, "ALL"),
                   eq(bookingWindows.subSection, student.subSection || "A")
-                ),
-                sql`${bookingWindows.startsAt} <= ${now}`,
-                sql`${bookingWindows.endsAt} >= ${now}`
+                )
               )
             )
             .orderBy(desc(bookingWindows.createdAt))
@@ -233,6 +286,35 @@ export class BookingService {
             throw new Error(
               `فترة الحجز الحالية مخصصة لطلاب (قسم ${window.subSection}) فقط، وأنت مسجل في (قسم ${student.subSection || "A"}). يرجى انتظار موعد فتح الحجز لقسمك.`
             );
+          }
+        }
+
+        // 5.1 GPS Verification (Distance check within 20 meters)
+        let calculatedDistance: number | null = null;
+        if (targetWindow.openLatitude && targetWindow.openLongitude) {
+          const winLat = parseFloat(targetWindow.openLatitude);
+          const winLon = parseFloat(targetWindow.openLongitude);
+
+          const studentLat = meta?.latitude !== undefined && meta?.latitude !== null ? parseFloat(String(meta.latitude)) : NaN;
+          const studentLon = meta?.longitude !== undefined && meta?.longitude !== null ? parseFloat(String(meta.longitude)) : NaN;
+
+          if (isNaN(studentLat) || isNaN(studentLon)) {
+            const err: any = new Error(
+              "GPS_REQUIRED:يرجى تفعيل وتحديد موقع الـ GPS من هاتفك للتحقق من تواجدك في مقر الجامعة لإتمام الحجز."
+            );
+            err.code = "GPS_REQUIRED";
+            throw err;
+          }
+
+          calculatedDistance = calculateDistanceMeters(winLat, winLon, studentLat, studentLon);
+
+          if (calculatedDistance > 20) {
+            const err: any = new Error(
+              "GPS_TOO_FAR:روح مكان البصمة و احجز من هناك بلاش ذكاء وتحجز من بدرى ومتجيش غير فى الاخر"
+            );
+            err.code = "GPS_TOO_FAR";
+            err.distance = calculatedDistance;
+            throw err;
           }
         }
 
@@ -366,7 +448,7 @@ export class BookingService {
             updatedAt: new Date(),
           });
 
-        // 8. Insert booking record with globally sequential queue number and permanent ticket number
+        // 8. Insert booking record with globally sequential queue number, permanent ticket number, and audit tracking
         const [createdBooking] = await tx
           .insert(bookings)
           .values({
@@ -376,6 +458,11 @@ export class BookingService {
             ticketNumber: assignedQueueNumber,
             desk: assignedDesk,
             status: BOOKING_STATUSES.WAITING,
+            deviceId: meta?.deviceId || null,
+            deviceIp: meta?.deviceIp || null,
+            latitude: meta?.latitude !== undefined && meta?.latitude !== null ? String(meta.latitude) : null,
+            longitude: meta?.longitude !== undefined && meta?.longitude !== null ? String(meta.longitude) : null,
+            distanceMeters: calculatedDistance !== null ? calculatedDistance : null,
           })
           .returning();
 

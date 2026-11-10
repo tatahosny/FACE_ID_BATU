@@ -6,6 +6,9 @@ export const createBookingSchema = z.object({
   academicNumber: z.string().min(1, "الرقم الأكاديمي مطلوب").optional(),
   bookingWindowId: z.string().uuid("معرف نافذة الحجز غير صالح").optional(),
   idempotencyKey: z.string().optional(),
+  latitude: z.union([z.number(), z.string()]).optional(),
+  longitude: z.union([z.number(), z.string()]).optional(),
+  deviceId: z.string().optional(),
 });
 
 export const updateBookingStatusSchema = z.object({
@@ -44,6 +47,8 @@ export const updateBookingWindowStatusSchema = z.object({
   ]).optional(),
   subSection: z.enum(["ALL", "A", "B"]).optional(),
   action: z.enum(["UPDATE_STATUS", "RESET_TICKETS"]).default("UPDATE_STATUS"),
+  latitude: z.union([z.number(), z.string()]).optional(),
+  longitude: z.union([z.number(), z.string()]).optional(),
 });
 
 export const recordActivationSchema = z.object({

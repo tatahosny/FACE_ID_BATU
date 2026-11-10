@@ -139,6 +139,8 @@ export const bookingWindows = pgTable(
     specialization: varchar("specialization", { length: 50 }),
     subSection: varchar("sub_section", { length: 10 }).default("ALL").notNull(), // 'ALL' | 'A' | 'B'
     nextQueueNumber: integer("next_queue_number").default(1).notNull(), // Concurrency safe atomic counter
+    openLatitude: varchar("open_latitude", { length: 50 }), // Admin GPS latitude when window was opened
+    openLongitude: varchar("open_longitude", { length: 50 }), // Admin GPS longitude when window was opened
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -169,6 +171,11 @@ export const bookings = pgTable(
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     delayCount: integer("delay_count").default(0).notNull(),
+    deviceId: varchar("device_id", { length: 150 }), // Persistent client device identifier
+    deviceIp: varchar("device_ip", { length: 100 }),
+    latitude: varchar("latitude", { length: 50 }), // Student GPS latitude at booking time
+    longitude: varchar("longitude", { length: 50 }), // Student GPS longitude at booking time
+    distanceMeters: integer("distance_meters"), // Distance from admin open location in meters
     notes: text("notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

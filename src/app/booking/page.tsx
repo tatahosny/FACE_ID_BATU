@@ -20,7 +20,11 @@ import {
   KeyRound,
   Settings,
   Info,
+  ShieldAlert,
+  Smartphone,
+  X,
 } from "lucide-react";
+import { formatCairoDateTime } from "@/lib/utils/datetime";
 
 export default function BookingPage() {
   return (
@@ -48,6 +52,45 @@ function BookingContent() {
   const [lookupResult, setLookupResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [bookingSuccess, setBookingSuccess] = useState<any>(null);
+  const [gpsErrorModal, setGpsErrorModal] = useState<{ message: string; distance?: number | null } | null>(null);
+  const [deviceLockModal, setDeviceLockModal] = useState<any | null>(null);
+
+  // Persistent device ID generation/retrieval across localStorage & cookie
+  const getOrCreateDeviceId = (): string => {
+    if (typeof window === "undefined") return "";
+    try {
+      let id = localStorage.getItem("batu_device_uid");
+      if (!id) {
+        const match = document.cookie.match(/(?:^|; )batu_device_uid=([^;]*)/);
+        if (match && match[1]) {
+          id = decodeURIComponent(match[1]);
+        }
+      }
+      if (!id) {
+        id = "dev_" + Math.random().toString(36).substring(2, 10) + "_" + Date.now().toString(36);
+      }
+      localStorage.setItem("batu_device_uid", id);
+      document.cookie = `batu_device_uid=${encodeURIComponent(id)}; path=/; max-age=31536000; SameSite=Lax`;
+      return id;
+    } catch {
+      return "dev_fallback_" + Date.now();
+    }
+  };
+
+  // Student GPS retrieval
+  const getStudentLocation = async (): Promise<{ latitude: number; longitude: number } | null> => {
+    if (typeof window === "undefined" || !navigator.geolocation) return null;
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+        (err) => {
+          console.warn("[Student GPS Warning]:", err.message);
+          resolve(null);
+        },
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+      );
+    });
+  };
 
   // Auto lookup if academicNumber is passed via redirect
   useEffect(() => {
@@ -144,6 +187,12 @@ function BookingContent() {
       isBookingSubmittingRef.current = true;
       setBookingLoading(true);
       setError(null);
+      setGpsErrorModal(null);
+      setDeviceLockModal(null);
+
+      // Attempt to retrieve student GPS location
+      const location = await getStudentLocation();
+      const deviceId = getOrCreateDeviceId();
 
       const idempotencyKey = `book_${lookupResult.student.academicNumber}_${Date.now()}`;
 
@@ -154,12 +203,33 @@ function BookingContent() {
           academicNumber: lookupResult.student.academicNumber,
           bookingWindowId: lookupResult.windowId,
           idempotencyKey,
+          deviceId,
+          latitude: location?.latitude,
+          longitude: location?.longitude,
         }),
       });
 
       const json = await res.json();
 
       if (!res.ok || !json.success) {
+        if (json.code === "DEVICE_ALREADY_USED") {
+          setDeviceLockModal(json.existingBooking);
+          return;
+        }
+        if (json.code === "GPS_TOO_FAR") {
+          setGpsErrorModal({
+            message: json.error || "روح مكان البصمة و احجز من هناك بلاش ذكاء وتحجز من بدرى ومتجيش غير فى الاخر",
+            distance: json.distance,
+          });
+          return;
+        }
+        if (json.code === "GPS_REQUIRED") {
+          setGpsErrorModal({
+            message: json.error || "يرجى تفعيل وتحديد موقع الـ GPS من هاتفك للتحقق من تواجدك في مقر الجامعة لإتمام الحجز.",
+            distance: null,
+          });
+          return;
+        }
         setError(json.error || "فشل إتمام الحجز");
         return;
       }
@@ -590,6 +660,142 @@ function BookingContent() {
           </p>
         </div>
       </div>
+
+      {/* ===== POPUP 1: GPS Outside 20m Boundary Modal ===== */}
+      {gpsErrorModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-red-500/50 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl shadow-red-500/20 text-center space-y-5 relative">
+            <button
+              onClick={() => setGpsErrorModal(null)}
+              className="absolute top-4 left-4 w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-center mx-auto text-red-400 animate-bounce">
+              <MapPin className="w-8 h-8 text-red-400" />
+            </div>
+
+            <div className="space-y-2">
+              <span className="inline-block px-3 py-1 rounded-full text-[11px] font-black bg-red-500/20 text-red-300 border border-red-500/30">
+                تحقق الموقع الجغرافي (GPS)
+              </span>
+              <h3 className="text-xl sm:text-2xl font-black text-white leading-tight">
+                تنبيه: أنت خارج نطاق البصمة!
+              </h3>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-red-950/40 border border-red-800/40 text-red-200 font-bold text-sm sm:text-base leading-relaxed">
+              &ldquo;{gpsErrorModal.message}&rdquo;
+            </div>
+
+            <div className="text-xs text-slate-300 space-y-1 text-right bg-slate-900/80 p-3.5 rounded-xl border border-slate-800">
+              <div className="flex items-center gap-2 text-slate-200 font-bold">
+                <ShieldAlert className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                <span>ضوابط الحجز المعتمدة:</span>
+              </div>
+              <p className="text-slate-400 text-[11px] leading-relaxed">
+                • الحجز متاح فقط داخل حرم الكلية ومحيط شباك البصمة (بحد أقصى 20 متراً من مسؤول الحجز).
+              </p>
+              {gpsErrorModal.distance !== undefined && gpsErrorModal.distance !== null && (
+                <p className="text-amber-300 font-mono text-[11px]">
+                  • المسافة التقديرية الحالية لموقعك: ~{gpsErrorModal.distance} متراً من مكان البصمة.
+                </p>
+              )}
+            </div>
+
+            <button
+              onClick={() => setGpsErrorModal(null)}
+              className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-red-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-sm shadow-lg shadow-red-600/30 transition active:scale-95"
+            >
+              حسناً، فهمت
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ===== POPUP 2: Device Lock (Already Booked from this Device) Modal ===== */}
+      {deviceLockModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="bg-gradient-to-b from-slate-900 via-indigo-950/40 to-slate-950 border-2 border-indigo-500/50 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl shadow-indigo-500/20 text-center space-y-5 relative">
+            <button
+              onClick={() => setDeviceLockModal(null)}
+              className="absolute top-4 left-4 w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center mx-auto text-indigo-400">
+              <Smartphone className="w-8 h-8 text-indigo-400" />
+            </div>
+
+            <div className="space-y-1.5">
+              <span className="inline-block px-3 py-1 rounded-full text-[11px] font-black bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                قفل الأجهزة المنظومي (Device Lock)
+              </span>
+              <h3 className="text-xl sm:text-2xl font-black text-white">
+                أنت حاجز قبل كدة من هذا الجهاز!
+              </h3>
+              <p className="text-xs text-slate-400">
+                غير مسموح بحجز أكثر من طالب من نفس الجهاز (حجز واحد فقط مسموح لكل هاتف لمنع الحجز بالنيابة).
+              </p>
+            </div>
+
+            {/* Previous Booking Full Details Card */}
+            <div className="bg-slate-900/90 border border-indigo-500/30 rounded-2xl p-4 text-right space-y-3">
+              <div className="text-xs font-bold text-indigo-300 border-b border-slate-800 pb-2 flex items-center justify-between">
+                <span>بيانات الحجز السابق المسجل من جهازك:</span>
+                <span className="text-[10px] text-slate-400 font-mono">#{deviceLockModal.formattedQueueNumber || deviceLockModal.ticketNumber}</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5 text-xs">
+                <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80">
+                  <div className="text-[10px] text-slate-400">اسم الطالب:</div>
+                  <div className="font-bold text-white truncate mt-0.5">{deviceLockModal.studentName}</div>
+                </div>
+
+                <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80">
+                  <div className="text-[10px] text-slate-400">الرقم الأكاديمي:</div>
+                  <div className="font-bold text-indigo-300 font-mono mt-0.5">{deviceLockModal.academicNumber}</div>
+                </div>
+
+                <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80">
+                  <div className="text-[10px] text-slate-400">رقم التذكرة والشباك:</div>
+                  <div className="font-bold text-emerald-400 font-mono mt-0.5">
+                    #{deviceLockModal.formattedQueueNumber || deviceLockModal.ticketNumber} (شباك {deviceLockModal.desk})
+                  </div>
+                </div>
+
+                <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80">
+                  <div className="text-[10px] text-slate-400">حالة الدور:</div>
+                  <div className="font-bold text-amber-400 mt-0.5">
+                    {deviceLockModal.status === "WAITING"
+                      ? "في الانتظار"
+                      : deviceLockModal.status === "CALLED"
+                      ? "تم النداء عليه"
+                      : deviceLockModal.status === "IN_PROGRESS"
+                      ? "جاري البصمة"
+                      : "تمت البصمة"}
+                  </div>
+                </div>
+              </div>
+
+              {deviceLockModal.bookedAt && (
+                <div className="text-[11px] text-slate-400 text-center pt-1 border-t border-slate-800/60">
+                  وقت الحجز: {formatCairoDateTime(deviceLockModal.bookedAt)}
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => setDeviceLockModal(null)}
+              className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-600 hover:from-indigo-500 hover:to-blue-500 text-white font-black text-sm shadow-lg shadow-indigo-600/30 transition active:scale-95"
+            >
+              إغلاق
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

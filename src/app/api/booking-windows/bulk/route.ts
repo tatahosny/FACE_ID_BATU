@@ -51,6 +51,10 @@ export async function POST(req: NextRequest) {
     if (action === "OPEN") {
       updateData.startsAt = new Date(Date.now() - 3600000);
       updateData.endsAt = new Date(Date.now() + 86400000 * 30);
+      if (body.latitude !== undefined && body.longitude !== undefined && body.latitude !== null && body.longitude !== null) {
+        updateData.openLatitude = String(body.latitude);
+        updateData.openLongitude = String(body.longitude);
+      }
     }
 
     const updatedList = await db
