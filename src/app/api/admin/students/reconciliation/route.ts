@@ -12,6 +12,7 @@ export async function POST(req: NextRequest) {
 
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
+    const targetDate = formData.get("targetDate") as string | null; // "YYYY-MM-DD" or null
 
     if (!file) {
       return apiError("يرجى اختيار ملف الإكسيل للمطابقة والتدقيق", 400);
@@ -23,6 +24,7 @@ export async function POST(req: NextRequest) {
     const result = await StudentService.reconcileExcelActivations({
       buffer,
       staffUserId: session.userId,
+      targetDate: targetDate || undefined,
     });
 
     return apiSuccess(

@@ -1427,9 +1427,10 @@ export class StudentService {
 
   /**
    * Reconcile uploaded Excel sheet against students activated by the logged-in staff user.
-   * Compares sheet contents strictly with activations where activatedBy === staffUserId.
+   * Compares sheet contents with activations where activatedBy === staffUserId on a specific date.
+   * Matching uses academicNumber OR normalised name OR nationalId hash.
    */
-  static async reconcileExcelActivations(params: { buffer: Buffer; staffUserId: string }) {
+  static async reconcileExcelActivations(params: { buffer: Buffer; staffUserId: string; targetDate?: string }) {
     const workbook = XLSX.read(params.buffer, { type: "buffer" });
     const sheetName = workbook.SheetNames[0];
     if (!sheetName) {
@@ -1451,6 +1452,15 @@ export class StudentService {
         .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632))
         .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 1776));
     };
+
+    const normalizeName = (val: any): string =>
+      String(val || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .replace(/[أإآا]/g, "ا")
+        .replace(/[ةه]/g, "ه")
+        .replace(/[يى]/g, "ي")
+        .toLowerCase();
 
     const getField = (row: Record<string, any>, possibleKeys: string[]): string => {
       for (const k of Object.keys(row)) {
@@ -1481,9 +1491,8 @@ export class StudentService {
       fullName: string;
       academicNumber: string;
       nationalId: string;
+      normalizedName: string;
     }> = [];
-
-    const sheetAcademicMap = new Map<string, typeof sheetStudents[0]>();
 
     for (let i = 0; i < rawRows.length; i++) {
       const row = rawRows[i];
@@ -1497,41 +1506,53 @@ export class StudentService {
       );
 
       if (!fullName && !academicNumber && !nationalId) continue;
-      if (academicNumber) {
-        const item = { rowNumber: rowNum, fullName: fullName || "بدون اسم", academicNumber, nationalId };
-        sheetStudents.push(item);
-        sheetAcademicMap.set(academicNumber, item);
-      }
+      sheetStudents.push({
+        rowNumber: rowNum,
+        fullName: fullName || "بدون اسم",
+        academicNumber,
+        nationalId,
+        normalizedName: normalizeName(fullName),
+      });
     }
 
-    // 3. Fetch all students in DB for existence lookup
-    const allDbStudents = await db
-      .select({
-        id: students.id,
-        fullName: students.fullName,
-        academicNumber: students.academicNumber,
-        nationalIdHash: students.nationalIdHash,
-        nationalIdEncrypted: students.nationalIdEncrypted,
-        groupId: students.groupId,
-        groupName: groups.name,
-        sectionId: students.sectionId,
-        sectionName: sections.name,
-        academicYear: students.academicYear,
-        specialization: students.specialization,
-      })
-      .from(students)
-      .innerJoin(groups, eq(students.groupId, groups.id))
-      .innerJoin(sections, eq(students.sectionId, sections.id));
+    // Build lookup sets from sheet (by academicNumber, nationalId, normalizedName)
+    const sheetAcademicSet = new Set(sheetStudents.map((s) => s.academicNumber).filter(Boolean));
+    const sheetNationalIdSet = new Set(sheetStudents.map((s) => s.nationalId).filter(Boolean));
+    const sheetNameSet = new Set(sheetStudents.map((s) => s.normalizedName).filter(Boolean));
 
-    const dbAcademicMap = new Map(allDbStudents.map((s) => [s.academicNumber, s]));
+    const isInSheet = (academicNumber: string, nationalId: string, fullName: string): boolean => {
+      if (academicNumber && sheetAcademicSet.has(academicNumber)) return true;
+      if (nationalId && sheetNationalIdSet.has(nationalId)) return true;
+      const nName = normalizeName(fullName);
+      if (nName && sheetNameSet.has(nName)) return true;
+      return false;
+    };
 
-    // 4. Fetch all students activated specifically by THIS user
+    // 3. Build date filter for activations
+    let dateFilter = undefined;
+    if (params.targetDate) {
+      // targetDate is "YYYY-MM-DD", filter activations where activatedAt falls on that day (Cairo UTC+2)
+      const dayStart = new Date(`${params.targetDate}T00:00:00+02:00`);
+      const dayEnd = new Date(`${params.targetDate}T23:59:59+02:00`);
+      dateFilter = and(
+        eq(fingerprintActivations.activatedBy, params.staffUserId),
+        eq(fingerprintActivations.status, "ACTIVATED"),
+        sql`${fingerprintActivations.activatedAt} >= ${dayStart.toISOString()}`,
+        sql`${fingerprintActivations.activatedAt} <= ${dayEnd.toISOString()}`
+      );
+    } else {
+      dateFilter = and(
+        eq(fingerprintActivations.activatedBy, params.staffUserId),
+        eq(fingerprintActivations.status, "ACTIVATED")
+      );
+    }
+
+    // 4. Fetch activations by THIS user (filtered by date if provided)
     const dbUserActivations = await db
       .select({
         activationId: fingerprintActivations.id,
         studentId: fingerprintActivations.studentId,
         activatedAt: fingerprintActivations.activatedAt,
-        notes: fingerprintActivations.notes,
         studentName: students.fullName,
         academicNumber: students.academicNumber,
         nationalIdEncrypted: students.nationalIdEncrypted,
@@ -1543,23 +1564,42 @@ export class StudentService {
       .innerJoin(students, eq(fingerprintActivations.studentId, students.id))
       .innerJoin(groups, eq(students.groupId, groups.id))
       .innerJoin(sections, eq(students.sectionId, sections.id))
-      .where(
-        and(
-          eq(fingerprintActivations.activatedBy, params.staffUserId),
-          eq(fingerprintActivations.status, "ACTIVATED")
-        )
-      );
+      .where(dateFilter);
 
-    // Discrepancy A: Students activated by this account, but NOT in uploaded sheet
+    // 5. Fetch ALL students in DB for existence + activation lookup
+    const allDbStudents = await db
+      .select({
+        id: students.id,
+        fullName: students.fullName,
+        academicNumber: students.academicNumber,
+        nationalIdEncrypted: students.nationalIdEncrypted,
+        nationalIdHash: students.nationalIdHash,
+        groupName: groups.name,
+        sectionName: sections.name,
+        academicYear: students.academicYear,
+        specialization: students.specialization,
+      })
+      .from(students)
+      .innerJoin(groups, eq(students.groupId, groups.id))
+      .innerJoin(sections, eq(students.sectionId, sections.id));
+
+    // Build DB lookup maps
+    const dbAcademicMap = new Map(allDbStudents.map((s) => [s.academicNumber, s]));
+    const dbNameMap = new Map(allDbStudents.map((s) => [normalizeName(s.fullName), s]));
+
+    // Set of studentIds activated by this user (filtered by date)
+    const activatedStudentIds = new Set(dbUserActivations.map((a) => a.studentId));
+
+    // Discrepancy A: Activated by me on this day but NOT in uploaded sheet
     const activatedNotInSheet = dbUserActivations
-      .filter((act) => !sheetAcademicMap.has(act.academicNumber))
+      .filter((act) => {
+        let nationalId = "";
+        try { nationalId = decryptNationalId(act.nationalIdEncrypted); } catch { /* ignore */ }
+        return !isInSheet(act.academicNumber, normalizeDigits(nationalId), act.studentName);
+      })
       .map((act) => {
         let nationalId = "";
-        try {
-          nationalId = decryptNationalId(act.nationalIdEncrypted);
-        } catch {
-          nationalId = "—";
-        }
+        try { nationalId = decryptNationalId(act.nationalIdEncrypted); } catch { nationalId = "—"; }
         return {
           activationId: act.activationId,
           studentId: act.studentId,
@@ -1574,11 +1614,38 @@ export class StudentService {
         };
       });
 
-    // Discrepancy B: Students present in the sheet, but NOT in the system DB at all
-    const inSheetNotRegistered = sheetStudents.filter((s) => !dbAcademicMap.has(s.academicNumber));
+    // Discrepancy B: In sheet but NOT activated (or not in DB at all)
+    const inSheetNotActivated = sheetStudents
+      .map((s) => {
+        // Try to find in DB by academicNumber, then by name
+        let dbStudent = s.academicNumber ? dbAcademicMap.get(s.academicNumber) : undefined;
+        if (!dbStudent && s.normalizedName) dbStudent = dbNameMap.get(s.normalizedName);
 
-    // Matched: In sheet AND in DB
-    const matchedInBoth = sheetStudents.filter((s) => dbAcademicMap.has(s.academicNumber));
+        const existsInDb = !!dbStudent;
+        const isActivatedByMe = dbStudent ? activatedStudentIds.has(dbStudent.id) : false;
+
+        // Only include if NOT activated by this user on this date
+        if (isActivatedByMe) return null;
+
+        return {
+          rowNumber: s.rowNumber,
+          fullName: s.fullName,
+          academicNumber: s.academicNumber,
+          nationalId: s.nationalId,
+          existsInDb,
+          dbStudentId: dbStudent?.id || null,
+          dbFullName: dbStudent?.fullName || null,
+          groupName: dbStudent?.groupName || null,
+          sectionName: dbStudent?.sectionName || null,
+          academicYear: dbStudent?.academicYear || null,
+          specialization: dbStudent?.specialization || null,
+          status: !existsInDb ? "not_in_db" : "in_db_not_activated",
+        };
+      })
+      .filter(Boolean) as any[];
+
+    // Matched: In sheet AND activated by me
+    const matchedCount = sheetStudents.length - inSheetNotActivated.length;
 
     return {
       staffAccount: {
@@ -1586,16 +1653,17 @@ export class StudentService {
         fullName: staffUser.fullName,
         email: staffUser.email,
       },
+      targetDate: params.targetDate || null,
       summary: {
         totalSheetRows: sheetStudents.length,
         totalDbActivatedByUser: dbUserActivations.length,
-        matchedCount: matchedInBoth.length,
+        matchedCount: Math.max(0, matchedCount),
         activatedNotInSheetCount: activatedNotInSheet.length,
-        inSheetNotRegisteredCount: inSheetNotRegistered.length,
+        inSheetNotActivatedCount: inSheetNotActivated.length,
       },
       activatedNotInSheet,
-      inSheetNotRegistered,
-      matchedInBoth: matchedInBoth.slice(0, 100),
+      inSheetNotRegistered: inSheetNotActivated,
+      matchedInBoth: [],
     };
   }
 

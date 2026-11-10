@@ -181,6 +181,7 @@ export default function AdminStudentsPage() {
   // Reconciliation Modal State (Staff Account Attributed)
   const [isReconcileModalOpen, setIsReconcileModalOpen] = useState(false);
   const [reconcileFile, setReconcileFile] = useState<File | null>(null);
+  const [reconcileTargetDate, setReconcileTargetDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [reconcileLoading, setReconcileLoading] = useState(false);
   const [reconcileActionLoading, setReconcileActionLoading] = useState<string | null>(null);
   const [reconcileData, setReconcileData] = useState<any | null>(null);
@@ -215,6 +216,9 @@ export default function AdminStudentsPage() {
 
       const formData = new FormData();
       formData.append("file", reconcileFile);
+      if (reconcileTargetDate) {
+        formData.append("targetDate", reconcileTargetDate);
+      }
 
       const res = await fetch("/api/admin/students/reconciliation", {
         method: "POST",
@@ -2650,14 +2654,48 @@ export default function AdminStudentsPage() {
 
               {/* File Upload Form */}
               {!reconcileData && (
-                <form onSubmit={handleUploadReconciliationExcel} className="space-y-5">
+                <form onSubmit={handleUploadReconciliationExcel} className="space-y-4">
+                  {/* Date Selector */}
+                  <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-4">
+                    <label className="text-xs font-bold text-slate-300 mb-2 flex items-center gap-2">
+                      <Calendar className="w-3.5 h-3.5 text-violet-400" />
+                      اليوم المراد المقارنة به
+                    </label>
+                    <div className="flex items-center gap-2 mt-2">
+                      <input
+                        type="date"
+                        value={reconcileTargetDate}
+                        onChange={(e) => setReconcileTargetDate(e.target.value)}
+                        className="flex-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-600 focus:border-violet-500 text-white text-xs font-mono outline-none transition"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setReconcileTargetDate("")}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold border transition ${!reconcileTargetDate ? "bg-violet-600/20 border-violet-500/40 text-violet-300" : "bg-slate-700 border-slate-600 text-slate-400 hover:text-white"}`}
+                      >
+                        كل الأيام
+                      </button>
+                    </div>
+                    <p className="text-[11px] mt-2 leading-relaxed">
+                      {reconcileTargetDate ? (
+                        <span className="text-violet-400">
+                          ✅ المقارنة ستكون مع تفعيلاتك يوم{" "}
+                          <strong>{new Date(reconcileTargetDate + "T12:00:00").toLocaleDateString("ar-EG", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</strong> فقط
+                        </span>
+                      ) : (
+                        <span className="text-amber-400">⚠️ لا يوجد يوم محدد — ستتم المقارنة مع جميع تفعيلاتك في كل الأيام</span>
+                      )}
+                    </p>
+                  </div>
+
+                  {/* File Upload */}
                   <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-5">
                     <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
                       <FileSpreadsheet className="w-4 h-4 text-violet-400" />
                       رفع كشف الإكسيل الخاص بك
                     </h3>
                     <p className="text-xs text-slate-400 mb-4 leading-relaxed">
-                      ارفع الكشف الخاص بحسابك فقط (الطلاب الذين فعّلتهم أنت). سيقوم النظام بمقارنة الكشف بقاعدة البيانات وإظهار الفروقات.
+                      ارفع كشفك الخاص. المطابقة تتم بالرقم الأكاديمي أو الاسم أو الرقم القومي.
                     </p>
                     <label className="flex flex-col items-center justify-center gap-3 p-6 border-2 border-dashed border-violet-500/40 hover:border-violet-400/70 rounded-xl cursor-pointer transition-all group bg-violet-500/5 hover:bg-violet-500/10">
                       <input
@@ -2682,6 +2720,7 @@ export default function AdminStudentsPage() {
                       )}
                     </label>
                   </div>
+
                   <div className="flex items-center justify-end gap-3">
                     <button
                       type="button"
@@ -2706,22 +2745,28 @@ export default function AdminStudentsPage() {
               {reconcileData && (
                 <div className="space-y-5">
                   {/* Summary Stats */}
+                  {reconcileData.targetDate && (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-violet-900/20 border border-violet-700/40 rounded-xl text-xs text-violet-300">
+                      <Calendar className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>المقارنة تخص يوم: <strong>{new Date(reconcileData.targetDate + "T12:00:00").toLocaleDateString("ar-EG", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</strong></span>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-3 text-center">
-                      <div className="text-2xl font-black text-white">{reconcileData.summary?.totalInSheet ?? 0}</div>
+                      <div className="text-2xl font-black text-white">{reconcileData.summary?.totalSheetRows ?? 0}</div>
                       <div className="text-[11px] text-slate-400 mt-0.5">إجمالي الكشف</div>
                     </div>
                     <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-3 text-center">
-                      <div className="text-2xl font-black text-white">{reconcileData.summary?.totalActivatedByMe ?? 0}</div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">فعّلتهم في النظام</div>
+                      <div className="text-2xl font-black text-white">{reconcileData.summary?.totalDbActivatedByUser ?? 0}</div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">فعّلتهم في هذا اليوم</div>
                     </div>
                     <div className="bg-amber-900/20 border border-amber-700/40 rounded-xl p-3 text-center">
                       <div className="text-2xl font-black text-amber-400">{reconcileData.activatedNotInSheet?.length ?? 0}</div>
-                      <div className="text-[11px] text-amber-400/70 mt-0.5">مفعّلون غير موجودين في الكشف</div>
+                      <div className="text-[11px] text-amber-400/70 mt-0.5">فعّلتهم — غير موجودين في الكشف</div>
                     </div>
                     <div className="bg-blue-900/20 border border-blue-700/40 rounded-xl p-3 text-center">
                       <div className="text-2xl font-black text-blue-400">{reconcileData.inSheetNotRegistered?.length ?? 0}</div>
-                      <div className="text-[11px] text-blue-400/70 mt-0.5">في الكشف غير مسجلين</div>
+                      <div className="text-[11px] text-blue-400/70 mt-0.5">في الكشف — غير مفعّلين</div>
                     </div>
                   </div>
 
@@ -2731,13 +2776,13 @@ export default function AdminStudentsPage() {
                       onClick={() => setReconcileActiveTab("notInSheet")}
                       className={`px-4 py-2.5 text-xs font-bold rounded-t-lg transition -mb-px border border-b-0 ${reconcileActiveTab === "notInSheet" ? "bg-amber-900/40 border-amber-700/60 text-amber-300" : "bg-transparent border-transparent text-slate-400 hover:text-white"}`}
                     >
-                      مفعّلون غير موجودين في الكشف ({reconcileData.activatedNotInSheet?.length ?? 0})
+                      فعّلتهم — غير موجودين في الكشف ({reconcileData.activatedNotInSheet?.length ?? 0})
                     </button>
                     <button
                       onClick={() => setReconcileActiveTab("notRegistered")}
                       className={`px-4 py-2.5 text-xs font-bold rounded-t-lg transition -mb-px border border-b-0 ${reconcileActiveTab === "notRegistered" ? "bg-blue-900/40 border-blue-700/60 text-blue-300" : "bg-transparent border-transparent text-slate-400 hover:text-white"}`}
                     >
-                      في الكشف غير مسجلين ({reconcileData.inSheetNotRegistered?.length ?? 0})
+                      في الكشف — غير مفعّلين ({reconcileData.inSheetNotRegistered?.length ?? 0})
                     </button>
                   </div>
 
@@ -2803,12 +2848,16 @@ export default function AdminStudentsPage() {
                       {(!reconcileData.inSheetNotRegistered || reconcileData.inSheetNotRegistered.length === 0) ? (
                         <div className="text-center py-10 text-slate-500">
                           <CheckCircle className="w-10 h-10 mx-auto mb-2 text-emerald-500/50" />
-                          <div className="text-sm">لا يوجد فروقات — جميع الموجودين في الكشف مسجلون في النظام ✅</div>
+                          <div className="text-sm">كل الموجودين في الكشف مفعّلون بحسابك في هذا اليوم ✅</div>
                         </div>
                       ) : (
                         <>
-                          <div className="flex items-center justify-between">
-                            <div className="text-xs text-slate-400">{reconcileData.inSheetNotRegistered.length} طالب موجود في الكشف غير مسجل في النظام</div>
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div className="text-xs text-slate-400">
+                              {reconcileData.inSheetNotRegistered.length} طالب في الكشف{" "}
+                              {reconcileData.targetDate ? `ليوم ${new Date(reconcileData.targetDate + "T12:00:00").toLocaleDateString("ar-EG")}` : ""}{" "}
+                              غير مفعّلين بحسابك
+                            </div>
                             <button
                               onClick={handleAutoProvisionAll}
                               disabled={reconcileActionLoading === "provision_all"}
@@ -2822,20 +2871,35 @@ export default function AdminStudentsPage() {
                             <table className="w-full text-xs">
                               <thead>
                                 <tr className="bg-slate-800/80 border-b border-slate-700">
-                                  <th className="text-right px-3 py-2.5 text-slate-400 font-bold">الاسم</th>
+                                  <th className="text-right px-3 py-2.5 text-slate-400 font-bold">الاسم في الكشف</th>
                                   <th className="text-right px-3 py-2.5 text-slate-400 font-bold">الرقم الأكاديمي</th>
-                                  <th className="text-right px-3 py-2.5 text-slate-400 font-bold">الفرقة</th>
-                                  <th className="text-right px-3 py-2.5 text-slate-400 font-bold">التخصص</th>
+                                  <th className="text-right px-3 py-2.5 text-slate-400 font-bold">الحالة في DB</th>
+                                  <th className="text-right px-3 py-2.5 text-slate-400 font-bold">الفرقة / الشعبة</th>
                                   <th className="text-right px-3 py-2.5 text-slate-400 font-bold">الإجراء</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {reconcileData.inSheetNotRegistered.map((item: any) => (
-                                  <tr key={item.academicNumber} className="border-b border-slate-800 hover:bg-slate-800/40 transition">
-                                    <td className="px-3 py-2.5 text-white font-medium">{item.fullName || "—"}</td>
-                                    <td className="px-3 py-2.5 text-slate-300 font-mono">{item.academicNumber}</td>
-                                    <td className="px-3 py-2.5 text-slate-300">{item.academicYear || "—"}</td>
-                                    <td className="px-3 py-2.5 text-slate-300">{item.major || "—"}</td>
+                                {reconcileData.inSheetNotRegistered.map((item: any, idx: number) => (
+                                  <tr key={item.academicNumber || idx} className="border-b border-slate-800 hover:bg-slate-800/40 transition">
+                                    <td className="px-3 py-2.5 text-white font-medium">
+                                      <div>{item.fullName || "—"}</div>
+                                      {item.dbFullName && item.dbFullName !== item.fullName && (
+                                        <div className="text-[10px] text-slate-500 mt-0.5">DB: {item.dbFullName}</div>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-slate-300 font-mono">{item.academicNumber || "—"}</td>
+                                    <td className="px-3 py-2.5">
+                                      {item.existsInDb ? (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-900/30 text-amber-400 border border-amber-700/40 text-[10px] font-bold">
+                                          موجود — غير مفعّل
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-900/30 text-red-400 border border-red-700/40 text-[10px] font-bold">
+                                          غير موجود في النظام
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-slate-300">{item.academicYear || "—"} {item.sectionName ? `/ ${item.sectionName}` : ""}</td>
                                     <td className="px-3 py-2.5">
                                       <button
                                         onClick={() => handleAutoProvisionStudent(item)}
@@ -2843,7 +2907,7 @@ export default function AdminStudentsPage() {
                                         className="px-2.5 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 text-[11px] font-bold border border-blue-600/30 transition disabled:opacity-50 flex items-center gap-1"
                                       >
                                         <UserPlus className="w-3 h-3" />
-                                        {reconcileActionLoading === `provision_${item.academicNumber}` ? "⏳ جاري..." : "تسكين تلقائي وتفعيل"}
+                                        {reconcileActionLoading === `provision_${item.academicNumber}` ? "⏳ جاري..." : item.existsInDb ? "تفعيل البصمة" : "تسكين وتفعيل"}
                                       </button>
                                     </td>
                                   </tr>
