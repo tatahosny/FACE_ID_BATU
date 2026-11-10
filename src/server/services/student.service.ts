@@ -1725,13 +1725,109 @@ export class StudentService {
     sectionId?: string;
     academicYear?: string;
     subSection?: string;
+    dbStudentId?: string; // passed when student already exists in DB
   }) {
     const rawFullName = params.fullName.trim();
     const rawAcademicNumber = params.academicNumber.trim();
     const rawNationalId = params.nationalId.trim();
 
-    if (!rawFullName || !rawAcademicNumber || !rawNationalId) {
-      throw new Error("بيانات الطالب (الاسم، الرقم الأكاديمي، الرقم القومي) مطلوبة لإتمام التسكين والتفعيل.");
+    // ─── CASE 1: Student already exists in DB — just activate fingerprint ───────
+    if (params.dbStudentId) {
+      const [existing] = await db
+        .select({ id: students.id, fullName: students.fullName, academicNumber: students.academicNumber })
+        .from(students)
+        .where(eq(students.id, params.dbStudentId));
+
+      if (existing) {
+        // Check if already activated by this staff
+        const [existingActivation] = await db
+          .select({ id: fingerprintActivations.id })
+          .from(fingerprintActivations)
+          .where(
+            and(
+              eq(fingerprintActivations.studentId, existing.id),
+              eq(fingerprintActivations.status, "ACTIVATED")
+            )
+          );
+
+        if (existingActivation) {
+          return {
+            success: true,
+            student: existing,
+            message: `الطالب (${existing.fullName}) مفعّل البصمة بالفعل في المنظومة.`,
+          };
+        }
+
+        await db.insert(fingerprintActivations).values({
+          studentId: existing.id,
+          activatedBy: params.staffUserId,
+          status: "ACTIVATED",
+          notes: "تم تفعيل البصمة عبر مطابقة كشف الإكسيل (الطالب كان موجوداً غير مفعّل)",
+        });
+
+        await db.insert(auditLogs).values({
+          actorId: params.staffUserId,
+          action: "ACTIVATE_RECONCILIATION",
+          entityType: "student",
+          entityId: existing.id,
+          safeMetadata: { academicNumber: existing.academicNumber, fullName: existing.fullName },
+        });
+
+        return {
+          success: true,
+          student: existing,
+          message: `تم تفعيل بصمة الطالب (${existing.fullName}) بنجاح!`,
+        };
+      }
+    }
+
+    // ─── CASE 2: Check by academicNumber or nationalIdHash before inserting ────
+    if (rawAcademicNumber) {
+      const [byAcademic] = await db
+        .select({ id: students.id, fullName: students.fullName, academicNumber: students.academicNumber })
+        .from(students)
+        .where(eq(students.academicNumber, rawAcademicNumber));
+
+      if (byAcademic) {
+        // Student exists — just activate
+        const [existingActivation] = await db
+          .select({ id: fingerprintActivations.id })
+          .from(fingerprintActivations)
+          .where(
+            and(
+              eq(fingerprintActivations.studentId, byAcademic.id),
+              eq(fingerprintActivations.status, "ACTIVATED")
+            )
+          );
+
+        if (!existingActivation) {
+          await db.insert(fingerprintActivations).values({
+            studentId: byAcademic.id,
+            activatedBy: params.staffUserId,
+            status: "ACTIVATED",
+            notes: "تم تفعيل البصمة عبر مطابقة كشف الإكسيل (الطالب كان موجوداً غير مفعّل)",
+          });
+
+          await db.insert(auditLogs).values({
+            actorId: params.staffUserId,
+            action: "ACTIVATE_RECONCILIATION",
+            entityType: "student",
+            entityId: byAcademic.id,
+            safeMetadata: { academicNumber: byAcademic.academicNumber, fullName: byAcademic.fullName },
+          });
+        }
+
+        return {
+          success: true,
+          student: byAcademic,
+          message: `تم تفعيل بصمة الطالب (${byAcademic.fullName}) بنجاح!`,
+        };
+      }
+    }
+
+    // ─── CASE 3: Truly new student — provision + activate ────────────────────
+    if (!rawFullName || !rawAcademicNumber) {
+      throw new Error("بيانات الطالب (الاسم، الرقم الأكاديمي) مطلوبة لإتمام التسكين والتفعيل.");
     }
 
     // Determine target group & section
@@ -1751,46 +1847,82 @@ export class StudentService {
       targetSectionId = firstSection.id;
     }
 
-    const nationalIdHash = computeNationalIdHash(rawNationalId);
-    const nationalIdEncrypted = encryptNationalId(rawNationalId);
+    // Build national ID fields (optional for new students)
+    let nationalIdHash: string | null = null;
+    let nationalIdEncrypted: string | null = null;
+    if (rawNationalId) {
+      try {
+        nationalIdHash = computeNationalIdHash(rawNationalId);
+        nationalIdEncrypted = encryptNationalId(rawNationalId);
+      } catch { /* ignore if invalid */ }
+    }
 
-    // Insert student
+    const insertValues: any = {
+      fullName: rawFullName,
+      academicNumber: rawAcademicNumber,
+      groupId: targetGroupId,
+      sectionId: targetSectionId,
+      subSection: (params.subSection as any) || "A",
+      academicYear: params.academicYear || "الفرقة الثانية",
+      specialization: "عام",
+      isActive: true,
+    };
+    if (nationalIdHash) insertValues.nationalIdHash = nationalIdHash;
+    if (nationalIdEncrypted) insertValues.nationalIdEncrypted = nationalIdEncrypted;
+
     const [newStudent] = await db
       .insert(students)
-      .values({
-        fullName: rawFullName,
-        academicNumber: rawAcademicNumber,
-        nationalIdHash,
-        nationalIdEncrypted,
-        groupId: targetGroupId,
-        sectionId: targetSectionId,
-        subSection: (params.subSection as any) || "A",
-        academicYear: params.academicYear || "الفرقة الثانية",
-        specialization: "عام",
-        isActive: true,
-      })
+      .values(insertValues)
+      .onConflictDoNothing()
       .returning();
 
-    // Immediately record fingerprint activation under this staff user!
-    await db.insert(fingerprintActivations).values({
-      studentId: newStudent.id,
-      activatedBy: params.staffUserId,
-      status: "ACTIVATED",
-      notes: "تم تسكين الطالب وتفعيل البصمة مباشرة عبر مطابقة كشف الإكسيل",
-    });
+    // If onConflictDoNothing swallowed it, fetch existing
+    const finalStudent = newStudent || await (async () => {
+      const [existing] = await db
+        .select({ id: students.id, fullName: students.fullName, academicNumber: students.academicNumber })
+        .from(students)
+        .where(eq(students.academicNumber, rawAcademicNumber));
+      return existing;
+    })();
 
-    await db.insert(auditLogs).values({
-      actorId: params.staffUserId,
-      action: "PROVISION_AND_ACTIVATE_RECONCILIATION",
-      entityType: "student",
-      entityId: newStudent.id,
-      safeMetadata: { academicNumber: rawAcademicNumber, fullName: rawFullName },
-    });
+    if (!finalStudent) {
+      throw new Error("فشل إنشاء سجل الطالب.");
+    }
+
+    // Check activation
+    const [existingActivation] = await db
+      .select({ id: fingerprintActivations.id })
+      .from(fingerprintActivations)
+      .where(
+        and(
+          eq(fingerprintActivations.studentId, finalStudent.id),
+          eq(fingerprintActivations.status, "ACTIVATED")
+        )
+      );
+
+    if (!existingActivation) {
+      await db.insert(fingerprintActivations).values({
+        studentId: finalStudent.id,
+        activatedBy: params.staffUserId,
+        status: "ACTIVATED",
+        notes: "تم تسكين الطالب وتفعيل البصمة مباشرة عبر مطابقة كشف الإكسيل",
+      });
+
+      await db.insert(auditLogs).values({
+        actorId: params.staffUserId,
+        action: "PROVISION_AND_ACTIVATE_RECONCILIATION",
+        entityType: "student",
+        entityId: finalStudent.id,
+        safeMetadata: { academicNumber: rawAcademicNumber, fullName: rawFullName },
+      });
+    }
 
     return {
       success: true,
-      student: newStudent,
-      message: `تم تسكين وتفعيل بصمة الطالب (${rawFullName}) بنجاح واعتماده بالمنظومة!`,
+      student: finalStudent,
+      message: newStudent
+        ? `تم تسكين وتفعيل بصمة الطالب (${rawFullName}) بنجاح واعتماده بالمنظومة!`
+        : `تم تفعيل بصمة الطالب (${finalStudent.fullName}) بنجاح (كان موجوداً مسبقاً)!`,
     };
   }
 }

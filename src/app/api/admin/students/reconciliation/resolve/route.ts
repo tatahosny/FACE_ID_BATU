@@ -25,19 +25,20 @@ export async function POST(req: NextRequest) {
       });
       return apiSuccess(res, res.message);
     } else if (type === "provision_student") {
-      const { fullName, academicNumber, nationalId, groupId, sectionId, academicYear, subSection } = body;
-      if (!fullName || !academicNumber || !nationalId) {
-        return apiError("بيانات الطالب الأساسية مطلوبة (الاسم، الرقم الأكاديمي، الرقم القومي)", 400);
+      const { fullName, academicNumber, nationalId, groupId, sectionId, academicYear, subSection, dbStudentId } = body;
+      if (!fullName && !academicNumber && !dbStudentId) {
+        return apiError("بيانات الطالب الأساسية مطلوبة (الاسم أو الرقم الأكاديمي)", 400);
       }
       const res = await StudentService.resolveSheetMissingStudent({
         staffUserId: session.userId,
-        fullName,
-        academicNumber,
-        nationalId,
+        fullName: fullName || "",
+        academicNumber: academicNumber || "",
+        nationalId: nationalId || "",
         groupId,
         sectionId,
         academicYear,
         subSection,
+        dbStudentId,
       });
       return apiSuccess(res, res.message);
     } else {
