@@ -761,6 +761,7 @@ export class StudentService {
         specialization: s.specialization || null,
         isDelegate: !!s.isDelegate,
         hasTelegram: !!s.telegramUserId,
+        telegramUserId: s.telegramUserId,
         telegramUsername: s.telegramUsername,
         telegramLinkedAt: s.telegramLinkedAt,
         isActive: s.isActive,
