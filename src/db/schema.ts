@@ -509,6 +509,20 @@ export const feedbackCampaignRecipientsRelations = relations(feedbackCampaignRec
   student: one(students, { fields: [feedbackCampaignRecipients.studentId], references: [students.id] }),
 }));
 
+// 14. Telegram Bot Messages — tracks every message_id sent by the bot per chat
+export const telegramBotMessages = pgTable(
+  "telegram_bot_messages",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    chatId: bigint("chat_id", { mode: "number" }).notNull(),
+    messageId: integer("message_id").notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    uniq: uniqueIndex("tbm_chat_msg_uniq").on(t.chatId, t.messageId),
+  })
+);
+
 export const bookingWindowsRelations = relations(bookingWindows, ({ one, many }) => ({
   group: one(groups, { fields: [bookingWindows.groupId], references: [groups.id] }),
   section: one(sections, { fields: [bookingWindows.sectionId], references: [sections.id] }),

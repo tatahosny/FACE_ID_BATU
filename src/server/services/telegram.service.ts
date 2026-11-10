@@ -11,6 +11,7 @@ import {
   sectionSchedules,
   feedbackRatings,
   feedbackCampaigns,
+  telegramBotMessages,
 } from "@/db/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { hashToken, generateSecureToken } from "@/lib/security/crypto";
@@ -96,6 +97,18 @@ export class TelegramService {
           throw error;
         }
         throw new Error(data.description || "Telegram API Error");
+      }
+
+      // Persist message_id so we can delete it later during chat purge
+      if (data.ok && data.result?.message_id) {
+        try {
+          await db.insert(telegramBotMessages).values({
+            chatId,
+            messageId: data.result.message_id,
+          }).onConflictDoNothing();
+        } catch {
+          // Non-critical — ignore storage failure
+        }
       }
 
       return data;
@@ -1197,81 +1210,69 @@ ${existingRating.message ? `\n<i>"${existingRating.message}"</i>\n` : ""}
 
   /**
    * Permanently purge and delete the Telegram bot chat messages for a student.
-   * Discovers the latest message ID and calls deleteMessages/deleteMessage across the chat history.
+   * Fetches all stored message_ids from DB (every message the bot sent) and deletes them.
    */
   static async purgeChatMessages(chatId: number): Promise<{ deletedCount: number; success: boolean; message: string }> {
     try {
-      // 1. Send a temporary ping message to discover the latest message_id
-      let latestMsgId: number | null = null;
-      try {
-        const pingRes = await fetch(`${getTelegramApiBase()}/sendMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: "🧹 جاري مسح وتنظيف المحادثة...",
-          }),
-        });
-        const pingData = await pingRes.json();
-        if (pingData.ok && pingData.result?.message_id) {
-          latestMsgId = pingData.result.message_id;
-        }
-      } catch (pingErr) {
-        console.warn("[PurgeChat] Ping message failed:", pingErr);
-      }
+      // 1. Fetch all message IDs the bot sent to this chat from DB
+      const storedRows = await db
+        .select({ messageId: telegramBotMessages.messageId })
+        .from(telegramBotMessages)
+        .where(eq(telegramBotMessages.chatId, chatId))
+        .orderBy(telegramBotMessages.messageId);
 
+      const allIds = storedRows.map((r) => r.messageId);
       let totalDeleted = 0;
 
-      if (latestMsgId) {
-        // Delete up to 400 recent messages in batches of 100
-        const maxScan = 400;
-        const minMsgId = Math.max(1, latestMsgId - maxScan);
-
-        for (let top = latestMsgId; top >= minMsgId; top -= 100) {
-          const batch: number[] = [];
-          for (let i = top; i > Math.max(minMsgId - 1, top - 100); i--) {
-            batch.push(i);
-          }
-          if (batch.length === 0) break;
-
+      if (allIds.length > 0) {
+        // Delete in batches of 100 (Telegram limit for deleteMessages)
+        for (let i = 0; i < allIds.length; i += 100) {
+          const batch = allIds.slice(i, i + 100);
           try {
             const delRes = await fetch(`${getTelegramApiBase()}/deleteMessages`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                chat_id: chatId,
-                message_ids: batch,
-              }),
+              body: JSON.stringify({ chat_id: chatId, message_ids: batch }),
             });
             const delData = await delRes.json();
             if (delData.ok) {
               totalDeleted += batch.length;
             } else {
-              // Fallback to single message delete
-              for (const singleId of batch.slice(0, 50)) {
+              // Fallback: delete one by one
+              for (const msgId of batch) {
                 try {
                   const sRes = await fetch(`${getTelegramApiBase()}/deleteMessage`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      chat_id: chatId,
-                      message_id: singleId,
-                    }),
+                    body: JSON.stringify({ chat_id: chatId, message_id: msgId }),
                   });
                   const sData = await sRes.json();
                   if (sData.ok) totalDeleted++;
-                } catch {
-                  // ignore
-                }
+                } catch { /* ignore */ }
               }
             }
-          } catch {
-            // ignore batch failure
-          }
+          } catch { /* ignore batch error */ }
         }
+
+        // 2. Remove all stored records for this chat from DB
+        await db
+          .delete(telegramBotMessages)
+          .where(eq(telegramBotMessages.chatId, chatId));
       }
 
-      // 2. Clear any in-memory interactive states for this user
+      // 3. Send confirmation message to the student
+      try {
+        await fetch(`${getTelegramApiBase()}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: "🧹 تم مسح وتنظيف سجل محادثتك مع البوت بالكامل.\n\nللتسجيل من جديد أرسل /start",
+          }),
+        });
+      } catch { /* ignore */ }
+
+      // 4. Clear in-memory interactive states
       this.pendingMandatoryLowRatings.delete(chatId);
       this.pendingLowRatingRequests.delete(chatId);
       this.pendingComments.delete(chatId);
