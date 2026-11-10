@@ -156,7 +156,7 @@ export class StaffService {
       if (student.telegramUserId) {
         const activationLocation = await SettingsService.getActivationLocation();
         const idempotencyKey = `activation_notify_${activation.id}`;
-        const actMsg = `🎉 <b>تهانينا يا ${student.fullName}! تم تفعيل واعتماد بصمة الوجه بنجاح</b>\n\n🆔 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>\n👨‍💼 <b>مسؤول التفعيل:</b> ${staff.fullName}\n📅 <b>تاريخ ووقت الاعتماد:</b> ${formatCairoDateTime(activation.activatedAt)}\n📍 <b>المقر:</b> ${activationLocation}\n\n✅ <b>تم ربط وتسجيل بصمتك في النظام بنجاح، ويمكنك الآن استخدام بصمة الوجه في كافة بوابات وخدمات الجامعة. نتمنى لك التوفيق والنجاح دائماً!</b>`;
+        const actMsg = `🎉 <b>تهانينا يا ${student.fullName}! تم تفعيل واعتماد بصمة الوجه بنجاح</b>\n\n🆔 <b>الرقم الأكاديمي:</b> <code>${student.academicNumber}</code>\n👨‍💼 <b>مسؤول التفعيل:</b> ${staff.fullName}\n📅 <b>تاريخ ووقت الاعتماد:</b> ${formatCairoDateTime(activation.activatedAt)}\n📍 <b>المقر:</b> ${activationLocation}\n\n✅ <b>تم تسجيل وتوثيق بصمة الوجه الخاصة بك رسمياً بنجاح تام، لغرض إثبات الحضور والغياب ومراقبة الامتحانات الرسمية. نتمنى لك دوام التوفيق والنجاح دائماً!</b>`;
 
         await tx
           .insert(notificationOutbox)

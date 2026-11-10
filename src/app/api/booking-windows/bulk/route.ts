@@ -49,8 +49,8 @@ export async function POST(req: NextRequest) {
     };
 
     if (action === "OPEN") {
-      updateData.startsAt = new Date(Date.now() - 60000);
-      updateData.endsAt = new Date(Date.now() + 86400000 * 7);
+      updateData.startsAt = new Date(Date.now() - 3600000);
+      updateData.endsAt = new Date(Date.now() + 86400000 * 30);
     }
 
     const updatedList = await db

@@ -53,8 +53,8 @@ export async function PATCH(
     }
 
     if (parsed.data.status === "OPEN") {
-      updateFields.startsAt = new Date(Date.now() - 60000);
-      updateFields.endsAt = new Date(Date.now() + 86400000 * 7);
+      updateFields.startsAt = new Date(Date.now() - 3600000);
+      updateFields.endsAt = new Date(Date.now() + 86400000 * 30);
     }
 
     const [updated] = await db

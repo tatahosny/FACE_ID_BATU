@@ -38,6 +38,9 @@ import {
   SlidersHorizontal,
   Upload,
   Download,
+  Eraser,
+  Scale,
+  CheckCircle,
 } from "lucide-react";
 
 export default function AdminStudentsPage() {
@@ -57,6 +60,40 @@ export default function AdminStudentsPage() {
   // Bulk Selection State
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
+  const [purgingChatStudentId, setPurgingChatStudentId] = useState<string | null>(null);
+
+  const handlePurgeTelegramChat = async (studentId: string, studentName: string) => {
+    const confirmed = window.confirm(
+      `هل أنت متأكد من رغبتك في مسح كافة رسائل ومحادثة بوت التيليجرام نهائياً للطالب "${studentName}"؟\nسيتم حذف كافة الرسائل المتبادلة بين البوت والطالب وإعادة تعيين المحادثة تماماً.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setPurgingChatStudentId(studentId);
+      setFeedback(null);
+
+      const res = await fetch("/api/admin/students/purge-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentId }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setFeedback({ message: json.error || "فشل مسح محادثة التيليجرام", type: "error" });
+        return;
+      }
+
+      setFeedback({
+        message: json.message || `تم مسح وتنظيف محادثة بوت التيليجرام للطالب "${studentName}" بنجاح!`,
+        type: "success",
+      });
+    } catch (err: any) {
+      setFeedback({ message: err.message || "حدث خطأ غير متوقع أثناء مسح المحادثة", type: "error" });
+    } finally {
+      setPurgingChatStudentId(null);
+    }
+  };
 
   // Filters
   const [selectedAcademicYear, setSelectedAcademicYear] = useState("");
@@ -140,6 +177,217 @@ export default function AdminStudentsPage() {
     skippedAlreadyActivated: number;
     errors: Array<{ rowNumber: number; reason: string }>;
   } | null>(null);
+
+  // Reconciliation Modal State (Staff Account Attributed)
+  const [isReconcileModalOpen, setIsReconcileModalOpen] = useState(false);
+  const [reconcileFile, setReconcileFile] = useState<File | null>(null);
+  const [reconcileLoading, setReconcileLoading] = useState(false);
+  const [reconcileActionLoading, setReconcileActionLoading] = useState<string | null>(null);
+  const [reconcileData, setReconcileData] = useState<any | null>(null);
+  const [reconcileActiveTab, setReconcileActiveTab] = useState<"notInSheet" | "notRegistered">("notInSheet");
+  const [customProvisionItem, setCustomProvisionItem] = useState<any | null>(null);
+  const [provisionGroupId, setProvisionGroupId] = useState("");
+  const [provisionSectionId, setProvisionSectionId] = useState("");
+  const [provisionSubSection, setProvisionSubSection] = useState("A");
+  const [provisionSections, setProvisionSections] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (provisionGroupId) {
+      const g = groups.find((grp) => grp.id === provisionGroupId);
+      setProvisionSections(g?.sections || []);
+      setProvisionSectionId(g?.sections?.[0]?.id || "");
+    } else {
+      setProvisionSections([]);
+      setProvisionSectionId("");
+    }
+  }, [provisionGroupId, groups]);
+
+  const handleUploadReconciliationExcel = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!reconcileFile) {
+      setFeedback({ message: "يرجى اختيار ملف الإكسيل أولاً للبدء في المطابقة", type: "error" });
+      return;
+    }
+
+    try {
+      setReconcileLoading(true);
+      setFeedback(null);
+
+      const formData = new FormData();
+      formData.append("file", reconcileFile);
+
+      const res = await fetch("/api/admin/students/reconciliation", {
+        method: "POST",
+        body: formData,
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setFeedback({ message: json.error || "فشل تحليل ملف الإكسيل", type: "error" });
+        return;
+      }
+
+      setReconcileData(json.data);
+      if (json.data.activatedNotInSheet?.length === 0 && json.data.inSheetNotRegistered?.length > 0) {
+        setReconcileActiveTab("notRegistered");
+      } else {
+        setReconcileActiveTab("notInSheet");
+      }
+
+      setFeedback({
+        message: json.message || "تمت مطابقة الكشف بنجاح! يمكنك الآن مراجعة الفروقات واعتماد الإجراءات.",
+        type: "success",
+      });
+    } catch (err: any) {
+      setFeedback({ message: err.message || "حدث خطأ أثناء رفع وتحليل الملف", type: "error" });
+    } finally {
+      setReconcileLoading(false);
+    }
+  };
+
+  const handleResolveActivationDiscrepancy = async (studentId: string, action: "approve" | "revoke") => {
+    try {
+      setReconcileActionLoading(`${studentId}_${action}`);
+      setFeedback(null);
+
+      const res = await fetch("/api/admin/students/reconciliation/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "activation_discrepancy",
+          studentId,
+          action,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setFeedback({ message: json.error || "فشل تنفيذ الإجراء", type: "error" });
+        return;
+      }
+
+      setReconcileData((prev: any) => {
+        if (!prev) return null;
+        const updatedList = prev.activatedNotInSheet.filter((s: any) => s.studentId !== studentId);
+        return {
+          ...prev,
+          summary: {
+            ...prev.summary,
+            activatedNotInSheetCount: updatedList.length,
+          },
+          activatedNotInSheet: updatedList,
+        };
+      });
+
+      setFeedback({ message: json.message || "تم تنفيذ الإجراء بنجاح", type: "success" });
+      await fetchStudents();
+    } catch (err: any) {
+      setFeedback({ message: err.message || "حدث خطأ غير متوقع", type: "error" });
+    } finally {
+      setReconcileActionLoading(null);
+    }
+  };
+
+  const handleAutoProvisionStudent = async (studentItem: any) => {
+    try {
+      setReconcileActionLoading(`provision_${studentItem.academicNumber}`);
+      setFeedback(null);
+
+      const res = await fetch("/api/admin/students/reconciliation/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "provision_student",
+          fullName: studentItem.fullName,
+          academicNumber: studentItem.academicNumber,
+          nationalId: studentItem.nationalId,
+          groupId: provisionGroupId || undefined,
+          sectionId: provisionSectionId || undefined,
+          subSection: provisionSubSection || "A",
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setFeedback({ message: json.error || "فشل تسكين وتفعيل الطالب", type: "error" });
+        return;
+      }
+
+      setReconcileData((prev: any) => {
+        if (!prev) return null;
+        const updatedList = prev.inSheetNotRegistered.filter(
+          (s: any) => s.academicNumber !== studentItem.academicNumber
+        );
+        return {
+          ...prev,
+          summary: {
+            ...prev.summary,
+            inSheetNotRegisteredCount: updatedList.length,
+          },
+          inSheetNotRegistered: updatedList,
+        };
+      });
+
+      setCustomProvisionItem(null);
+      setFeedback({ message: json.message || "تم تسكين وتفعيل الطالب بنجاح!", type: "success" });
+      await fetchStudents();
+    } catch (err: any) {
+      setFeedback({ message: err.message || "حدث خطأ غير متوقع", type: "error" });
+    } finally {
+      setReconcileActionLoading(null);
+    }
+  };
+
+  const handleAutoProvisionAll = async () => {
+    if (!reconcileData?.inSheetNotRegistered?.length) return;
+    const count = reconcileData.inSheetNotRegistered.length;
+    const confirmed = window.confirm(
+      `هل أنت متأكد من الموافقة على التسكين التلقائي وتفعيل البصمة لجميع الطلاب غير المسجلين (${count} طالب)؟`
+    );
+    if (!confirmed) return;
+
+    try {
+      setReconcileActionLoading("provision_all");
+      setFeedback(null);
+
+      let successCount = 0;
+      for (const item of reconcileData.inSheetNotRegistered) {
+        try {
+          const res = await fetch("/api/admin/students/reconciliation/resolve", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              type: "provision_student",
+              fullName: item.fullName,
+              academicNumber: item.academicNumber,
+              nationalId: item.nationalId,
+            }),
+          });
+          const json = await res.json();
+          if (json.success) successCount++;
+        } catch {}
+      }
+
+      setReconcileData((prev: any) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          summary: { ...prev.summary, inSheetNotRegisteredCount: 0 },
+          inSheetNotRegistered: [],
+        };
+      });
+
+      setFeedback({
+        message: `تم تسكين وتفعيل بصمة (${successCount} من ${count}) طالب بنجاح واعتمادهم بالمنظومة!`,
+        type: "success",
+      });
+      await fetchStudents();
+    } catch (err: any) {
+      setFeedback({ message: err.message || "حدث خطأ أثناء التسكين الجماعي", type: "error" });
+    } finally {
+      setReconcileActionLoading(null);
+    }
+  };
 
   // Load user session, groups, and staff on mount
   useEffect(() => {
@@ -722,6 +970,20 @@ export default function AdminStudentsPage() {
             >
               <Upload className="w-4 h-4" />
               <span>استيراد كشف وتفعيل البصمة (Excel)</span>
+            </button>
+
+            {/* Reconciliation Button (Staff Account Attribution) */}
+            <button
+              onClick={() => {
+                setIsReconcileModalOpen(true);
+                setReconcileFile(null);
+                setReconcileData(null);
+              }}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-700 via-indigo-600 to-purple-600 hover:from-purple-600 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-purple-600/30 transition transform active:scale-95 flex items-center gap-2 border border-purple-400/30"
+              title="مطابقة كشف إكسيل البصمة الخاص بك مع الطلاب المفعلين بحسابك وكشف الفروقات"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-purple-200" />
+              <span>مطابقة كشف البصمة مع حسابي الشخصي ⚖️</span>
             </button>
 
             {isSuperAdmin && (
@@ -1764,6 +2026,19 @@ export default function AdminStudentsPage() {
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
+
+                            {/* Purge Telegram Chat Button */}
+                            {student.telegramUserId && (
+                              <button
+                                type="button"
+                                onClick={() => handlePurgeTelegramChat(student.id, student.fullName)}
+                                disabled={purgingChatStudentId === student.id}
+                                title="مسح شات بوت التيليجرام نهائياً لهذا الطالب وإعادة تعيين المحادثة"
+                                className="p-1.5 rounded-xl bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-400 border border-cyan-800/40 transition hover:text-cyan-200 disabled:opacity-50"
+                              >
+                                <Eraser className={`w-3.5 h-3.5 ${purgingChatStudentId === student.id ? "animate-spin text-cyan-200" : ""}`} />
+                              </button>
+                            )}
                           </div>
                         ) : (
                           <span className="text-[11px] text-slate-400 font-medium px-2.5 py-1 bg-slate-950/60 rounded-xl border border-slate-800">
@@ -2343,6 +2618,257 @@ export default function AdminStudentsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Reconciliation Modal ===== */}
+      {isReconcileModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700 bg-slate-800/50 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-violet-500/20 border border-violet-500/30 flex items-center justify-center text-violet-400">
+                  <Scale className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-white">مطابقة كشف البصمة مع حسابي الشخصي</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">رفع كشف الإكسيل الخاص بحسابك لمقارنته بقاعدة البيانات</p>
+                </div>
+              </div>
+              <button
+                onClick={() => { setIsReconcileModalOpen(false); setReconcileData(null); setReconcileFile(null); }}
+                className="w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 flex items-center justify-center text-slate-400 hover:text-white transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+
+              {/* File Upload Form */}
+              {!reconcileData && (
+                <form onSubmit={handleUploadReconciliationExcel} className="space-y-5">
+                  <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-5">
+                    <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                      <FileSpreadsheet className="w-4 h-4 text-violet-400" />
+                      رفع كشف الإكسيل الخاص بك
+                    </h3>
+                    <p className="text-xs text-slate-400 mb-4 leading-relaxed">
+                      ارفع الكشف الخاص بحسابك فقط (الطلاب الذين فعّلتهم أنت). سيقوم النظام بمقارنة الكشف بقاعدة البيانات وإظهار الفروقات.
+                    </p>
+                    <label className="flex flex-col items-center justify-center gap-3 p-6 border-2 border-dashed border-violet-500/40 hover:border-violet-400/70 rounded-xl cursor-pointer transition-all group bg-violet-500/5 hover:bg-violet-500/10">
+                      <input
+                        type="file"
+                        accept=".xlsx,.xls"
+                        onChange={(e) => { if (e.target.files?.[0]) { setReconcileFile(e.target.files[0]); } }}
+                        className="hidden"
+                      />
+                      <div className="w-12 h-12 rounded-2xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-400 group-hover:scale-110 transition-transform">
+                        <FileSpreadsheet className="w-6 h-6" />
+                      </div>
+                      {reconcileFile ? (
+                        <div className="text-center">
+                          <div className="text-sm font-bold text-white font-mono">{reconcileFile.name}</div>
+                          <div className="text-xs text-violet-400 mt-0.5">جاهز للرفع ({(reconcileFile.size / 1024).toFixed(1)} KB) — انقر للتغيير</div>
+                        </div>
+                      ) : (
+                        <div className="text-center">
+                          <div className="text-xs font-bold text-slate-300">اسحب ملف الإكسيل هنا أو انقر لاختياره</div>
+                          <div className="text-[11px] text-slate-500 mt-1">الملفات المدعومة: Excel Workbook (.xlsx, .xls)</div>
+                        </div>
+                      )}
+                    </label>
+                  </div>
+                  <div className="flex items-center justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsReconcileModalOpen(false)}
+                      className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition text-xs"
+                    >
+                      إغلاق
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={reconcileLoading || !reconcileFile}
+                      className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 via-purple-600 to-violet-500 hover:from-violet-500 hover:to-purple-500 text-white font-bold shadow-lg shadow-violet-600/30 transition text-xs flex items-center gap-2 disabled:opacity-50 active:scale-95"
+                    >
+                      <Scale className={`w-4 h-4 ${reconcileLoading ? "animate-spin" : ""}`} />
+                      <span>{reconcileLoading ? "جاري تحليل الكشف ومقارنته..." : "بدء المطابقة"}</span>
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* Results */}
+              {reconcileData && (
+                <div className="space-y-5">
+                  {/* Summary Stats */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-3 text-center">
+                      <div className="text-2xl font-black text-white">{reconcileData.summary?.totalInSheet ?? 0}</div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">إجمالي الكشف</div>
+                    </div>
+                    <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-3 text-center">
+                      <div className="text-2xl font-black text-white">{reconcileData.summary?.totalActivatedByMe ?? 0}</div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">فعّلتهم في النظام</div>
+                    </div>
+                    <div className="bg-amber-900/20 border border-amber-700/40 rounded-xl p-3 text-center">
+                      <div className="text-2xl font-black text-amber-400">{reconcileData.activatedNotInSheet?.length ?? 0}</div>
+                      <div className="text-[11px] text-amber-400/70 mt-0.5">مفعّلون غير موجودين في الكشف</div>
+                    </div>
+                    <div className="bg-blue-900/20 border border-blue-700/40 rounded-xl p-3 text-center">
+                      <div className="text-2xl font-black text-blue-400">{reconcileData.inSheetNotRegistered?.length ?? 0}</div>
+                      <div className="text-[11px] text-blue-400/70 mt-0.5">في الكشف غير مسجلين</div>
+                    </div>
+                  </div>
+
+                  {/* Tabs */}
+                  <div className="flex gap-2 border-b border-slate-700">
+                    <button
+                      onClick={() => setReconcileActiveTab("notInSheet")}
+                      className={`px-4 py-2.5 text-xs font-bold rounded-t-lg transition -mb-px border border-b-0 ${reconcileActiveTab === "notInSheet" ? "bg-amber-900/40 border-amber-700/60 text-amber-300" : "bg-transparent border-transparent text-slate-400 hover:text-white"}`}
+                    >
+                      مفعّلون غير موجودين في الكشف ({reconcileData.activatedNotInSheet?.length ?? 0})
+                    </button>
+                    <button
+                      onClick={() => setReconcileActiveTab("notRegistered")}
+                      className={`px-4 py-2.5 text-xs font-bold rounded-t-lg transition -mb-px border border-b-0 ${reconcileActiveTab === "notRegistered" ? "bg-blue-900/40 border-blue-700/60 text-blue-300" : "bg-transparent border-transparent text-slate-400 hover:text-white"}`}
+                    >
+                      في الكشف غير مسجلين ({reconcileData.inSheetNotRegistered?.length ?? 0})
+                    </button>
+                  </div>
+
+                  {/* Tab: Activated Not In Sheet */}
+                  {reconcileActiveTab === "notInSheet" && (
+                    <div className="space-y-3">
+                      {(!reconcileData.activatedNotInSheet || reconcileData.activatedNotInSheet.length === 0) ? (
+                        <div className="text-center py-10 text-slate-500">
+                          <CheckCircle className="w-10 h-10 mx-auto mb-2 text-emerald-500/50" />
+                          <div className="text-sm">لا يوجد فروقات — جميع المفعّلين موجودون في الكشف ✅</div>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto rounded-xl border border-slate-700">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="bg-slate-800/80 border-b border-slate-700">
+                                <th className="text-right px-3 py-2.5 text-slate-400 font-bold">الاسم</th>
+                                <th className="text-right px-3 py-2.5 text-slate-400 font-bold">الرقم الأكاديمي</th>
+                                <th className="text-right px-3 py-2.5 text-slate-400 font-bold">الفرقة</th>
+                                <th className="text-right px-3 py-2.5 text-slate-400 font-bold">الشعبة</th>
+                                <th className="text-right px-3 py-2.5 text-slate-400 font-bold">تاريخ التفعيل</th>
+                                <th className="text-right px-3 py-2.5 text-slate-400 font-bold">الإجراء</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {reconcileData.activatedNotInSheet.map((item: any) => (
+                                <tr key={item.studentId} className="border-b border-slate-800 hover:bg-slate-800/40 transition">
+                                  <td className="px-3 py-2.5 text-white font-medium">{item.fullName}</td>
+                                  <td className="px-3 py-2.5 text-slate-300 font-mono">{item.academicNumber}</td>
+                                  <td className="px-3 py-2.5 text-slate-300">{item.academicYear}</td>
+                                  <td className="px-3 py-2.5 text-slate-300">{item.sectionName || "—"}</td>
+                                  <td className="px-3 py-2.5 text-slate-400">{item.activatedAt ? new Date(item.activatedAt).toLocaleDateString("ar-EG") : "—"}</td>
+                                  <td className="px-3 py-2.5">
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        onClick={() => handleResolveActivationDiscrepancy(item.studentId, "approve")}
+                                        disabled={reconcileActionLoading === `${item.studentId}_approve` || reconcileActionLoading === `${item.studentId}_revoke`}
+                                        className="px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 text-[11px] font-bold border border-emerald-600/30 transition disabled:opacity-50"
+                                      >
+                                        {reconcileActionLoading === `${item.studentId}_approve` ? "⏳" : "موافقة على الإبقاء 🟢"}
+                                      </button>
+                                      <button
+                                        onClick={() => handleResolveActivationDiscrepancy(item.studentId, "revoke")}
+                                        disabled={reconcileActionLoading === `${item.studentId}_keep` || reconcileActionLoading === `${item.studentId}_revoke`}
+                                        className="px-2.5 py-1 rounded-lg bg-red-600/20 hover:bg-red-600/40 text-red-400 text-[11px] font-bold border border-red-600/30 transition disabled:opacity-50"
+                                      >
+                                        {reconcileActionLoading === `${item.studentId}_revoke` ? "⏳" : "إلغاء التفعيل 🔴"}
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Tab: In Sheet Not Registered */}
+                  {reconcileActiveTab === "notRegistered" && (
+                    <div className="space-y-3">
+                      {(!reconcileData.inSheetNotRegistered || reconcileData.inSheetNotRegistered.length === 0) ? (
+                        <div className="text-center py-10 text-slate-500">
+                          <CheckCircle className="w-10 h-10 mx-auto mb-2 text-emerald-500/50" />
+                          <div className="text-sm">لا يوجد فروقات — جميع الموجودين في الكشف مسجلون في النظام ✅</div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-center justify-between">
+                            <div className="text-xs text-slate-400">{reconcileData.inSheetNotRegistered.length} طالب موجود في الكشف غير مسجل في النظام</div>
+                            <button
+                              onClick={handleAutoProvisionAll}
+                              disabled={reconcileActionLoading === "provision_all"}
+                              className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white text-xs font-bold shadow transition disabled:opacity-50 flex items-center gap-2"
+                            >
+                              <UserPlus className="w-3.5 h-3.5" />
+                              {reconcileActionLoading === "provision_all" ? "جاري التسكين..." : "الموافقة على الكل وتسكينهم تلقائياً"}
+                            </button>
+                          </div>
+                          <div className="overflow-x-auto rounded-xl border border-slate-700">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="bg-slate-800/80 border-b border-slate-700">
+                                  <th className="text-right px-3 py-2.5 text-slate-400 font-bold">الاسم</th>
+                                  <th className="text-right px-3 py-2.5 text-slate-400 font-bold">الرقم الأكاديمي</th>
+                                  <th className="text-right px-3 py-2.5 text-slate-400 font-bold">الفرقة</th>
+                                  <th className="text-right px-3 py-2.5 text-slate-400 font-bold">التخصص</th>
+                                  <th className="text-right px-3 py-2.5 text-slate-400 font-bold">الإجراء</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {reconcileData.inSheetNotRegistered.map((item: any) => (
+                                  <tr key={item.academicNumber} className="border-b border-slate-800 hover:bg-slate-800/40 transition">
+                                    <td className="px-3 py-2.5 text-white font-medium">{item.fullName || "—"}</td>
+                                    <td className="px-3 py-2.5 text-slate-300 font-mono">{item.academicNumber}</td>
+                                    <td className="px-3 py-2.5 text-slate-300">{item.academicYear || "—"}</td>
+                                    <td className="px-3 py-2.5 text-slate-300">{item.major || "—"}</td>
+                                    <td className="px-3 py-2.5">
+                                      <button
+                                        onClick={() => handleAutoProvisionStudent(item)}
+                                        disabled={reconcileActionLoading === `provision_${item.academicNumber}`}
+                                        className="px-2.5 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 text-[11px] font-bold border border-blue-600/30 transition disabled:opacity-50 flex items-center gap-1"
+                                      >
+                                        <UserPlus className="w-3 h-3" />
+                                        {reconcileActionLoading === `provision_${item.academicNumber}` ? "⏳ جاري..." : "تسكين تلقائي وتفعيل"}
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Re-upload button */}
+                  <div className="flex justify-center pt-2">
+                    <button
+                      onClick={() => { setReconcileData(null); setReconcileFile(null); }}
+                      className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs font-medium transition flex items-center gap-2"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      رفع كشف آخر
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

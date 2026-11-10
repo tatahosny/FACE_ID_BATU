@@ -172,6 +172,99 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
+      {/* Academic Year Statistics Grid (الفرقة الأولى، الفرقة الثانية، الفرقة الثالثة، الفرقة الرابعة) */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl">🎓</span>
+            <div>
+              <h2 className="text-lg font-black text-white">إحصائيات الفرق الدراسية وموقف تفعيل البصمة</h2>
+              <p className="text-xs text-slate-400">
+                إجمالي الطلاب المسجلين، عدد الذين فعلوا بصمة الوجه، والذين لم يفعلوا البصمة بعد لكل فرقة
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/admin/students"
+            className="text-xs font-bold text-blue-400 hover:text-blue-300 transition flex items-center gap-1"
+          >
+            <span>عرض دليل الطلاب الكامل</span>
+            <span>←</span>
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {(stats?.academicYears || [
+            { year: "الفرقة الأولى", totalRegistered: 0, activated: 0, pending: 0, activationPercentage: 0 },
+            { year: "الفرقة الثانية", totalRegistered: 0, activated: 0, pending: 0, activationPercentage: 0 },
+            { year: "الفرقة الثالثة", totalRegistered: 0, activated: 0, pending: 0, activationPercentage: 0 },
+            { year: "الفرقة الرابعة", totalRegistered: 0, activated: 0, pending: 0, activationPercentage: 0 },
+          ]).map((yr: any, idx: number) => {
+            const colors = [
+              { border: "border-blue-500/30", bg: "from-blue-950/40 via-slate-900/80 to-blue-900/20", text: "text-blue-400", badge: "bg-blue-500/10 text-blue-300 border-blue-500/30" },
+              { border: "border-cyan-500/30", bg: "from-cyan-950/40 via-slate-900/80 to-teal-900/20", text: "text-cyan-400", badge: "bg-cyan-500/10 text-cyan-300 border-cyan-500/30" },
+              { border: "border-purple-500/30", bg: "from-purple-950/40 via-slate-900/80 to-indigo-900/20", text: "text-purple-400", badge: "bg-purple-500/10 text-purple-300 border-purple-500/30" },
+              { border: "border-amber-500/30", bg: "from-amber-950/40 via-slate-900/80 to-orange-900/20", text: "text-amber-400", badge: "bg-amber-500/10 text-amber-300 border-amber-500/30" },
+            ];
+            const theme = colors[idx % colors.length];
+
+            return (
+              <div
+                key={yr.year}
+                className={`bg-gradient-to-b ${theme.bg} rounded-2xl border ${theme.border} p-5 shadow-xl space-y-4 relative overflow-hidden backdrop-blur-xl group hover:scale-[1.01] transition-transform`}
+              >
+                {/* Year Header & Total Registered */}
+                <div className="flex items-center justify-between">
+                  <h3 className="font-black text-white text-base">{yr.year}</h3>
+                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-mono font-bold border ${theme.badge}`}>
+                    {yr.totalRegistered} طالب
+                  </span>
+                </div>
+
+                {/* Progress Bar */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-400">نسبة التفعيل:</span>
+                    <span className="font-bold text-emerald-400 font-mono">{yr.activationPercentage}%</span>
+                  </div>
+                  <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+                    <div
+                      className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-500"
+                      style={{ width: `${Math.min(100, Math.max(0, yr.activationPercentage))}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Activated vs Pending Metrics */}
+                <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-slate-800/80 text-center">
+                  {/* Activated */}
+                  <div className="bg-slate-950/70 rounded-xl p-2.5 border border-emerald-500/20">
+                    <span className="text-[11px] text-emerald-300 block mb-0.5 font-medium flex items-center justify-center gap-1">
+                      <span>✅</span>
+                      <span>فعلوا البصمة</span>
+                    </span>
+                    <span className="text-xl font-black text-emerald-400 font-mono">
+                      {yr.activated}
+                    </span>
+                  </div>
+
+                  {/* Pending */}
+                  <div className="bg-slate-950/70 rounded-xl p-2.5 border border-amber-500/20">
+                    <span className="text-[11px] text-amber-300 block mb-0.5 font-medium flex items-center justify-center gap-1">
+                      <span>⏳</span>
+                      <span>لم يفعلوا بعد</span>
+                    </span>
+                    <span className="text-xl font-black text-amber-400 font-mono">
+                      {yr.pending}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Operational Breakdown Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Bookings Status Breakdown */}

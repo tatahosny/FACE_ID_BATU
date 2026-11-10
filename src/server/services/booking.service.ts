@@ -74,30 +74,34 @@ export class BookingService {
 
     const now = new Date();
 
-    // Query active booking windows for the student's exact section
+    // Query active booking windows for the student's exact section (status === 'OPEN')
     const candidateWindows = await db
       .select()
       .from(bookingWindows)
       .where(
         and(
           eq(bookingWindows.sectionId, student.sectionId),
-          eq(bookingWindows.status, BOOKING_WINDOW_STATUSES.OPEN),
-          sql`${bookingWindows.startsAt} <= ${now}`,
-          sql`${bookingWindows.endsAt} >= ${now}`
+          eq(bookingWindows.status, BOOKING_WINDOW_STATUSES.OPEN)
         )
-      );
+      )
+      .orderBy(desc(bookingWindows.createdAt));
 
     // Match window targeted to ALL or to the student's exact subSection (A or B)
-    const activeWindow = candidateWindows.find(
-      (w) => w.subSection === "ALL" || w.subSection === (student.subSection || "A")
-    );
+    const studentSub = (student.subSection || "A").trim().toUpperCase();
+    const activeWindow = candidateWindows.find((w) => {
+      const winSub = (w.subSection || "ALL").trim().toUpperCase();
+      return winSub === "ALL" || winSub === "" || winSub === studentSub;
+    });
 
     if (!activeWindow) {
+      const customMsg =
+        candidateWindows.length > 0
+          ? `الحجز مفتوح حالياً لطلاب القسم الفرعي (${candidateWindows[0].subSection}) فقط، وأنت مقيد في القسم (${studentSub}).`
+          : "لم يتم تفعيل وقت البصمة للسكشن أو القسم الفرعي بتاعك. يرجى الانتظار، ستصلك رسالة تنبيهية على التيليجرام فور فتح الحجز لسكشنك.";
       return {
         eligible: false,
         student,
-        reason:
-          "لم يتم تفعيل وقت البصمة للسكشن أو القسم الفرعي بتاعك. يرجى الانتظار، ستصلك رسالة تنبيهية على التيليجرام فور فتح الحجز لسكشنك.",
+        reason: customMsg,
         window: null,
       };
     }
@@ -902,6 +906,59 @@ ${notes ? `<b>السبب:</b> ${notes}\n` : ""}
       const { booking, window, student } = bookingData;
       const originalTicketNumber = booking.ticketNumber || booking.queueNumber;
 
+      // RULE: If student has already been delayed once before, 2nd delay automatically cancels their booking completely!
+      if ((booking.delayCount || 0) >= 1) {
+        await tx
+          .update(bookings)
+          .set({
+            status: "CANCELLED",
+            delayCount: (booking.delayCount || 0) + 1,
+            calledAt: null,
+            notes: "تم إلغاء الدور تلقائياً لتكرار التأجيل مرتين لعدم الحضور عند النداء",
+            updatedAt: new Date(),
+          })
+          .where(eq(bookings.id, bookingId));
+
+        let pendingCancelDispatch: { key: string; chatId: number; message: string } | null = null;
+        if (student.telegramUserId) {
+          const cancelMsg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n⚠️ <b>تم إلغاء حجز دورك في الطابور نهائياً</b>\n\nعزيزي الطالب: <b>${student.fullName}</b>\n<b>رقم التذكرة:</b> <code>#${formatQueueNumber(originalTicketNumber)}</code>\n\n🚨 <b>السبب:</b> تم تأجيل دورك مرتين متتاليتين لعدم التواجد عند النداء، وتم إلغاء الحجز تلقائياً وفقاً للائحة تنظيم الطوابير.\n\nيمكنك إعادة حجز دور جديد من المنصة الإلكترونية فور فتح الحجز لسكشنك مرة أخرى:\n${process.env.NEXT_PUBLIC_APP_URL || "https://face-id-batu-hvk9.vercel.app"}/booking`;
+
+          const cancelKey = `cancel_2delays_${booking.id}_${Date.now()}`;
+          await tx
+            .insert(notificationOutbox)
+            .values({
+              eventType: "BOOKING_CANCELLED",
+              recipientId: student.id,
+              telegramChatId: student.telegramUserId,
+              payload: {
+                studentName: student.fullName,
+                ticketNumber: formatQueueNumber(originalTicketNumber),
+                notes: "تم إلغاء الدور تلقائياً لتكرار التأجيل مرتين لعدم الحضور عند النداء",
+                bookingUrl: `${process.env.NEXT_PUBLIC_APP_URL || "https://face-id-batu-hvk9.vercel.app"}/booking`,
+                message: cancelMsg,
+              },
+              idempotencyKey: cancelKey,
+            })
+            .onConflictDoNothing();
+
+          pendingCancelDispatch = {
+            key: cancelKey,
+            chatId: Number(student.telegramUserId),
+            message: cancelMsg,
+          };
+        }
+
+        return {
+          success: true,
+          cancelled: true,
+          bookingWindowId: booking.bookingWindowId,
+          ticketNumber: originalTicketNumber,
+          formattedTicketNumber: formatQueueNumber(originalTicketNumber),
+          message: `تم إلغاء دور الطالب (${student.fullName}) تلقائياً لتكرار التأجيل مرتين لعدم الحضور.`,
+          pendingCancelDispatch,
+        };
+      }
+
       // 2. Fetch all currently active bookings in the queue for the SAME DESK ordered by queueNumber
       const activeBookings = await tx
         .select({
@@ -941,8 +998,9 @@ ${notes ? `<b>السبب:</b> ${notes}\n` : ""}
           .update(bookings)
           .set({
             status: "WAITING",
+            delayCount: 1,
             calledAt: null,
-            notes: `تم تأخير الدور لعدم الحضور عند النداء (الطالب بالفعل في نهاية الطابور)`,
+            notes: `تم تأخير الدور لعدم الحضور عند النداء (الطالب بالفعل في نهاية الطابور - تأجيل 1/2)`,
             updatedAt: new Date(),
           })
           .where(eq(bookings.id, bookingId));
@@ -967,7 +1025,7 @@ ${notes ? `<b>السبب:</b> ${notes}\n` : ""}
           return sql`WHEN id = ${item.id}::uuid THEN ${assignedQ}`;
         });
 
-        const targetNotes = `تم تأخير الدور 10 أدوار لعدم الحضور عند النداء (تذكرة #${originalTicketNumber}، أصبح دوره #${formatQueueNumber(newTurn)})`;
+        const targetNotes = `تم تأخير الدور 10 أدوار لعدم الحضور عند النداء (تذكرة #${originalTicketNumber}، أصبح دوره #${formatQueueNumber(newTurn)} - تأجيل 1/2)`;
 
         await tx.execute(sql`
           UPDATE bookings
@@ -975,6 +1033,10 @@ ${notes ? `<b>السبب:</b> ${notes}\n` : ""}
             queue_number = CASE
               ${sql.join(idCases, sql` `)}
               ELSE queue_number
+            END,
+            delay_count = CASE
+              WHEN id = ${bookingId}::uuid THEN 1
+              ELSE delay_count
             END,
             status = CASE
               WHEN id = ${bookingId}::uuid THEN 'WAITING'
@@ -1017,7 +1079,9 @@ ${
 }
 
 <b>المقر:</b> مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك ${deskName})
-يرجى التواجد أمام شباك ${deskName} بمبنى المعامل ب الواحة الدور الاول علوى يمين فور اقتراب رقم دورك.`;
+يرجى التواجد أمام شباك ${deskName} بمبنى المعامل ب الواحة الدور الاول علوى يمين فور اقتراب رقم دورك.
+
+⚠️ <b>تنبيه هام جداً:</b> هذا التأجيل للمرة الأولى (1 من 2). في حال تم تأجيلك للمرة الثانية عند النداء القادم، سيتم <b>إلغاء حجز دورك نهائياً وتلقائياً</b> من المنظومة.`;
 
         const pushBackKey = `pushback_${booking.id}_${Date.now()}`;
         await tx
@@ -1062,6 +1126,11 @@ ${
       };
     });
 
+    if ((result as any).pendingCancelDispatch) {
+      const p = (result as any).pendingCancelDispatch;
+      NotificationService.fastDispatchByKey(p.key, p.chatId, p.message);
+    }
+
     if (result.fastDispatch) {
       NotificationService.fastDispatchByKey(
         result.fastDispatch.key,
@@ -1075,6 +1144,106 @@ ${
     });
 
     return result;
+  }
+
+  /**
+   * Batch call the next N waiting students on a specific desk (e.g. 10 or 20)
+   */
+  static async callNextBatch(desk: "T" | "D", count: number, staffUserId: string) {
+    const validCount = Math.max(1, Math.min(50, count));
+
+    // 1. Fetch the next N waiting bookings for this desk
+    const waitingBookings = await db
+      .select({
+        id: bookings.id,
+        queueNumber: bookings.queueNumber,
+        ticketNumber: bookings.ticketNumber,
+        bookingWindowId: bookings.bookingWindowId,
+        studentId: bookings.studentId,
+        studentName: students.fullName,
+        academicNumber: students.academicNumber,
+        telegramUserId: students.telegramUserId,
+      })
+      .from(bookings)
+      .innerJoin(students, eq(bookings.studentId, students.id))
+      .where(
+        and(
+          eq(bookings.desk, desk),
+          eq(bookings.status, BOOKING_STATUSES.WAITING)
+        )
+      )
+      .orderBy(bookings.queueNumber)
+      .limit(validCount);
+
+    if (waitingBookings.length === 0) {
+      return {
+        count: 0,
+        calledStudents: [],
+        message: `لا يوجد طلاب في وضع الانتظار حالياً لشباك ${desk}`,
+      };
+    }
+
+    const now = new Date();
+    const calledIds = waitingBookings.map((b) => b.id);
+
+    // Update statuses to CALLED
+    await db
+      .update(bookings)
+      .set({
+        status: BOOKING_STATUSES.CALLED,
+        calledAt: now,
+        notes: `تم النداء ضمن دفعة (${waitingBookings.length} طلاب) لشباك ${desk}`,
+        updatedAt: now,
+      })
+      .where(inArray(bookings.id, calledIds));
+
+    // Queue notifications for each called student
+    const outboxRows: any[] = [];
+    for (const b of waitingBookings) {
+      if (b.telegramUserId) {
+        const ticketNum = b.ticketNumber || b.queueNumber;
+        const msg = `<b>جامعة برج العرب التكنولوجية (BATU)</b>\nقسم تكنولوجيا المعلومات — نظام بصمة الوجه\n\n📢 <b>حان دورك الآن! يرجى التوجه فوراً لشباك ${desk}</b>\n\nعزيزي الطالب: <b>${b.studentName}</b>\n<b>رقم التذكرة:</b> <code>#${formatQueueNumber(ticketNum)}</code>\n<b>الشباك:</b> <code>شباك ${desk}</code>\n<b>المقر:</b> مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)`;
+        outboxRows.push({
+          eventType: "TURN_CALLED",
+          recipientId: b.studentId,
+          telegramChatId: b.telegramUserId,
+          payload: {
+            studentName: b.studentName,
+            ticketNumber: formatQueueNumber(ticketNum),
+            desk,
+            location: "مبنى المعامل ب الواحة الدور الاول علوى يمين (شباك بصمة الوجه)",
+            message: msg,
+          },
+          idempotencyKey: `call_batch_${b.id}_${now.getTime()}`,
+        });
+      }
+    }
+
+    if (outboxRows.length > 0) {
+      await db.insert(notificationOutbox).values(outboxRows).onConflictDoNothing();
+      // Fast dispatch
+      for (const row of outboxRows) {
+        NotificationService.fastDispatchByKey(
+          row.idempotencyKey,
+          row.telegramChatId,
+          row.payload.message
+        );
+      }
+    }
+
+    // Trigger queue progress proximity alerts
+    BookingService.notifyQueueProgress().catch(console.error);
+
+    return {
+      count: waitingBookings.length,
+      calledStudents: waitingBookings.map((b) => ({
+        id: b.id,
+        name: b.studentName,
+        academicNumber: b.academicNumber,
+        ticket: formatQueueNumber(b.ticketNumber || b.queueNumber),
+      })),
+      message: `تم النداء بنجاح على أول (${waitingBookings.length}) طلاب في طابور شباك ${desk} وإرسال إشعارات فورية لهم!`,
+    };
   }
 
   /**
@@ -1217,6 +1386,7 @@ ${
         status: bookings.status,
         bookedAt: bookings.bookedAt,
         calledAt: bookings.calledAt,
+        delayCount: bookings.delayCount,
         notes: bookings.notes,
         bookingWindowId: bookings.bookingWindowId,
         studentId: students.id,

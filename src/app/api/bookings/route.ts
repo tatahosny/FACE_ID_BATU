@@ -74,32 +74,34 @@ export async function POST(req: NextRequest) {
 
       // If windowId was not provided, automatically find the open window for student's section and subsection
       if (!windowId) {
-        const now = new Date();
         const candidateWindows = await db
           .select({
             id: bookingWindows.id,
             subSection: bookingWindows.subSection,
+            startsAt: bookingWindows.startsAt,
+            endsAt: bookingWindows.endsAt,
           })
           .from(bookingWindows)
           .where(
             and(
               eq(bookingWindows.sectionId, student.sectionId),
-              eq(bookingWindows.status, "OPEN"),
-              sql`${bookingWindows.startsAt} <= ${now.toISOString()}`,
-              sql`${bookingWindows.endsAt} >= ${now.toISOString()}`
+              eq(bookingWindows.status, "OPEN")
             )
           )
           .orderBy(desc(bookingWindows.createdAt));
 
-        const activeWindow = candidateWindows.find(
-          (w) => w.subSection === "ALL" || w.subSection === (student.subSection || "A")
-        );
+        const studentSub = (student.subSection || "A").trim().toUpperCase();
+        const activeWindow = candidateWindows.find((w) => {
+          const winSub = (w.subSection || "ALL").trim().toUpperCase();
+          return winSub === "ALL" || winSub === "" || winSub === studentSub;
+        });
 
         if (!activeWindow) {
-          return apiError(
-            `لم يتم تفعيل وقت البصمة للسكشن أو القسم الفرعي (${student.subSection || "A"}) بتاعك بعد. يرجى الانتظار، ستصلك رسالة تنبيهية على التيليجرام فور فتح الحجز.`,
-            400
-          );
+          const customMsg =
+            candidateWindows.length > 0
+              ? `الحجز مفتوح حالياً لطلاب القسم الفرعي (${candidateWindows[0].subSection}) فقط، وأنت مقيد في القسم (${studentSub}).`
+              : `لم يتم تفعيل وقت البصمة للسكشن بتاعك بعد. يرجى الانتظار، ستصلك رسالة تنبيهية على التيليجرام فور فتح الحجز.`;
+          return apiError(customMsg, 400);
         }
         windowId = activeWindow.id;
       }

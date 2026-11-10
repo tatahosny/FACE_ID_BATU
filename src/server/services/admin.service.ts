@@ -113,7 +113,35 @@ export class AdminService {
       .from(bookingWindows)
       .where(eq(bookingWindows.status, "OPEN"));
 
+    // 9. Academic Year Statistics: Total registered, Activated, and Pending for each year
+    const yearStatsRaw = await db
+      .select({
+        academicYear: students.academicYear,
+        totalRegistered: sql<number>`cast(count(distinct ${students.id}) as integer)`,
+        activated: sql<number>`cast(count(distinct case when ${fingerprintActivations.status} = 'ACTIVATED' then ${students.id} end) as integer)`,
+      })
+      .from(students)
+      .leftJoin(fingerprintActivations, eq(students.id, fingerprintActivations.studentId))
+      .groupBy(students.academicYear);
+
+    const targetYears = ["الفرقة الأولى", "الفرقة الثانية", "الفرقة الثالثة", "الفرقة الرابعة"];
+    const academicYearStats = targetYears.map((yearName) => {
+      const match = yearStatsRaw.find((y) => (y.academicYear || "").trim() === yearName);
+      const totalRegistered = match ? Number(match.totalRegistered) : 0;
+      const activated = match ? Number(match.activated) : 0;
+      const pending = Math.max(0, totalRegistered - activated);
+      const activationPercentage = totalRegistered > 0 ? Math.round((activated / totalRegistered) * 100) : 0;
+      return {
+        year: yearName,
+        totalRegistered,
+        activated,
+        pending,
+        activationPercentage,
+      };
+    });
+
     return {
+      academicYears: academicYearStats,
       students: {
         total: totalStudents,
         linkedTelegram: linkedTelegramCount,

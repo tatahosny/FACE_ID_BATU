@@ -1194,4 +1194,103 @@ ${existingRating.message ? `\n<i>"${existingRating.message}"</i>\n` : ""}
     await this.answerCallbackQuery(callbackQueryId);
     return { handled: true };
   }
+
+  /**
+   * Permanently purge and delete the Telegram bot chat messages for a student.
+   * Discovers the latest message ID and calls deleteMessages/deleteMessage across the chat history.
+   */
+  static async purgeChatMessages(chatId: number): Promise<{ deletedCount: number; success: boolean; message: string }> {
+    try {
+      // 1. Send a temporary ping message to discover the latest message_id
+      let latestMsgId: number | null = null;
+      try {
+        const pingRes = await fetch(`${getTelegramApiBase()}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: "🧹 جاري مسح وتنظيف المحادثة...",
+          }),
+        });
+        const pingData = await pingRes.json();
+        if (pingData.ok && pingData.result?.message_id) {
+          latestMsgId = pingData.result.message_id;
+        }
+      } catch (pingErr) {
+        console.warn("[PurgeChat] Ping message failed:", pingErr);
+      }
+
+      let totalDeleted = 0;
+
+      if (latestMsgId) {
+        // Delete up to 400 recent messages in batches of 100
+        const maxScan = 400;
+        const minMsgId = Math.max(1, latestMsgId - maxScan);
+
+        for (let top = latestMsgId; top >= minMsgId; top -= 100) {
+          const batch: number[] = [];
+          for (let i = top; i > Math.max(minMsgId - 1, top - 100); i--) {
+            batch.push(i);
+          }
+          if (batch.length === 0) break;
+
+          try {
+            const delRes = await fetch(`${getTelegramApiBase()}/deleteMessages`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: chatId,
+                message_ids: batch,
+              }),
+            });
+            const delData = await delRes.json();
+            if (delData.ok) {
+              totalDeleted += batch.length;
+            } else {
+              // Fallback to single message delete
+              for (const singleId of batch.slice(0, 50)) {
+                try {
+                  const sRes = await fetch(`${getTelegramApiBase()}/deleteMessage`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      chat_id: chatId,
+                      message_id: singleId,
+                    }),
+                  });
+                  const sData = await sRes.json();
+                  if (sData.ok) totalDeleted++;
+                } catch {
+                  // ignore
+                }
+              }
+            }
+          } catch {
+            // ignore batch failure
+          }
+        }
+      }
+
+      // 2. Clear any in-memory interactive states for this user
+      this.pendingMandatoryLowRatings.delete(chatId);
+      this.pendingLowRatingRequests.delete(chatId);
+      this.pendingComments.delete(chatId);
+      this.pendingIssues.delete(chatId);
+
+      return {
+        success: true,
+        deletedCount: totalDeleted,
+        message: totalDeleted > 0
+          ? `تم مسح وتنظيف محادثة بوت التيليجرام بنجاح (حذف ${totalDeleted} رسالة)!`
+          : "تمت معالجة أمر مسح شات البوت وإعادة تعيين حالة المحادثة بنجاح.",
+      };
+    } catch (error: any) {
+      console.error("[PurgeChat] Error:", error);
+      return {
+        success: false,
+        deletedCount: 0,
+        message: error.message || "فشل مسح محادثة البوت على التيليجرام",
+      };
+    }
+  }
 }

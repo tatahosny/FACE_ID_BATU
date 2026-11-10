@@ -99,10 +99,20 @@ export async function POST(req: NextRequest) {
         return apiSuccess(res, "تم إرسال نداء فوري مكرر للطالب على التيليجرام بنجاح");
       }
 
+      case "call-batch": {
+        const deskParam = (desk as "T" | "D") || "T";
+        const count = parseInt(body.count || "10", 10) || 10;
+        const res = await BookingService.callNextBatch(deskParam, count, session.userId);
+        return apiSuccess(res, res.message);
+      }
+
       case "push-back": {
         if (!bookingId) return apiError("معرف الحجز مطلوب", 400);
         const res = await BookingService.pushBackTenPositions(bookingId);
         NotificationService.checkAndQueueProximityNotifications().catch(console.error);
+        if ((res as any).cancelled) {
+          return apiSuccess(res, (res as any).message);
+        }
         return apiSuccess(
           res,
           `تم تأخير دور الطالب بمقدار 10 أدوار في الطابور (دوره الجديد: #${res.formattedLiveTurn} - تذكرة ثابتة: #${res.formattedTicketNumber}) وإشعاره على التيليجرام.`

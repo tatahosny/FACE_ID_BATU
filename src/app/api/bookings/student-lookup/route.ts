@@ -138,27 +138,42 @@ export async function GET(req: NextRequest) {
 
     // 4. Check whether booking window is open for student's section and subsection
     const now = new Date();
+    // In our system, if admin sets status = 'OPEN', it is explicitly open regardless of clock drift or endsAt.
     const candidateWindows = await db
       .select()
       .from(bookingWindows)
       .where(
         and(
           eq(bookingWindows.sectionId, student.sectionId),
-          eq(bookingWindows.status, BOOKING_WINDOW_STATUSES.OPEN),
-          sql`${bookingWindows.startsAt} <= ${now.toISOString()}`,
-          sql`${bookingWindows.endsAt} >= ${now.toISOString()}`
+          eq(bookingWindows.status, BOOKING_WINDOW_STATUSES.OPEN)
         )
       )
       .orderBy(desc(bookingWindows.createdAt));
 
-    const openWindow = candidateWindows.find(
-      (w) => w.subSection === "ALL" || w.subSection === (student.subSection || "A")
-    );
+    const studentSub = (student.subSection || "A").trim().toUpperCase();
+    const openWindow = candidateWindows.find((w) => {
+      const winSub = (w.subSection || "ALL").trim().toUpperCase();
+      return winSub === "ALL" || winSub === "" || winSub === studentSub;
+    });
+
+    if (openWindow && (new Date(openWindow.endsAt) < now || new Date(openWindow.startsAt) > now)) {
+      // Auto-refresh window validity if open
+      db.update(bookingWindows)
+        .set({
+          startsAt: new Date(Date.now() - 3600000),
+          endsAt: new Date(Date.now() + 14 * 86400000),
+          updatedAt: new Date(),
+        })
+        .where(eq(bookingWindows.id, openWindow.id))
+        .catch(console.error);
+    }
 
     const isWindowOpen = !!openWindow;
     const windowClosedReason = isWindowOpen
       ? null
-      : `لم يتم تفعيل وقت البصمة للسكشن أو القسم الفرعي (${student.subSection || "A"}) بتاعك بعد. يرجى الانتظار، ستصلك رسالة تنبيهية على التيليجرام فور فتح الحجز.`;
+      : candidateWindows.length > 0
+      ? `الحجز مفتوح حالياً لطلاب القسم الفرعي (${candidateWindows[0].subSection}) فقط، وأنت مقيد في القسم (${studentSub}). ستصلك رسالة تنبيهية فورية على التيليجرام فور فتح الحجز لقسمك.`
+      : `لم يتم تفعيل وقت البصمة للسكشن بتاعك بعد. يرجى الانتظار، ستصلك رسالة تنبيهية على التيليجرام فور فتح الحجز لسكشنك.`;
 
     // Security Notice: Linking tokens are strictly restricted to verified identity flows (National ID verification or active authenticated sessions).
     // Student Lookup is a public query and MUST NEVER generate or expose any student's Telegram linking token.

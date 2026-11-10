@@ -1423,4 +1423,305 @@ export class StudentService {
       errors,
     };
   }
+
+  /**
+   * Reconcile uploaded Excel sheet against students activated by the logged-in staff user.
+   * Compares sheet contents strictly with activations where activatedBy === staffUserId.
+   */
+  static async reconcileExcelActivations(params: { buffer: Buffer; staffUserId: string }) {
+    const workbook = XLSX.read(params.buffer, { type: "buffer" });
+    const sheetName = workbook.SheetNames[0];
+    if (!sheetName) {
+      throw new Error("ملف الإكسيل فارغ ولا يحتوي على أي أوراق عمل.");
+    }
+
+    const rawRows = XLSX.utils.sheet_to_json<Record<string, any>>(workbook.Sheets[sheetName], {
+      defval: "",
+    });
+
+    if (!rawRows || rawRows.length === 0) {
+      throw new Error("ملف الإكسيل لا يحتوي على أي صفوف بيانات.");
+    }
+
+    const normalizeDigits = (val: any): string => {
+      if (val === null || val === undefined) return "";
+      return String(val)
+        .trim()
+        .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632))
+        .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 1776));
+    };
+
+    const getField = (row: Record<string, any>, possibleKeys: string[]): string => {
+      for (const k of Object.keys(row)) {
+        const cleanK = k.trim().toLowerCase().replace(/[\s_\-]/g, "");
+        for (const pk of possibleKeys) {
+          const cleanPk = pk.trim().toLowerCase().replace(/[\s_\-]/g, "");
+          if (cleanK === cleanPk || cleanK.includes(cleanPk)) {
+            return String(row[k] || "").trim();
+          }
+        }
+      }
+      return "";
+    };
+
+    // 1. Fetch current staff user details
+    const [staffUser] = await db
+      .select({ id: users.id, fullName: users.fullName, email: users.email })
+      .from(users)
+      .where(eq(users.id, params.staffUserId));
+
+    if (!staffUser) {
+      throw new Error("حساب الموظف غير موجود");
+    }
+
+    // 2. Parse all valid student rows from Excel
+    const sheetStudents: Array<{
+      rowNumber: number;
+      fullName: string;
+      academicNumber: string;
+      nationalId: string;
+    }> = [];
+
+    const sheetAcademicMap = new Map<string, typeof sheetStudents[0]>();
+
+    for (let i = 0; i < rawRows.length; i++) {
+      const row = rawRows[i];
+      const rowNum = i + 2;
+      const fullName = getField(row, ["الاسم", "اسم الطالب", "اسم الطالب بالكامل", "name", "fullname"]);
+      const academicNumber = normalizeDigits(
+        getField(row, ["الرقم الأكاديمي", "الرقم الاكاديمي", "رقم الجلوس", "كود الطالب", "academicnumber", "academic_number"])
+      );
+      const nationalId = normalizeDigits(
+        getField(row, ["الرقم القومي", "الرقم القومى", "بطاقة الرقم القومي", "nationalid", "national_id"])
+      );
+
+      if (!fullName && !academicNumber && !nationalId) continue;
+      if (academicNumber) {
+        const item = { rowNumber: rowNum, fullName: fullName || "بدون اسم", academicNumber, nationalId };
+        sheetStudents.push(item);
+        sheetAcademicMap.set(academicNumber, item);
+      }
+    }
+
+    // 3. Fetch all students in DB for existence lookup
+    const allDbStudents = await db
+      .select({
+        id: students.id,
+        fullName: students.fullName,
+        academicNumber: students.academicNumber,
+        nationalIdHash: students.nationalIdHash,
+        nationalIdEncrypted: students.nationalIdEncrypted,
+        groupId: students.groupId,
+        groupName: groups.name,
+        sectionId: students.sectionId,
+        sectionName: sections.name,
+        academicYear: students.academicYear,
+        specialization: students.specialization,
+      })
+      .from(students)
+      .innerJoin(groups, eq(students.groupId, groups.id))
+      .innerJoin(sections, eq(students.sectionId, sections.id));
+
+    const dbAcademicMap = new Map(allDbStudents.map((s) => [s.academicNumber, s]));
+
+    // 4. Fetch all students activated specifically by THIS user
+    const dbUserActivations = await db
+      .select({
+        activationId: fingerprintActivations.id,
+        studentId: fingerprintActivations.studentId,
+        activatedAt: fingerprintActivations.activatedAt,
+        notes: fingerprintActivations.notes,
+        studentName: students.fullName,
+        academicNumber: students.academicNumber,
+        nationalIdEncrypted: students.nationalIdEncrypted,
+        groupName: groups.name,
+        sectionName: sections.name,
+        academicYear: students.academicYear,
+      })
+      .from(fingerprintActivations)
+      .innerJoin(students, eq(fingerprintActivations.studentId, students.id))
+      .innerJoin(groups, eq(students.groupId, groups.id))
+      .innerJoin(sections, eq(students.sectionId, sections.id))
+      .where(
+        and(
+          eq(fingerprintActivations.activatedBy, params.staffUserId),
+          eq(fingerprintActivations.status, "ACTIVATED")
+        )
+      );
+
+    // Discrepancy A: Students activated by this account, but NOT in uploaded sheet
+    const activatedNotInSheet = dbUserActivations
+      .filter((act) => !sheetAcademicMap.has(act.academicNumber))
+      .map((act) => {
+        let nationalId = "";
+        try {
+          nationalId = decryptNationalId(act.nationalIdEncrypted);
+        } catch {
+          nationalId = "—";
+        }
+        return {
+          activationId: act.activationId,
+          studentId: act.studentId,
+          fullName: act.studentName,
+          academicNumber: act.academicNumber,
+          nationalId,
+          groupName: act.groupName,
+          sectionName: act.sectionName,
+          academicYear: act.academicYear,
+          activatedAt: formatCairoDateTime(act.activatedAt),
+          activatedBy: staffUser.fullName,
+        };
+      });
+
+    // Discrepancy B: Students present in the sheet, but NOT in the system DB at all
+    const inSheetNotRegistered = sheetStudents.filter((s) => !dbAcademicMap.has(s.academicNumber));
+
+    // Matched: In sheet AND in DB
+    const matchedInBoth = sheetStudents.filter((s) => dbAcademicMap.has(s.academicNumber));
+
+    return {
+      staffAccount: {
+        id: staffUser.id,
+        fullName: staffUser.fullName,
+        email: staffUser.email,
+      },
+      summary: {
+        totalSheetRows: sheetStudents.length,
+        totalDbActivatedByUser: dbUserActivations.length,
+        matchedCount: matchedInBoth.length,
+        activatedNotInSheetCount: activatedNotInSheet.length,
+        inSheetNotRegisteredCount: inSheetNotRegistered.length,
+      },
+      activatedNotInSheet,
+      inSheetNotRegistered,
+      matchedInBoth: matchedInBoth.slice(0, 100),
+    };
+  }
+
+  /**
+   * Action 1: Staff resolves student activated in DB but missing from sheet (Approve keep / Reject revoke).
+   */
+  static async resolveActivationDiscrepancy(params: {
+    studentId: string;
+    staffUserId: string;
+    action: "approve" | "revoke";
+  }) {
+    if (params.action === "revoke") {
+      // Remove or set status to REVOKED for activations by this user
+      await db
+        .delete(fingerprintActivations)
+        .where(
+          and(
+            eq(fingerprintActivations.studentId, params.studentId),
+            eq(fingerprintActivations.activatedBy, params.staffUserId)
+          )
+        );
+
+      await db.insert(auditLogs).values({
+        actorId: params.staffUserId,
+        action: "REVOKE_ACTIVATION_RECONCILIATION",
+        entityType: "student",
+        entityId: params.studentId,
+        safeMetadata: { reason: "تم إلغاء التفعيل بناءً على مطابقة كشف الإكسيل الخاص بالموظف" },
+      });
+
+      return { success: true, message: "تم إلغاء تفعيل البصمة للطالب وإعادته لحالة قيد الانتظار بنجاح." };
+    } else {
+      // Approve: Keep activation and mark notes
+      await db
+        .update(fingerprintActivations)
+        .set({
+          notes: "تم تأكيد واعتماد التفعيل بعد المطابقة مع كشف الإكسيل",
+        })
+        .where(
+          and(
+            eq(fingerprintActivations.studentId, params.studentId),
+            eq(fingerprintActivations.activatedBy, params.staffUserId)
+          )
+        );
+
+      return { success: true, message: "تمت الموافقة على إبقاء تفعيل بصمة الطالب معتمداً بالمنظومة." };
+    }
+  }
+
+  /**
+   * Action 2: Staff resolves student in sheet who does NOT exist in DB (Auto-provision or manual complete).
+   */
+  static async resolveSheetMissingStudent(params: {
+    staffUserId: string;
+    fullName: string;
+    academicNumber: string;
+    nationalId: string;
+    groupId?: string;
+    sectionId?: string;
+    academicYear?: string;
+    subSection?: string;
+  }) {
+    const rawFullName = params.fullName.trim();
+    const rawAcademicNumber = params.academicNumber.trim();
+    const rawNationalId = params.nationalId.trim();
+
+    if (!rawFullName || !rawAcademicNumber || !rawNationalId) {
+      throw new Error("بيانات الطالب (الاسم، الرقم الأكاديمي، الرقم القومي) مطلوبة لإتمام التسكين والتفعيل.");
+    }
+
+    // Determine target group & section
+    let targetGroupId = params.groupId;
+    let targetSectionId = params.sectionId;
+
+    if (!targetGroupId || !targetSectionId) {
+      const [firstSection] = await db
+        .select({ id: sections.id, groupId: sections.groupId })
+        .from(sections)
+        .limit(1);
+
+      if (!firstSection) {
+        throw new Error("لا توجد سكاشن مسجلة في المنظومة لتسكين الطالب.");
+      }
+      targetGroupId = firstSection.groupId;
+      targetSectionId = firstSection.id;
+    }
+
+    const nationalIdHash = computeNationalIdHash(rawNationalId);
+    const nationalIdEncrypted = encryptNationalId(rawNationalId);
+
+    // Insert student
+    const [newStudent] = await db
+      .insert(students)
+      .values({
+        fullName: rawFullName,
+        academicNumber: rawAcademicNumber,
+        nationalIdHash,
+        nationalIdEncrypted,
+        groupId: targetGroupId,
+        sectionId: targetSectionId,
+        subSection: (params.subSection as any) || "A",
+        academicYear: params.academicYear || "الفرقة الثانية",
+        specialization: "عام",
+        isActive: true,
+      })
+      .returning();
+
+    // Immediately record fingerprint activation under this staff user!
+    await db.insert(fingerprintActivations).values({
+      studentId: newStudent.id,
+      activatedBy: params.staffUserId,
+      status: "ACTIVATED",
+      notes: "تم تسكين الطالب وتفعيل البصمة مباشرة عبر مطابقة كشف الإكسيل",
+    });
+
+    await db.insert(auditLogs).values({
+      actorId: params.staffUserId,
+      action: "PROVISION_AND_ACTIVATE_RECONCILIATION",
+      entityType: "student",
+      entityId: newStudent.id,
+      safeMetadata: { academicNumber: rawAcademicNumber, fullName: rawFullName },
+    });
+
+    return {
+      success: true,
+      student: newStudent,
+      message: `تم تسكين وتفعيل بصمة الطالب (${rawFullName}) بنجاح واعتماده بالمنظومة!`,
+    };
+  }
 }
