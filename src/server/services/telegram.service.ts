@@ -1260,19 +1260,7 @@ ${existingRating.message ? `\n<i>"${existingRating.message}"</i>\n` : ""}
           .where(eq(telegramBotMessages.chatId, chatId));
       }
 
-      // 3. Send confirmation message to the student
-      try {
-        await fetch(`${getTelegramApiBase()}/sendMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: "🧹 تم مسح وتنظيف سجل محادثتك مع البوت بالكامل.\n\nللتسجيل من جديد أرسل /start",
-          }),
-        });
-      } catch { /* ignore */ }
-
-      // 4. Clear in-memory interactive states
+      // 3. Clear in-memory interactive states
       this.pendingMandatoryLowRatings.delete(chatId);
       this.pendingLowRatingRequests.delete(chatId);
       this.pendingComments.delete(chatId);
