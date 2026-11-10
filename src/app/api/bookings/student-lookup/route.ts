@@ -221,6 +221,7 @@ export async function GET(req: NextRequest) {
         : null,
       isWindowOpen,
       windowId: openWindow?.id || null,
+      hasGpsRestriction: !!(openWindow?.openLatitude && openWindow?.openLongitude),
       windowClosedReason,
     });
   } catch (error: any) {

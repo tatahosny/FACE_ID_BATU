@@ -615,6 +615,15 @@ function BookingContent() {
                     </span>
                   </div>
 
+                  {lookupResult.hasGpsRestriction && (
+                    <div className="p-3.5 rounded-2xl bg-cyan-950/40 border border-cyan-500/30 text-xs text-cyan-200 flex items-center gap-2.5">
+                      <MapPin className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <span>
+                        📍 <b>تحقق الموقع الجغرافي مفعل:</b> يشترط التواجد الفعلي في محيط شباك البصمة بالجامعة (على بعد أقل من 20 متراً).
+                      </span>
+                    </div>
+                  )}
+
                   <button
                     onClick={handleCreateBooking}
                     disabled={bookingLoading}
